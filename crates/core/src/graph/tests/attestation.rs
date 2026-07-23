@@ -455,3 +455,47 @@ fn exclude_semantics_hold_through_the_attestation_path() {
     // Excludee present → hidden.
     assert!(!visible(view, &memory, &[erin, dave], &class_of).unwrap());
 }
+
+#[test]
+fn a_founding_tellers_re_attest_keeps_the_founding_attestation_first() {
+    // The founding teller narrows their own attestation (a later private re-affirmation of a fact
+    // they founded publicly). The LWW upsert updates the posture but keeps the row's original seq,
+    // so the founding attestation still leads the read — the marker assembly and the visibility
+    // fallback both key on founding-first.
+    let project = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let dave = MemoryId::generate();
+    let entry = EntryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(project, Namespace::Topic.with_name("hooli")),
+        appended(
+            project,
+            entry,
+            "the launch slipped",
+            Teller::Participant(erin),
+            Visibility::Public,
+        ),
+        attested(
+            project,
+            entry,
+            Teller::Participant(dave),
+            Visibility::Attributed,
+            None,
+        ),
+        attested(
+            project,
+            entry,
+            Teller::Participant(erin),
+            Visibility::PrivateToTeller,
+            None,
+        ),
+    ]);
+    let (_, view) = graph.entry_by_id(entry).unwrap().expect("the entry exists");
+    assert_eq!(
+        view.attestations[0].teller,
+        Teller::Participant(erin),
+        "the founding attestation leads the read after its own re-attest"
+    );
+    assert_eq!(view.attestations[0].posture, Visibility::PrivateToTeller);
+    assert_eq!(view.attestations[1].teller, Teller::Participant(dave));
+}

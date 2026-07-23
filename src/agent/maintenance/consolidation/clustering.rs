@@ -271,8 +271,21 @@ pub(super) fn tier2_absorptions(
             }
         }
     }
+    // An entry absorbed this sweep must not also serve as a target: a chained absorption (private P
+    // into attributed A, A into public Q, with P and Q below the bar) would tombstone A while it
+    // still carries P's just-planned attestation, silently losing P's account. Dropping the pair
+    // whose target is itself absorbed keeps every absorption one hop per sweep — and the stranded
+    // source is not merely deferred, it is correctly refused: P was never a near-duplicate of Q, so
+    // once A is gone it stands as its own entry. The screen is over the original pick's source set,
+    // which can over-defer a pair whose source's own absorption was dropped; that entry is simply
+    // reconsidered on a later sweep.
+    let absorbed: BTreeSet<EntryId> = by_target
+        .iter()
+        .flat_map(|(_, sources)| sources.iter().copied())
+        .collect();
     by_target
         .into_iter()
+        .filter(|(target, _)| !absorbed.contains(&entries[*target].entry_id))
         .map(|(target, sources)| (entries[target].entry_id, sources))
         .collect()
 }
@@ -494,6 +507,42 @@ mod tests {
             groups.len(),
             2,
             "only entries with the identical exclude set group together"
+        );
+    }
+
+    #[test]
+    fn tier2_defers_a_source_whose_only_target_is_itself_absorbed() {
+        // A chain: private P is a near-duplicate of attributed A, A of public Q, but P and Q sit
+        // below the bar (two ~16-degree hops sum past the threshold). A absorbs into Q; the P-into-A
+        // pair must be dropped, not applied — absorbing it would tombstone A carrying P's account,
+        // and P was never a near-duplicate of Q, so it correctly stands as its own entry.
+        let x = MemoryId::generate();
+        let q = entry("launch shipped", Teller::Agent, Visibility::Public);
+        let a = entry(
+            "the launch went out",
+            Teller::Participant(x),
+            Visibility::Attributed,
+        );
+        let p = entry(
+            "shipping happened",
+            Teller::Participant(MemoryId::generate()),
+            Visibility::PrivateToTeller,
+        );
+        let q_id = q.entry_id;
+        let a_id = a.entry_id;
+        let entries = vec![q, a, p];
+        // Unit vectors at 0, 16, and 32 degrees: adjacent cosines ~0.961 (above 0.95), the ends
+        // ~0.848 (below).
+        let embeddings: Vec<Embedding> = vec![
+            vec![1.0, 0.0],
+            vec![0.961_26, 0.275_64],
+            vec![0.848_05, 0.529_92],
+        ];
+        let absorptions = tier2_absorptions(&entries, &embeddings, 0.95);
+        assert_eq!(
+            absorptions,
+            vec![(q_id, vec![a_id])],
+            "only the one-hop absorption survives; the chained source defers"
         );
     }
 

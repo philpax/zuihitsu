@@ -961,6 +961,13 @@ impl MemoryBlock {
             if already_attested {
                 continue;
             }
+            // The planner only ever absorbs a narrower-or-attribution-preserving source into an
+            // all-audience target, so the carried attestation cannot widen past the replacement's
+            // founding posture — the tripwire guards the invariant against a future caller bug.
+            debug_assert!(
+                posture_width(&entry.visibility) <= posture_width(&target.visibility),
+                "an absorption must never carry an attestation wider than its replacement's founding posture"
+            );
             running.push((entry.told_by.clone(), entry.visibility.clone()));
             planned.push(EventPayload::EntryAttested {
                 memory: id,

@@ -294,6 +294,10 @@ impl Graph {
                 // withdrawn). The audience-widening invariant — that no attestation is wider than the
                 // entry's founding posture — is the write path's to enforce; the fold trusts the
                 // recorded event and never rejects here, since replay must reproduce the log verbatim.
+                // A re-attest keeps the row's original `seq`: the attestation reads order by seq with
+                // the founding attestation first, and a founding teller re-attesting their own entry
+                // (a narrowing, say) must not push the founding row behind later attesters — the
+                // marker assembly and the visibility fallback both key on founding-first.
                 self.conn
                     .execute(
                         "INSERT INTO entry_attestations \
@@ -305,8 +309,7 @@ impl Graph {
                              posture = excluded.posture,
                              phrasing = excluded.phrasing,
                              source_entry = excluded.source_entry,
-                             retracted_reason = NULL,
-                             seq = excluded.seq",
+                             retracted_reason = NULL",
                         params![
                             entry.0.to_string(),
                             serde_json::to_string(teller).map_err(GraphError::Serialize)?,
