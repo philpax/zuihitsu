@@ -117,6 +117,12 @@ pub fn explain(
         if index == 0 {
             founding_verdict = verdict;
         }
+        // A withdrawn attestation never widens the verdict: only the history read carries such rows
+        // (so the console can render the withdrawal). The founding row still supplies the failure
+        // fallback above — the reason describes the founding posture either way.
+        if attestation.retracted_reason.is_some() {
+            continue;
+        }
         if verdict.is_visible() {
             widest = Some(match widest {
                 Some(current) => wider(current, verdict),
@@ -180,6 +186,11 @@ pub fn visible_attestations<'a>(
     let subject = subject_participant(memory.name.as_str(), memory.id);
     let mut visible = Vec::new();
     for attestation in &entry.attestations {
+        // A withdrawn attestation never renders as a chip; the history read carries such rows only
+        // so the console can show the withdrawal itself.
+        if attestation.retracted_reason.is_some() {
+            continue;
+        }
         if explain_attestation(attestation, subject, present_set, class_of)?.is_visible() {
             visible.push(attestation);
         }

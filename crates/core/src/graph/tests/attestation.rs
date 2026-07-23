@@ -499,3 +499,74 @@ fn a_founding_tellers_re_attest_keeps_the_founding_attestation_first() {
     assert_eq!(view.attestations[0].posture, Visibility::PrivateToTeller);
     assert_eq!(view.attestations[1].teller, Teller::Participant(dave));
 }
+
+#[test]
+fn a_withdrawn_attestation_reaches_history_but_no_live_surface() {
+    // Frank's withdrawn account: absent from the live read's attestation set, present on the
+    // history read with its reason (the console renders the withdrawal struck-through), and — even
+    // on a history view — contributing neither a chip nor a widening verdict.
+    let project = MemoryId::generate();
+    let (erin, frank) = (MemoryId::generate(), MemoryId::generate());
+    let entry = EntryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(project, Namespace::Topic.with_name("hooli")),
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+        EventPayload::memory_created(frank, Namespace::Person.with_name("frank")),
+        appended(
+            project,
+            entry,
+            "the launch slipped",
+            Teller::Participant(erin),
+            Visibility::Public,
+        ),
+        attested(
+            project,
+            entry,
+            Teller::Participant(frank),
+            Visibility::Public,
+            None,
+        ),
+        EventPayload::AttestationRetracted {
+            memory: project,
+            entry,
+            teller: Teller::Participant(frank),
+            reason: "walked it back".to_owned(),
+            produced_by: None,
+        },
+    ]);
+
+    let live = graph.class_entries(project).unwrap();
+    assert_eq!(
+        live[0].attestations.len(),
+        1,
+        "the live read carries only erin's founding attestation"
+    );
+
+    let history = graph.class_history(project).unwrap();
+    let withdrawn: Vec<_> = history[0]
+        .attestations
+        .iter()
+        .filter(|attestation| attestation.retracted_reason.is_some())
+        .collect();
+    assert_eq!(
+        withdrawn.len(),
+        1,
+        "the history read carries the withdrawal"
+    );
+    assert_eq!(
+        withdrawn[0].retracted_reason.as_deref(),
+        Some("walked it back")
+    );
+
+    // Even on the history view, the withdrawn account is invisible to the chip engine.
+    let memory = graph.memory_by_id(project).unwrap().unwrap();
+    let class_of = |id: MemoryId| -> Result<MemoryId, crate::graph::GraphError> { Ok(id) };
+    let visible =
+        crate::visibility::visible_attestations(&history[0], &memory, &[erin], &class_of).unwrap();
+    assert!(
+        visible
+            .iter()
+            .all(|attestation| attestation.teller != Teller::Participant(frank)),
+        "a withdrawn account never renders as a chip"
+    );
+}

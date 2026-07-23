@@ -14,6 +14,16 @@ use crate::{
 use rusqlite::{params, params_from_iter};
 use std::collections::{BTreeSet, HashMap};
 
+/// Which attestations an entry read carries: the live set (every agent-facing and live console
+/// read), or the full set including withdrawn rows with their reasons (the history read, where the
+/// console renders a withdrawal struck-through). The visibility predicate and the chip engine skip
+/// withdrawn rows regardless, so the wider scope never changes what an agent-facing surface shows.
+#[derive(Clone, Copy)]
+pub(super) enum AttestationScope {
+    Live,
+    WithWithdrawn,
+}
+
 impl Graph {
     /// Every live entry across all memories that carries a recurrence rule, with the memory it belongs
     /// to. The graph, not a re-fold of the log, is the authority on which entries recur: an entry's
@@ -132,7 +142,7 @@ impl Graph {
     /// As [`Graph::class_entries`], but including superseded entries — the class-wide history read
     /// for `mem:history()` and the console (spec §Visibility → superseded entries are not live).
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
-        self.collect_entries(
+        self.collect_entries_scoped(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
                     superseded_by, retracted_reason, origin_platform
              FROM content_entries
@@ -143,6 +153,7 @@ impl Graph {
              )
              ORDER BY seq",
             id,
+            AttestationScope::WithWithdrawn,
         )
     }
 
@@ -191,7 +202,7 @@ impl Graph {
         let Some((memory_id, mut entry)) = mapped else {
             return Ok(None);
         };
-        self.attach_attestations(std::slice::from_mut(&mut entry))?;
+        self.attach_attestations(std::slice::from_mut(&mut entry), AttestationScope::Live)?;
         Ok(self
             .memory_by_id(MemoryId(parse_ulid(&memory_id)?))?
             .map(|m| (m, entry)))
@@ -201,9 +212,21 @@ impl Graph {
     /// [`EntryView`] through [`entry_from_row`]. Shared by the live and history entry reads; each must
     /// select the columns [`entry_from_row`] reads.
     fn collect_entries(&self, sql: &str, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        self.collect_entries_scoped(sql, id, AttestationScope::Live)
+    }
+
+    /// As [`Graph::collect_entries`], with the attestation scope explicit — the history read carries
+    /// withdrawn attestations so the console can render them struck-through with their reasons, while
+    /// every live read stays live-only.
+    fn collect_entries_scoped(
+        &self,
+        sql: &str,
+        id: MemoryId,
+        scope: AttestationScope,
+    ) -> Result<Vec<EntryView>, GraphError> {
         let stmt = self.conn.prepare(sql)?;
         let mut entries = query_map_into(stmt, params![id.0.to_string()], entry_from_row)?;
-        self.attach_attestations(&mut entries)?;
+        self.attach_attestations(&mut entries, scope)?;
         Ok(entries)
     }
 
@@ -211,9 +234,13 @@ impl Graph {
     /// the whole set — collect the entry ids, fetch every live attestation for them at once, and
     /// attach each entry its own (founding first, then by commit order). One query for the read rather
     /// than one per row, mirroring how the tag reads batch.
-    fn attach_attestations(&self, entries: &mut [EntryView]) -> Result<(), GraphError> {
+    fn attach_attestations(
+        &self,
+        entries: &mut [EntryView],
+        scope: AttestationScope,
+    ) -> Result<(), GraphError> {
         let ids: Vec<EntryId> = entries.iter().map(|entry| entry.entry_id).collect();
-        let mut by_entry = self.attestations_for(&ids)?;
+        let mut by_entry = self.attestations_for(&ids, scope)?;
         for entry in entries.iter_mut() {
             entry.attestations = by_entry.remove(&entry.entry_id).unwrap_or_default();
         }
@@ -227,17 +254,22 @@ impl Graph {
     pub(super) fn attestations_for(
         &self,
         ids: &[EntryId],
+        scope: AttestationScope,
     ) -> Result<HashMap<EntryId, Vec<AttestationView>>, GraphError> {
         let mut by_entry: HashMap<EntryId, Vec<AttestationView>> = HashMap::new();
         if ids.is_empty() {
             return Ok(by_entry);
         }
         let placeholders = vec!["?"; ids.len()].join(", ");
+        let withdrawn_filter = match scope {
+            AttestationScope::Live => " AND retracted_reason IS NULL",
+            AttestationScope::WithWithdrawn => "",
+        };
         let sql = format!(
             "SELECT entry_id, teller, told_in, asserted_at, posture, phrasing, source_entry, \
                     retracted_reason, seq
              FROM entry_attestations
-             WHERE entry_id IN ({placeholders}) AND retracted_reason IS NULL
+             WHERE entry_id IN ({placeholders}){withdrawn_filter}
              ORDER BY entry_id, seq"
         );
         let stmt = self.conn.prepare(&sql)?;
@@ -275,7 +307,7 @@ impl Graph {
              ORDER BY seq",
         )?;
         let mut entries = query_map_into(stmt, params![replacement.0.to_string()], entry_from_row)?;
-        self.attach_attestations(&mut entries)?;
+        self.attach_attestations(&mut entries, AttestationScope::Live)?;
         Ok(entries)
     }
 }

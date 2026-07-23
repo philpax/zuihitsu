@@ -3,7 +3,8 @@
 use crate::{
     db::query_map_into,
     graph::{
-        EntryView, Graph, GraphError, MemoryColumns, MemoryView, entries::entry_from_row,
+        EntryView, Graph, GraphError, MemoryColumns, MemoryView,
+        entries::{AttestationScope, entry_from_row},
         parse_ulid, timestamp_column,
     },
     ids::{EntryId, MemoryId},
@@ -137,7 +138,7 @@ impl Graph {
         rows: &mut [(MemoryView, EntryView)],
     ) -> Result<(), GraphError> {
         let ids: Vec<EntryId> = rows.iter().map(|(_, entry)| entry.entry_id).collect();
-        let mut by_entry = self.attestations_for(&ids)?;
+        let mut by_entry = self.attestations_for(&ids, AttestationScope::Live)?;
         for (_, entry) in rows.iter_mut() {
             entry.attestations = by_entry.remove(&entry.entry_id).unwrap_or_default();
         }

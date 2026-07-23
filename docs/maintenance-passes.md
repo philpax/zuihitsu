@@ -31,7 +31,7 @@ A connector-maintained entry is excluded from consolidation entirely. Each conte
 Each entry has two embedding vectors, maintained in lockstep by the indexer:
 
 - **`Entry`** — the raw entry text. Serves search, where the query has no subject-name prefix.
-- **`EntryContextual`** — `"{handle}: {text}"`. Serves the dedup check and consolidation pass, where entries within the same memory are compared. The handle prefix normalizes entries that include the subject name with those that don't — without it, "Rowan is a senior developer" and "is a senior developer" score ~0.52 cosine despite being the same fact, because the name token dominates the embedding.
+- **`EntryContextual`** — `"{handle}: {text}"`. Serves the dedup check and consolidation pass, where entries within the same memory are compared. The handle prefix normalises entries that include the subject name with those that don't — without it, "Rowan is a senior developer" and "is a senior developer" score ~0.52 cosine despite being the same fact, because the name token dominates the embedding.
 
 The split is deliberate: the two spaces serve opposite needs, so neither can serve both. The handle prefix that normalises entries for dedup measurably degrades search ranking — a query carries no subject-name prefix, so prefixing the indexed text pulls it away from the query — which is why the raw `Entry` space serves search while the `EntryContextual` space serves dedup and consolidation.
 
