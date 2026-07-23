@@ -10,8 +10,10 @@
 //! [`clustering::tier1_groups`]): public and attributed entries each merge across tellers (both surface
 //! to everyone, so synthesizing two relayed accounts leaks nothing), while private and exclude entries
 //! group per teller (and per exact exclude set), since below the all-audience tier the teller is the
-//! audience-bearing payload, not mere provenance. Within a group, near-duplicates are clustered at
-//! `consolidation_similarity_threshold` and the model synthesizes one richer replacement. The
+//! audience-bearing payload, not mere provenance. Within a group, candidate near-duplicates are gathered
+//! loosely at `consolidation_candidate_threshold`; geometry cannot reliably rank a genuine thematic
+//! fusion above a related-but-distinct pair, so the model then selects which candidates state one fact
+//! and synthesizes one richer replacement over exactly that subset, leaving the rest live. The
 //! replacement inherits the group's visibility verbatim, and its teller is the group's teller when
 //! uniform or [`Teller::Agent`] for a cross-teller merge (permitted at the public or attributed level).
 //! Each distinct source teller survives as an [`EntryAttested`](crate::event::EventPayload::EntryAttested) on the replacement, so a
@@ -43,7 +45,7 @@ use crate::{
     engine::Engine,
     event::{EventSource, ProducedBy, PromptTemplateName, Teller},
     graph::EntryView,
-    ids::{EntryId, MemoryId, Seq, TurnId},
+    ids::{MemoryId, Seq, TurnId},
     memory::memory_block::{Authority, MemoryBlock},
     model::ModelClient,
     settings::{CaptureLevel, Settings},
@@ -110,7 +112,7 @@ pub async fn catch_up(
         recording: &recording,
         template_body: &template.body,
         produced_by: &produced_by,
-        consolidation_threshold: settings.maintenance.consolidation_similarity_threshold,
+        candidate_threshold: settings.maintenance.consolidation_candidate_threshold,
         dedup_threshold: settings.maintenance.dedup_similarity_threshold,
         max_entry_chars: settings.memory.max_entry_chars.max(1) as usize,
     };
@@ -130,7 +132,7 @@ struct Sweep<'a> {
     recording: &'a Recording,
     template_body: &'a str,
     produced_by: &'a ProducedBy,
-    consolidation_threshold: f64,
+    candidate_threshold: f64,
     dedup_threshold: f64,
     max_entry_chars: usize,
 }
@@ -160,7 +162,7 @@ impl Sweep<'_> {
                 if group.len() < 2 {
                     continue;
                 }
-                for cluster in cluster_within(&embeddings, &group, self.consolidation_threshold) {
+                for cluster in cluster_within(&embeddings, &group, self.candidate_threshold) {
                     if cluster.len() < 2 {
                         continue;
                     }
@@ -199,11 +201,17 @@ impl Sweep<'_> {
         )
         .await
         {
-            Ok(Some(text)) => {
-                let sources: Vec<EntryId> = cluster.iter().map(|entry| entry.entry_id).collect();
-                if let Err(error) =
-                    block.consolidate(id, &sources, text, Some(self.produced_by.clone()))
-                {
+            // The model selects the subset of the candidate cluster that states one fact; only that
+            // subset is consolidated, so an unselected related-but-distinct candidate stays live and is
+            // not re-clustered this sweep. Every candidate shares one posture group, so the selected
+            // subset does too and the `consolidate` guards hold as before.
+            Ok(Some(synthesis)) => {
+                if let Err(error) = block.consolidate(
+                    id,
+                    &synthesis.selected,
+                    synthesis.text,
+                    Some(self.produced_by.clone()),
+                ) {
                     tracing::warn!(
                         memory = ?id,
                         %error,
@@ -214,7 +222,7 @@ impl Sweep<'_> {
             Ok(None) => tracing::debug!(
                 memory = ?id,
                 cluster_size = cluster.len(),
-                "consolidation: model returned no synthesis for a cluster; skipping"
+                "consolidation: model declined or selected fewer than two candidates; skipping"
             ),
             Err(error) => tracing::warn!(
                 memory = ?id,

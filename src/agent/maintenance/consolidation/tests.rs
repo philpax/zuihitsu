@@ -1,5 +1,8 @@
 //! Consolidation pass integration tests: driving the whole `catch_up` sweep against a real store,
-//! graph, and embedder to confirm connector-origin entries are excluded from both tiers end to end.
+//! graph, and embedder. Two properties are covered end to end: that connector-origin entries are
+//! excluded from both tiers, and that tier 1's two-stage design honours the model's membership
+//! selection — the pass consolidates only the selected subset of a candidate cluster and leaves the
+//! rest live, or declines when fewer than two members are validly selected.
 //!
 //! The clustering unit tests fabricate an [`EntryOrigin`](crate::graph::EntryOrigin) directly on an
 //! `EntryView`, so they cannot cover the projection: that an entry recorded under
@@ -17,7 +20,7 @@ use crate::{
     graph::Graph,
     ids::{EntryId, MemoryId, Namespace, Seq},
     model::{
-        ModelClient, ScriptedModel,
+        Completion, ModelClient, ScriptedModel,
         embed::{CpuEmbedder, Embedder},
     },
     store::{MemoryStore, Store},
@@ -89,6 +92,28 @@ fn append(
         told_in: None,
         visibility,
     }
+}
+
+/// A scripted tier-1 synthesis reply: the model's selected subset of the candidate cluster plus the
+/// consolidated text, as the structured JSON the synthesis parser reads.
+fn synthesis_reply(selected: &[EntryId], text: &str) -> Completion {
+    let ids: Vec<String> = selected.iter().map(|id| id.0.to_string()).collect();
+    let body = serde_json::json!({
+        "selected_entry_ids": ids,
+        "consolidated_text": text,
+    });
+    Completion::Reply(body.to_string())
+}
+
+/// Whether an entry id is still live on its class (present and not superseded) in the materialised
+/// graph.
+fn is_live(engine: &Engine, memory: MemoryId, entry: EntryId) -> bool {
+    let graph = engine.graph.lock();
+    graph
+        .class_entries(memory)
+        .unwrap()
+        .into_iter()
+        .any(|view| view.entry_id == entry && view.superseded_by.is_none())
 }
 
 /// Every `EntriesConsolidated` the sweep committed, as `(sources, replacement)`.
@@ -229,6 +254,135 @@ async fn tier2_retires_a_recorded_private_duplicate_into_its_public_entry() {
         consolidations(&engine),
         vec![(vec![private], public)],
         "the private near-duplicate is retired into the existing public entry"
+    );
+}
+
+#[tokio::test]
+async fn tier1_consolidates_only_the_model_selected_subset() {
+    // Three near-identical public entries cluster together at the loose candidate bar, so all three
+    // reach one synthesis call. The scripted model selects only the first two; the pass consolidates
+    // exactly that subset, and the unselected third stays live rather than being folded in or
+    // re-clustered this sweep. This is the two-stage design end to end: geometry gathers the candidate
+    // cluster, the model disposes on membership.
+    let alex: MemoryId = MemoryId::generate();
+    let first = EntryId::generate();
+    let second = EntryId::generate();
+    let third = EntryId::generate();
+
+    let agent = vec![
+        template(),
+        EventPayload::memory_created(alex, Namespace::Person.with_name("alex")),
+        append(
+            alex,
+            first,
+            "Alex is a senior backend engineer.",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        append(
+            alex,
+            second,
+            "Alex works as a senior backend engineer.",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        append(
+            alex,
+            third,
+            "Alex is employed as a senior backend engineer.",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ];
+    let engine = engine_with_retrieval(agent, Vec::new());
+    // Exactly one synthesis call is expected (the one candidate cluster); it selects the first two.
+    let model = ScriptedModel::new([synthesis_reply(
+        &[first, second],
+        "Alex is a senior backend engineer.",
+    )]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    let consolidations = consolidations(&engine);
+    assert_eq!(
+        consolidations.len(),
+        1,
+        "exactly one consolidation is written for the single candidate cluster"
+    );
+    assert_eq!(
+        consolidations[0].0,
+        vec![first, second],
+        "only the model-selected subset is consolidated"
+    );
+    assert!(
+        !is_live(&engine, alex, first) && !is_live(&engine, alex, second),
+        "the selected pair is tombstoned"
+    );
+    assert!(
+        is_live(&engine, alex, third),
+        "the unselected third entry stays live"
+    );
+}
+
+#[tokio::test]
+async fn tier1_declines_when_the_model_selects_too_few() {
+    // The same three-entry candidate cluster, but the model names only one valid id (plus an id that
+    // resolves to no cluster member). A validated selection of fewer than two members is a decline, so
+    // nothing is consolidated and all three entries stay live.
+    let alex: MemoryId = MemoryId::generate();
+    let first = EntryId::generate();
+    let second = EntryId::generate();
+    let third = EntryId::generate();
+
+    let agent = vec![
+        template(),
+        EventPayload::memory_created(alex, Namespace::Person.with_name("alex")),
+        append(
+            alex,
+            first,
+            "Alex is a senior backend engineer.",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        append(
+            alex,
+            second,
+            "Alex works as a senior backend engineer.",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        append(
+            alex,
+            third,
+            "Alex is employed as a senior backend engineer.",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ];
+    let engine = engine_with_retrieval(agent, Vec::new());
+    // One valid id and one that resolves to no member: a single validated selection, below the merge
+    // floor, so the pass declines.
+    let bogus = EntryId::generate();
+    let model = ScriptedModel::new([synthesis_reply(
+        &[first, bogus],
+        "Alex is a senior backend engineer.",
+    )]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    assert!(
+        consolidations(&engine).is_empty(),
+        "a sub-two selection declines, so nothing is consolidated"
+    );
+    assert!(
+        is_live(&engine, alex, first)
+            && is_live(&engine, alex, second)
+            && is_live(&engine, alex, third),
+        "all three candidates stay live after a decline"
     );
 }
 

@@ -35,7 +35,11 @@ pub enum LiveEvent {
     RunEvent {
         scenario: u32,
         run: u32,
-        event: Event,
+        // Boxed to keep this variant from dwarfing the enum's others: an `Event` carries the whole
+        // event payload (the largest being a settings snapshot), so inlining it here trips
+        // `large_enum_variant`. `Box` is serde- and ts-rs-transparent, so the wire and the generated
+        // TypeScript are unchanged.
+        event: Box<Event>,
     },
     /// One in-flight generation fragment from a run's deliberation — the same [`TurnProgress`]
     /// frame the live agent console streams, multiplexed with which run produced it. Broadcast-only

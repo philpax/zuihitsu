@@ -315,6 +315,24 @@ pub fn live_entry_exact(events: &[Event], subject: &str, needle: &str) -> bool {
     })
 }
 
+/// Whether a live entry on a memory whose name contains `subject` has text *containing* `needle`
+/// (case-insensitive) — the information-survival check under the absorption doctrine: a fact folded
+/// into a consolidation's synthesis still counts as held, so long as its content survives on a live
+/// entry.
+pub fn live_entry_containing(events: &[Event], subject: &str, needle: &str) -> bool {
+    let hidden: BTreeSet<EntryId> = superseded_entry_ids(events)
+        .union(&retracted_entry_ids(events))
+        .copied()
+        .collect();
+    let subject = subject.to_lowercase();
+    let needle = needle.trim().to_lowercase();
+    entries(events).into_iter().any(|entry| {
+        entry.memory.to_lowercase().contains(&subject)
+            && entry.text.to_lowercase().contains(&needle)
+            && !hidden.contains(&entry.entry_id)
+    })
+}
+
 /// Whether the run retracted an entry with a stated (non-empty) reason — the structured, auditable
 /// withdrawal of a fact, distinct from an in-place supersession. The write path rejects an empty
 /// reason, so a landed `EntryRetracted` always carries one; the trim guards against a whitespace-only
