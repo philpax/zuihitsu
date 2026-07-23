@@ -57,6 +57,40 @@ pub enum Rollout {
     Created { events_emitted: usize },
 }
 
+/// Register any build-default template whose name has never been registered on this log — the
+/// additive half of template reconciliation, run at every boot of a born agent. A newer build can
+/// introduce a template name an existing agent's genesis predates (a maintenance pass's synthesis
+/// prompt, say); without this, the subsystem reading that template skips silently forever. Only
+/// wholly absent names register: a name with any registration is an operator-curated surface, so a
+/// changed default body reaches a born agent only through an explicit operator re-registration —
+/// adoption stays the operator's choice, and no existing prompt surface ever moves underneath the
+/// agent. Returns how many templates were registered.
+pub fn reconcile_new_templates(
+    store: &mut dyn Store,
+    clock: &dyn Clock,
+    features: &InstanceFeatures,
+) -> Result<usize, StoreError> {
+    let mut names_present: BTreeSet<PromptTemplateName> = BTreeSet::new();
+    for event in store.read_from(Seq::ZERO)? {
+        if let EventPayload::PromptTemplateRegistered { name, .. } = event.payload {
+            names_present.insert(name);
+        }
+    }
+    let to_emit: Vec<EventPayload> = default_templates(features)
+        .into_iter()
+        .filter(|template| !names_present.contains(&template.name))
+        .map(|template| {
+            EventPayload::prompt_template_registered(template.name, template.version, template.body)
+        })
+        .collect();
+    let registered = to_emit.len();
+    if registered > 0 {
+        store.append(clock.now(), EventSource::Bootstrap, to_emit)?;
+        tracing::info!(registered, "registered build templates new to this log");
+    }
+    Ok(registered)
+}
+
 /// Classify the log for boot.
 pub fn status(store: &dyn Store) -> Result<GenesisStatus, StoreError> {
     let events = store.read_from(Seq::ZERO)?;
