@@ -27,21 +27,21 @@ pub(crate) fn dispatch(client: &Client, command: &MaintenanceCommand) -> Result<
 
 /// Run the consolidation pass.
 fn consolidate(client: &Client) -> Result<(), CliError> {
-    let count: usize = client.post_no_body("/control/maintenance/consolidate")?;
+    let count: usize = client.post_no_body_slow("/control/maintenance/consolidate")?;
     tracing::info!(considered = count, "consolidation pass complete");
     Ok(())
 }
 
 /// Run the canonical-profile pass.
 fn canonicalize(client: &Client) -> Result<(), CliError> {
-    let count: usize = client.post_no_body("/control/maintenance/canonicalize")?;
+    let count: usize = client.post_no_body_slow("/control/maintenance/canonicalize")?;
     tracing::info!(considered = count, "canonicalize pass complete");
     Ok(())
 }
 
 /// Run the link-redundant entry cleanup pass.
 fn link_cleanup(client: &Client) -> Result<(), CliError> {
-    let count: usize = client.post_no_body("/control/maintenance/link-cleanup")?;
+    let count: usize = client.post_no_body_slow("/control/maintenance/link-cleanup")?;
     tracing::info!(considered = count, "link cleanup pass complete");
     Ok(())
 }

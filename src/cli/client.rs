@@ -141,9 +141,17 @@ impl Client {
         self.checked(request)?.json().map_err(ClientError::Decode)
     }
 
-    /// `POST` to `path` with no body and deserialize the JSON response.
-    pub fn post_no_body<T: DeserializeOwned>(&self, path: &str) -> Result<T, ClientError> {
-        self.json(self.http.post(self.url(path)))
+    /// `POST` to `path` with no body and deserialize the JSON response, waiting out an operation
+    /// the server may take minutes over — a maintenance backfill drives a model call per class,
+    /// which outlives the default request timeout, and a client that gives up early reports a
+    /// phantom failure while the pass completes server-side. The generous ceiling still bounds a
+    /// genuinely hung request.
+    pub fn post_no_body_slow<T: DeserializeOwned>(&self, path: &str) -> Result<T, ClientError> {
+        self.json(
+            self.http
+                .post(self.url(path))
+                .timeout(std::time::Duration::from_secs(60 * 60)),
+        )
     }
 
     /// Like [`Client::json`], but a `404` is `None` rather than an error (a not-found lookup).
