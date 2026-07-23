@@ -13,7 +13,9 @@ use ulid::Ulid;
 
 use crate::{
     db::query_map_into,
-    event::{Cardinality, ConversationRef, LinkSource, Teller, Visibility, Volatility},
+    event::{
+        Cardinality, ConversationRef, EventSource, LinkSource, Teller, Visibility, Volatility,
+    },
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId},
     store::Store,
     time::{TemporalRef, Timestamp},
@@ -95,6 +97,47 @@ pub struct EntryView {
     /// Present only on the history reads (a retraction drops from every live surface); the surfaces
     /// that show a retracted entry render this reason beside it.
     pub retracted_reason: Option<String>,
+    /// Where this entry came from, derived from the recording event's [`EventSource`]. The one
+    /// distinction the projection preserves is a connector-maintained entry (a participant's
+    /// username, display name, or nickname projected and owned by a platform connector) versus an
+    /// ordinary recorded one, since the maintenance cleanup passes must never mutate a
+    /// connector-owned entry — the connector may supersede or retract it at any time.
+    pub origin: EntryOrigin,
+}
+
+/// Where a content entry came from, projected from the recording event's [`EventSource`]. Kept
+/// deliberately coarse: the only distinction a reader (and the cleanup passes) needs is whether the
+/// entry is maintained by a platform connector or was recorded by the agent, operator, orchestration,
+/// or genesis. A connector-owned entry is excluded from every autonomous cleanup pass, since the
+/// connector holds its id and supersedes or retracts it as the platform-side account changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum EntryOrigin {
+    /// Recorded by the agent, operator, orchestration, or genesis — everything that is not a platform
+    /// connector. The default, and the origin of the overwhelming majority of entries.
+    #[default]
+    Recorded,
+    /// Projected and maintained by a platform connector; the string names the platform it serves
+    /// (mirroring [`EventSource::PlatformConnector`]). The cleanup passes never mutate such an entry.
+    PlatformConnector(String),
+}
+
+impl EntryOrigin {
+    /// The origin an entry recorded under `source` carries. Only a connector source is distinguished;
+    /// every other source folds to [`EntryOrigin::Recorded`].
+    pub fn from_source(source: &EventSource) -> EntryOrigin {
+        match source {
+            EventSource::PlatformConnector(platform) => {
+                EntryOrigin::PlatformConnector(platform.clone())
+            }
+            _ => EntryOrigin::Recorded,
+        }
+    }
+
+    /// Whether this entry is maintained by a platform connector — the case every cleanup pass excludes.
+    pub fn is_connector(&self) -> bool {
+        matches!(self, EntryOrigin::PlatformConnector(_))
+    }
 }
 
 /// A registered relation as projected.
@@ -299,8 +342,64 @@ impl Graph {
     }
 
     fn init(conn: Connection) -> Result<Graph, GraphError> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS memories (
+        conn.execute_batch(Self::SCHEMA_SQL).map_err(backend)?;
+        let graph = Graph { conn };
+        graph.guard_schema()?;
+        Ok(graph)
+    }
+
+    /// Reset the graph unless its stored schema fingerprint matches this build's, so a binary whose
+    /// projection schema has moved never reads or writes a table shape it did not create (an added
+    /// column would otherwise surface as a runtime `no such column` error deep in a read). The graph
+    /// is a derived store — `materialize_from` rebuilds a reset graph from the event log — so the
+    /// reset trades one full replay for schema correctness and loses no logical state. A graph
+    /// without a stamp (fresh, or written by a build predating the stamp) resets too: recreating
+    /// empty tables is free, and it is the only safe reading of an unstamped file.
+    fn guard_schema(&self) -> Result<(), GraphError> {
+        let expected = schema_fingerprint();
+        let stored: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_fingerprint'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        if stored != Some(expected) {
+            // The FTS shadow tables (`memories_fts_*`) drop with their virtual table, so they are
+            // excluded from the sweep rather than dropped twice.
+            let tables: Vec<String> = self
+                .conn
+                .prepare(
+                    "SELECT name FROM sqlite_master
+                     WHERE type = 'table' AND name NOT LIKE 'memories_fts_%'",
+                )
+                .map_err(backend)?
+                .query_map([], |r| r.get(0))
+                .map_err(backend)?
+                .collect::<Result<_, _>>()
+                .map_err(backend)?;
+            for table in tables {
+                self.conn
+                    .execute_batch(&format!("DROP TABLE IF EXISTS \"{table}\""))
+                    .map_err(backend)?;
+            }
+            self.conn.execute_batch(Self::SCHEMA_SQL).map_err(backend)?;
+            self.conn
+                .execute(
+                    "INSERT INTO meta (key, value) VALUES ('schema_fingerprint', ?1)",
+                    params![expected],
+                )
+                .map_err(backend)?;
+        }
+        Ok(())
+    }
+
+    /// The projection schema, one idempotent DDL batch. Also the input to `schema_fingerprint`, so
+    /// any edit here — a new column, an index change — moves the stamp `guard_schema` checks, with
+    /// no manually-bumped version to forget.
+    const SCHEMA_SQL: &'static str = "CREATE TABLE IF NOT EXISTS memories (
                  id          TEXT    PRIMARY KEY,
                  name        TEXT    NOT NULL UNIQUE,
                  description TEXT    NOT NULL DEFAULT '',
@@ -355,6 +454,12 @@ impl Graph {
                  -- surface. A non-NULL retracted_reason is what tells a retraction apart from a
                  -- supersession, whose superseded_by names a distinct successor entry.
                  retracted_reason TEXT,
+                 -- The platform a connector-maintained entry belongs to, or NULL for an ordinary
+                 -- recorded entry. Projected from the recording event's source: a connector-projected
+                 -- participant attribute (username, display name, nickname) carries its platform here,
+                 -- so a reader — and the maintenance cleanup passes, which must never mutate a
+                 -- connector-owned entry — can tell it apart from an agent-recorded fact.
+                 origin_platform TEXT,
                  seq           INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_entries_memory ON content_entries(memory_id);
@@ -442,11 +547,7 @@ impl Graph {
              CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
              CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
                  name, description, content, memory_id UNINDEXED
-             );",
-        )
-        .map_err(backend)?;
-        Ok(Graph { conn })
-    }
+             );";
 
     /// The highest `Seq` applied so far, or `Seq::ZERO` for a fresh graph. Replay resumes from
     /// `head().next()`, which is how a stale graph catches up to log-head.
@@ -621,6 +722,18 @@ pub(super) fn timestamp_column(millis: i64, column: &str) -> Result<Timestamp, G
             "{column} {millis} milliseconds since the Unix epoch is outside the representable range"
         ))
     })
+}
+
+/// The stamp `guard_schema` compares: the leading eight bytes of a SHA-256 over the schema DDL,
+/// stored in `meta` as an integer. A digest of the DDL text itself, so the stamp is a pure function
+/// of the schema with no versioning discipline to uphold.
+fn schema_fingerprint() -> i64 {
+    let digest = Sha256::digest(Graph::SCHEMA_SQL.as_bytes());
+    i64::from_le_bytes(
+        digest[..8]
+            .try_into()
+            .expect("a SHA-256 digest holds at least eight bytes"),
+    )
 }
 
 pub(super) fn backend(error: rusqlite::Error) -> GraphError {

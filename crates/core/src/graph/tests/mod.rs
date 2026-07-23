@@ -23,6 +23,7 @@ mod participants;
 mod projection;
 mod relations;
 mod replay;
+mod schema;
 mod search;
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.

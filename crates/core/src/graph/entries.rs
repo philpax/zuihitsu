@@ -4,7 +4,7 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::Cardinality,
     graph::{
-        EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid,
+        EntryOrigin, EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid,
         timestamp_column,
     },
     ids::{EntryId, MemoryId, Namespace},
@@ -53,7 +53,7 @@ impl Graph {
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries WHERE memory_id = ?1 AND superseded_by IS NULL ORDER BY seq",
             id,
         )
@@ -65,7 +65,7 @@ impl Graph {
     pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
         )
@@ -80,7 +80,7 @@ impl Graph {
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -134,7 +134,7 @@ impl Graph {
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -179,7 +179,8 @@ impl Graph {
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, occurred_authored,
-                    text, told_by, told_in, visibility, superseded_by, retracted_reason
+                    text, told_by, told_in, visibility, superseded_by, retracted_reason,
+                    origin_platform
              FROM content_entries WHERE entry_id = ?1",
         )?;
         let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
@@ -214,7 +215,7 @@ impl Graph {
     ) -> Result<Vec<EntryView>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries
              WHERE superseded_by = ?1
              ORDER BY seq",
@@ -234,6 +235,7 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
     let visibility: String = row.get("visibility")?;
     let superseded_by: Option<String> = row.get("superseded_by")?;
     let occurred_at: Option<String> = row.get("occurred_at")?;
+    let origin_platform: Option<String> = row.get("origin_platform")?;
     Ok(EntryView {
         entry_id: EntryId(parse_ulid(&entry_id)?),
         asserted_at: timestamp_column(row.get("asserted_at")?, "asserted_at")?,
@@ -255,6 +257,10 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
             .map(|id| parse_ulid(&id).map(EntryId))
             .transpose()?,
         retracted_reason: row.get("retracted_reason")?,
+        origin: match origin_platform {
+            Some(platform) => EntryOrigin::PlatformConnector(platform),
+            None => EntryOrigin::Recorded,
+        },
     })
 }
 

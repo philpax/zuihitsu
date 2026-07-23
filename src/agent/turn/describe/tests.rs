@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use super::{extract::ExtractedTime, synthesis::statements_prompt};
 use crate::{
     event::{Teller, Visibility, Volatility},
-    graph::{EntryView, MemoryView},
+    graph::{EntryOrigin, EntryView, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
     time::{self, CivilDate, Rrule, TemporalRef, Timestamp},
 };
@@ -26,6 +26,7 @@ fn entry(text: &str, occurred_at: Option<TemporalRef>) -> EntryView {
         visibility: Visibility::Public,
         superseded_by: None,
         retracted_reason: None,
+        origin: EntryOrigin::Recorded,
     }
 }
 

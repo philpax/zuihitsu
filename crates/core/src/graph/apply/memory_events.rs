@@ -3,7 +3,7 @@
 use rusqlite::params;
 
 use crate::{
-    event::{Event, EventPayload, Visibility},
+    event::{Event, EventPayload, EventSource, Visibility},
     graph::{GraphError, backend},
 };
 
@@ -136,13 +136,20 @@ impl Graph {
                 // ground truth a later extracted occurrence must never shadow (an untimed append has no
                 // occurrence to classify, so it is not authored).
                 let occurred_authored = i64::from(occurred_at.is_some());
+                // The recording event's source fixes the entry's origin: a platform connector's
+                // projected attribute carries its platform, everything else records as NULL. The
+                // cleanup passes read this back to leave connector-owned entries untouched.
+                let origin_platform = match &event.source {
+                    EventSource::PlatformConnector(platform) => Some(platform.as_str()),
+                    _ => None,
+                };
                 self.conn
                     .execute(
                         "INSERT INTO content_entries \
                          (entry_id, memory_id, asserted_at, occurred_at, occurred_sort, \
                           occurred_lo, occurred_hi, occurred_authored, text, told_by, told_in, \
-                          visibility, seq)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                          visibility, origin_platform, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                         params![
                             entry_id.0.to_string(),
                             id.0.to_string(),
@@ -161,6 +168,7 @@ impl Graph {
                                 })
                                 .transpose()?,
                             serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
+                            origin_platform,
                             event.seq.0 as i64,
                         ],
                     )

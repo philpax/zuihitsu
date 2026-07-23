@@ -6,7 +6,12 @@ import type { RecurringItem } from "../../lib/model/audit.ts";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { turnComponents } from "../../components/markdownComponents.tsx";
-import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
+import {
+  connectorPlatform,
+  isPrivate,
+  tellerLabel,
+  visibilityLabel,
+} from "../../lib/model/labels.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
 import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
@@ -139,6 +144,20 @@ export function EntryItem({
         <span className={priv ? "text-clay" : undefined}>
           {visibilityLabel(entry.visibility, nameById)}
         </span>
+        {/* A connector-maintained attribute (a username, display name, or nickname the platform
+            connector owns) is marked so it reads apart from an agent-recorded fact — the cleanup
+            passes leave it untouched, since the connector supersedes it as the account changes. */}
+        {connectorPlatform(entry.origin) && (
+          <>
+            <span className="text-ink-faint/45">·</span>
+            <span
+              className="text-sage"
+              title="maintained by a platform connector; the cleanup passes leave it untouched"
+            >
+              via {connectorPlatform(entry.origin)}
+            </span>
+          </>
+        )}
         <span className="text-ink-faint/45">·</span>
         <time dateTime={new Date(entry.asserted_at).toISOString()}>
           {formatDateTime(entry.asserted_at)}

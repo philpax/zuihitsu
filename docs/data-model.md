@@ -58,6 +58,7 @@ ContentEntry {
   visibility:    Visibility
   superseded_by: Option<EntryId>     -- the newer entry that replaced this one, once superseded; a retraction stamps the entry's own id here as a tombstone (no successor)
   retracted_reason: Option<string>   -- why the entry was retracted, once withdrawn; None for a live or plainly-superseded entry
+  origin:        EntryOrigin          -- Recorded, or PlatformConnector(platform) when a connector owns the entry; derived from the recording event's source. A connector-owned entry is excluded from the maintenance passes (see below)
 }
 
 Visibility =

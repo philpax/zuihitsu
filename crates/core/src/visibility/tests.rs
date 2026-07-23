@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     event::{Teller, Visibility, Volatility},
-    graph::{EntryView, GraphError, LinkVis, MemoryView},
+    graph::{EntryOrigin, EntryView, GraphError, LinkVis, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
     time::Timestamp,
 };
@@ -38,6 +38,7 @@ fn entry(told_by: Teller, visibility: Visibility) -> EntryView {
         visibility,
         superseded_by: None,
         retracted_reason: None,
+        origin: EntryOrigin::Recorded,
     }
 }
 
