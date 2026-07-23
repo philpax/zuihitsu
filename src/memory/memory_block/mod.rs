@@ -24,12 +24,15 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
+mod attest;
 mod calendar;
+mod consolidate;
 mod effects;
 mod error;
 mod links;
 mod reads;
 mod resolve;
+mod retract;
 mod suggest;
 mod tags;
 mod writes;
