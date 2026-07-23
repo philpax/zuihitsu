@@ -53,7 +53,7 @@ ContentEntry {
   asserted_at:   timestamp           -- when the agent recorded it
   occurred_at:   Option<TemporalRef> -- what real-world time it's about
   text:          string
-  told_by:       Teller               -- Participant(MemoryId) | Agent | Bootstrap; who told the agent this
+  told_by:       Teller               -- Participant(MemoryId) | Agent | Bootstrap; the founding teller — with visibility/told_in/asserted_at, the founding attestation denormalised (see Attestation)
   told_in:       Option<ConversationRef> -- provenance: the conversation + turn it was said in (not a visibility gate)
   visibility:    Visibility
   superseded_by: Option<EntryId>     -- the newer entry that replaced this one, once superseded; a retraction stamps the entry's own id here as a tombstone (no successor)
@@ -98,9 +98,11 @@ supersession does) and records the full source list and the replacement. A maint
 under `Authority::Agent` (the maintenance-pass authority tier — clears the foreign-confidence
 supersede guard and permits free `same_as` assertion, while blocking `self` writes) drives it through
 the ordinary block write path. The replacement is either a freshly synthesized entry inheriting its
-same-level cluster's visibility (and teller, or `Teller::Agent` for a cross-teller public merge), or —
-for the cross-level dedup of a more-private copy against a more-public one — an existing all-audience
-entry, with no new text written. See [Maintenance passes](maintenance-passes.md).
+same-level cluster's visibility (and teller, or `Teller::Agent` founding the replacement for a
+cross-teller public merge, with each source teller re-attested onto it so who the accounts came from
+survives — see [Attestation](#attestation)), or — for the cross-level dedup of a more-private copy
+against a more-public one — an existing all-audience entry, with no new text written but the retired
+source's teller absorbed as an attestation. See [Maintenance passes](maintenance-passes.md).
 
 Retraction is the tombstone counterpart, for when a fact has no in-place replacement — most often because it was filed on the wrong memory. `EntryRetracted` (via `<memory>:retract(entry, reason)`) records why the fact was withdrawn and drops the entry from every live surface exactly as supersession does: the projection stamps `superseded_by` with the entry's *own* id — a self-referential tombstone, so every `superseded_by IS NULL` live filter hides it with no successor to point at — and records the reason in `retracted_reason`, which is what tells a retraction apart from a supersession. The original `MemoryContentAppended` stays immutable, and history surfaces show the tombstone with its reason. A reason is required (an unexplained retraction is unauditable). There is deliberately no move affordance: because visibility resolves per memory (see [Visibility](visibility.md)), relocating an entry in place would silently rewrite its meaning, so the honest correction is to retract it here and re-assert it on the right memory with a fresh append (carrying the original `told_by`, and `occurred_at` when the date is known).
 
@@ -111,6 +113,51 @@ content *about a person* has no default at all — it must classify itself befor
 re-recorded confidence can never silently default to public. The read-time predicate that interprets
 these against the present set, and the provenance markers surviving non-public entries carry, are
 described under [Visibility](visibility.md).
+
+## Attestation
+
+An entry is not one teller's assertion but a fact some set of tellers stand behind. Each
+**Attestation** is one teller's endorsement:
+
+```
+Attestation {
+  teller:           Teller                  -- who stands behind the fact
+  told_in:          Option<ConversationRef> -- the conversation or turn this endorsement was asserted in
+  asserted_at:      timestamp               -- when the teller recorded the endorsement
+  posture:          Visibility              -- the attester's own audience posture, at or narrower than the entry's founding posture
+  phrasing:         Option<string>          -- the attester's own wording when it differed from the entry text; kept for history and the console
+  source_entry:     Option<EntryId>         -- the retired entry a consolidation carried this attestation from; None for a direct endorsement
+  retracted_reason: Option<string>          -- why this attestation was withdrawn, on a history read; None for a live attestation
+}
+```
+
+Identity is the composite `(entry, teller)` pair: a teller has at most one attestation on a given
+entry, and a re-attestation by the same teller is last-writer-wins on that row — it updates the
+posture, phrasing, and instant rather than adding a second endorsement.
+
+The **founding attestation is derived, not stored twice**. Every entry carries at least the one its own
+`MemoryContentAppended` records, and that founding attestation is materialised from the entry's own
+`told_by`/`told_in`/`asserted_at`/`visibility` — denormalised onto the entry rather than written as a
+separate row. So a plain single-teller entry has exactly this one attestation, and the visibility
+predicate reasoning over its attestation set is bit-identical to reasoning over the entry's own fields;
+every existing log replays with a singleton set. A further teller's `EntryAttested` (via
+`<memory>:attest(entry)`) adds a second, a third, and so on, each governed by the audience-widening
+invariant (see [Visibility](visibility.md#attestation-and-the-audience-widening-invariant)).
+
+**Per-attester retraction, with last-attestation death.** `AttestationRetracted { entry, teller,
+reason }` withdraws one teller's endorsement and records why, stamping that attestation's
+`retracted_reason` in place. A corroborated fact survives its founding teller's withdrawal: the other
+tellers still stand behind it, so the entry stays live. Only when the *last* live attestation is
+withdrawn does the entry itself die — it is then tombstoned exactly as `EntryRetracted` tombstones one
+(its `superseded_by` stamped with its own id, the reason recorded), so a fact no teller still stands
+behind drops from every live surface. The operator drives a single-attester withdrawal through `POST
+/control/retract-attestation`.
+
+Supersession deliberately does **not** carry attesters forward. A `MemorySuperseded` replaces one entry
+with a fresh assertion that founds its own attestation and inherits none of the retired entry's other
+tellers — a correction is a new claim, not the old fact re-endorsed. Consolidation is the studied
+exception: it re-attests the surviving tellers onto its replacement (see
+[Maintenance passes](maintenance-passes.md)).
 
 ## Tag
 
