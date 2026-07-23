@@ -18,7 +18,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 26,
+            version: 27,
             body: scaffold_body(features),
         },
         TemplateDef {
@@ -36,7 +36,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            version: 3,
+            version: 4,
             body: flush_template_body(),
         },
         TemplateDef {

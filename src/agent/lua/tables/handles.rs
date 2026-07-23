@@ -92,11 +92,11 @@ pub(super) fn install_handle_methods(
                             .append_dedup(id, &text, opts, embedding.as_deref())
                             .map_err(|error| route_error(error, &mut api.infra.lock()))?;
                         match outcome {
-                            AppendOutcome::Appended(entry_id) => (
+                            AppendOutcome::Appended { entry, advisory } => (
                                 block
-                                    .entry_ref_by_id_any(entry_id)
+                                    .entry_ref_by_id_any(entry)
                                     .map_err(|error| route_error(error, &mut api.infra.lock()))?,
-                                None,
+                                advisory,
                             ),
                             AppendOutcome::Corroborated(corroboration) => (
                                 block

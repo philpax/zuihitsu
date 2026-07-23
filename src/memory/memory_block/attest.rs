@@ -53,12 +53,36 @@ impl MemoryBlock {
             None => None,
         };
         let told_by = entry_teller(&opts, &self.teller);
-        match self.find_dedup_target(id, dedup_embedding, distinct_from, &told_by)? {
+        let scan = self.find_dedup_target(id, dedup_embedding, distinct_from, &told_by)?;
+        let advisory = scan.cross_class.as_ref().map(|(memory, entry)| {
+            format!(
+                "note: a near-identical fact already lives on {} [{}]: \"{}\". If this is one \
+                 fact about several subjects, record it once where it most belongs — the shared \
+                 topic or event — and link the cast, rather than re-phrasing it per subject.",
+                memory.name.as_str(),
+                entry.entry_id.0,
+                attestation_snippet(&entry.text),
+            )
+        });
+        match scan.capture {
             Some((memory, entry)) => self.corroborate_append(memory, entry, text, opts),
-            None => self.append(id, text, opts).map(AppendOutcome::Appended),
+            None => Ok(AppendOutcome::Appended {
+                entry: self.append(id, text, opts)?,
+                advisory,
+            }),
         }
     }
+}
 
+/// One dedup scan's outcome: the capture target when the write duplicates a same-class entry, and
+/// the best all-audience cross-class near-duplicate for the advisory note when one exists.
+#[derive(Default)]
+struct DedupScan {
+    capture: Option<(MemoryView, EntryView)>,
+    cross_class: Option<(MemoryView, EntryView)>,
+}
+
+impl MemoryBlock {
     /// Scan the vector index for the best live, same-class entry the candidate embedding duplicates and
     /// that this writer may capture against — the corroboration/duplicate target `E`, or `None` to
     /// append normally. A read: it locks the graph and vector index transiently and buffers nothing, so
@@ -70,16 +94,21 @@ impl MemoryBlock {
         dedup_embedding: Option<&[f32]>,
         distinct_from: Option<EntryId>,
         told_by: &Teller,
-    ) -> Result<Option<(MemoryView, EntryView)>, MemoryError> {
+    ) -> Result<DedupScan, MemoryError> {
         let Some(embedding) = dedup_embedding else {
-            return Ok(None);
+            return Ok(DedupScan::default());
         };
         let Some(retrieval) = &self.engine.retrieval else {
-            return Ok(None);
+            return Ok(DedupScan::default());
         };
         let settings = crate::settings::Settings::from_store(self.engine.store.lock().as_ref())
             .unwrap_or_default();
-        let threshold = settings.maintenance.dedup_similarity_threshold as f32;
+        // Two bars: a capture needs the strict dedup threshold, while the cross-subject advisory
+        // fires from the looser consolidation band — it is non-blocking, and a subject-prefixed
+        // embedding puts the same fact about two subjects below the dedup bar by construction.
+        let capture_threshold = settings.maintenance.dedup_similarity_threshold as f32;
+        let advisory_threshold =
+            (settings.maintenance.consolidation_similarity_threshold as f32).min(capture_threshold);
         let hits = retrieval
             .vectors
             .lock()
@@ -90,8 +119,9 @@ impl MemoryBlock {
             let graph = self.engine.graph.lock();
             graph.class_id(class_target)?.unwrap_or(class_target)
         };
+        let mut cross_class: Option<(MemoryView, EntryView)> = None;
         for hit in &hits {
-            if hit.score < threshold {
+            if hit.score < advisory_threshold {
                 break;
             }
             let Some(crate::model::index::VectorKey::EntryContextual(entry_id)) =
@@ -113,7 +143,23 @@ impl MemoryBlock {
                 let graph = self.engine.graph.lock();
                 graph.class_id(memory.id)?.unwrap_or(memory.id)
             };
-            if entry.superseded_by.is_some() || entry_class != target_class {
+            if entry.superseded_by.is_some() {
+                continue;
+            }
+            if entry_class != target_class {
+                // A different subject's near-identical fact is never a capture (a different subject
+                // is a different fact by policy), but the best all-audience one is worth an advisory:
+                // the same fact re-phrased once per participant is the duplication the shared topic
+                // and links exist to prevent. A cross-class confidence stays wholly invisible — no
+                // snippet, no existence — exactly as it is invisible to the capture itself.
+                if cross_class.is_none()
+                    && matches!(
+                        entry.visibility,
+                        Visibility::Public | Visibility::Attributed
+                    )
+                {
+                    cross_class = Some((memory, entry));
+                }
                 continue;
             }
             // Another teller's confidence is invisible to this check: an independent statement of a
@@ -126,11 +172,17 @@ impl MemoryBlock {
                     self.same_teller_class(&entry.told_by, told_by)?
                 }
             };
-            if visible_to_writer {
-                return Ok(Some((memory, entry)));
+            if visible_to_writer && hit.score >= capture_threshold {
+                return Ok(DedupScan {
+                    capture: Some((memory, entry)),
+                    cross_class,
+                });
             }
         }
-        Ok(None)
+        Ok(DedupScan {
+            capture: None,
+            cross_class,
+        })
     }
 
     /// The auto-attest arm of [`MemoryBlock::append_dedup`]: the write duplicates all-audience entry

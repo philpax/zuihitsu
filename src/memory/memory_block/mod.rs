@@ -56,7 +56,12 @@ pub enum EntrySelector {
 #[derive(Debug)]
 pub enum AppendOutcome {
     /// A new content entry was recorded; its id.
-    Appended(EntryId),
+    Appended {
+        entry: EntryId,
+        /// A non-blocking teaching note surfaced with the append — today the cross-subject
+        /// near-duplicate advisory. `None` for a plain append.
+        advisory: Option<String>,
+    },
     /// The write corroborated an existing entry rather than recording a duplicate — see
     /// [`Corroboration`].
     Corroborated(Corroboration),
