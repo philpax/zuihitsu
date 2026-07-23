@@ -176,6 +176,52 @@ pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
         .collect()
 }
 
+/// One explicit attestation recorded in the run — a further teller standing behind an entry's fact
+/// (spec §Visibility → attestations). The founding attestation is derived at materialization from the
+/// entry's own append and is never logged, so this reads only the `EntryAttested` events an
+/// auto-attest corroboration, a tier-1 cross-teller merge, or a tier-2 absorb-and-attest emitted:
+/// which entry was endorsed, by which teller, and at what posture.
+pub struct AttestationFacts {
+    pub entry: EntryId,
+    pub teller: Teller,
+    pub posture: Visibility,
+}
+
+/// Every explicit `EntryAttested` the run recorded, in event order — the endorsements a corroboration
+/// or a consolidation left on an entry, distinct from the founding attestation the fold derives.
+pub fn attestations(events: &[Event]) -> Vec<AttestationFacts> {
+    events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            EventPayload::EntryAttested {
+                entry,
+                teller,
+                posture,
+                ..
+            } => Some(AttestationFacts {
+                entry: *entry,
+                teller: teller.clone(),
+                posture: posture.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether `text` names `word` as a whole word (case-insensitive) — the identity-leak primitive for a
+/// gate that must catch a handle stem rendered on a surface (`Frank`, `person/frank`, `Frank's`) without
+/// false-positiving on a longer word that merely contains it (`frankly`, `graceful`). Tokenizes on any
+/// non-alphanumeric boundary, so a stem embedded in a handle or a possessive still matches while a stem
+/// buried inside an unrelated word does not.
+pub fn mentions_word(text: &str, word: &str) -> bool {
+    let word = word.to_lowercase();
+    !word.is_empty()
+        && text
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|token| token == word)
+}
+
 /// The set of entry ids that have been superseded, from `MemorySuperseded` events and
 /// `EntriesConsolidated` source lists (both tombstone entries via the graph's `superseded_by`
 /// column).

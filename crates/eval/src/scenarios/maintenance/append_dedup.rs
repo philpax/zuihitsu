@@ -10,6 +10,13 @@
 //! descriptions in its brief and never exercised the write-time check at all; the phrasing change and
 //! the session gap here make actually triggering the check plausible without requiring it.
 //!
+//! The restatement is the *same* teller re-recording their own fact, so the append-time auto-attest
+//! (which corroborates only a *cross-teller* near-duplicate of an all-audience entry) never applies here:
+//! the same-teller repeat meets the [`DuplicateEntry`] teachable error, exactly as before attestations
+//! existed. The exactly-once metric is robust either way — an attestation adds no content entry, so even
+//! were a corroboration to land, the live-entry count would stay one — so auto-attest cannot regress this
+//! scenario; it can only leave the count unchanged.
+//!
 //! [`DuplicateEntry`]: an append whose meaning matches a live entry on the same identity is rejected at
 //! the dedup similarity threshold. See `MemoryError::DuplicateEntry`.
 
@@ -31,14 +38,18 @@ use crate::{
 const KEYWORD: &str = "penicillin";
 
 /// The criterion the graceful-handling judge applies to the reply to the restated fact. Passes for both
-/// good outcomes — a confirmation that it is already noted, or an acknowledged update — and fails only
-/// on confusion or a claimed duplicate record.
+/// good outcomes — a confirmation that it is already noted, or an acknowledged update — and fails only on
+/// confusion or a claimed duplicate *copy*. Acknowledging that the fact is already held (or noting the
+/// repeat as a confirmation of the existing record) is a pass: corroborating an existing fact is not the
+/// same as filing a second independent copy of it, so a reply must not be failed merely for saying it
+/// noted the confirmation.
 const GRACEFUL_CRITERION: &str = "The user restated a fact — a penicillin allergy — that the assistant \
     already had on record from earlier in the conversation. The criterion is MET when the reply handles \
-    the repeat gracefully: confirming the allergy is already noted, or acknowledging and updating it, \
-    without expressing confusion and without indicating it created a second separate record of the same \
-    allergy. The criterion is NOT met if the reply is confused, contradicts itself, or claims to have \
-    filed a duplicate note of the same allergy.";
+    the repeat gracefully: confirming the allergy is already noted, acknowledging and updating it, or \
+    noting the restatement as a confirmation of the existing record, without expressing confusion. The \
+    criterion is NOT met only if the reply is confused, contradicts itself, or claims to have filed a \
+    second independent duplicate copy of the same allergy. Merely acknowledging that the allergy is \
+    already recorded, or that the repeat corroborates it, is a PASS — that is not a duplicate copy.";
 
 /// A participant states an allergy, then restates it differently after a session gap. The agent should
 /// end with the fact held exactly once and a graceful acknowledgement of the repeat.
