@@ -2,10 +2,15 @@
 //! description of a link that exists.
 //!
 //! Per identity class with content changes since the cursor:
-//! 1. Gather live entries and existing links.
+//! 1. Gather live entries and existing links, dropping connector-maintained entries — the connector
+//!    owns those and this pass must never mutate them.
 //! 2. Call the model to identify entries whose content is purely a description of a link (no
 //!    textured detail beyond the link's structural assertion).
-//! 3. Retract each identified entry with `EntryRetracted`.
+//! 3. Retract each identified entry through the [`MemoryBlock`] write path under [`Authority::Agent`],
+//!    stamping the pass's own template as provenance — so the retraction clears the same guards a
+//!    turn's retraction does rather than appending a raw event.
+
+use std::sync::Arc;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,18 +19,19 @@ use crate::{
     InstanceError,
     agent::{TurnError, templates},
     engine::Engine,
-    event::{EventPayload, EventSource, ModelPhase, ProducedBy, PromptTemplateName},
+    event::{EventSource, ModelPhase, ProducedBy, PromptTemplateName, Teller},
     graph::EntryView,
     ids::{MemoryId, Seq, TurnId},
+    memory::memory_block::{Authority, MemoryBlock},
     model::{GenerateRequest, ModelClient},
-    settings::CaptureLevel,
+    settings::{CaptureLevel, Settings},
 };
 
 use crate::agent::turn::{Recording, collect_written_memories};
 
 /// Run one link-cleanup sweep. Returns `(new_cursor, memories_considered)`.
 pub async fn catch_up(
-    engine: &Engine,
+    engine: &Arc<Engine>,
     model: &dyn ModelClient,
     cursor: Seq,
 ) -> Result<(Seq, usize), InstanceError> {
@@ -36,7 +42,7 @@ pub async fn catch_up(
 
     let Some(template) = templates::latest_template(
         engine.store.lock().as_ref(),
-        PromptTemplateName::EntryConsolidation,
+        PromptTemplateName::LinkCleanup,
     )?
     else {
         return Ok((head, 0));
@@ -48,8 +54,23 @@ pub async fn catch_up(
     }
 
     let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
-    let now = engine.clock.now();
-    let mut events = Vec::new();
+    let produced_by = ProducedBy {
+        model_id: model.model_id().into(),
+        template_name: PromptTemplateName::LinkCleanup,
+        template_version: template.version,
+    };
+    let max_entry_chars = Settings::from_store(engine.store.lock().as_ref())
+        .map(|s| s.memory.max_entry_chars.max(1) as usize)
+        .unwrap_or(1);
+    let mut block = MemoryBlock::new(
+        engine.clone(),
+        Teller::Agent,
+        Authority::Agent,
+        None,
+        None,
+        Vec::new(),
+        max_entry_chars,
+    )?;
 
     for &id in &written {
         let (entries, links) = {
@@ -58,15 +79,16 @@ pub async fn catch_up(
             let links = graph.class_links(id)?;
             (entries, links)
         };
-        if entries.is_empty() {
+        // A connector-maintained entry is never a cleanup candidate: the connector owns its id and
+        // supersedes or retracts it as the platform-side account changes, so this pass leaves it out
+        // of both the prompt and any retraction.
+        let candidates: Vec<EntryView> = entries
+            .into_iter()
+            .filter(|entry| !entry.origin.is_connector())
+            .collect();
+        if candidates.is_empty() {
             continue;
         }
-
-        let produced_by = ProducedBy {
-            model_id: model.model_id().into(),
-            template_name: PromptTemplateName::EntryConsolidation,
-            template_version: template.version,
-        };
 
         match identify_redundant(
             engine,
@@ -74,26 +96,23 @@ pub async fn catch_up(
             &recording,
             &template.body,
             id,
-            &entries,
+            &candidates,
             &links,
         )
         .await
         {
-            Ok(Some(redundant_ids)) => {
+            Ok(redundant_ids) => {
                 for entry_id in redundant_ids {
-                    events.push(EventPayload::entry_retracted(
-                        id,
-                        entry_id,
-                        "content fully captured by existing link",
-                        Some(produced_by.clone()),
-                    ));
+                    if let Err(error) =
+                        block.retract(id, entry_id, RETRACTION_REASON, Some(produced_by.clone()))
+                    {
+                        tracing::warn!(
+                            memory = ?id,
+                            %error,
+                            "link cleanup: retraction rejected; skipping entry"
+                        );
+                    }
                 }
-            }
-            Ok(None) => {
-                tracing::debug!(
-                    memory = ?id,
-                    "link cleanup: model returned no redundant entries"
-                );
             }
             Err(error) => {
                 tracing::warn!(
@@ -105,7 +124,9 @@ pub async fn catch_up(
         }
     }
 
+    let events = block.into_effects().events;
     if !events.is_empty() {
+        let now = engine.clock.now();
         engine
             .store
             .lock()
@@ -119,6 +140,9 @@ pub async fn catch_up(
     Ok((head, written.len()))
 }
 
+/// The reason recorded on every link-redundant retraction.
+const RETRACTION_REASON: &str = "content fully captured by existing link";
+
 /// The model's response: the set of entry ids to retract.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 struct RedundantEntries {
@@ -126,7 +150,8 @@ struct RedundantEntries {
     retract_entry_ids: Vec<String>,
 }
 
-/// Call the model to identify entries whose content is purely a description of a link.
+/// Call the model to identify entries whose content is purely a description of a link, returning the
+/// resolved entry ids (only those present among `entries`).
 async fn identify_redundant(
     engine: &Engine,
     model: &dyn ModelClient,
@@ -135,7 +160,7 @@ async fn identify_redundant(
     memory_id: MemoryId,
     entries: &[EntryView],
     links: &[crate::graph::ClassLinkView],
-) -> Result<Option<Vec<crate::ids::EntryId>>, InstanceError> {
+) -> Result<Vec<crate::ids::EntryId>, InstanceError> {
     let entry_lines: Vec<String> = entries
         .iter()
         .map(|e| format!("- id: {}, text: {:?}", e.entry_id.0, e.text))
@@ -156,10 +181,7 @@ async fn identify_redundant(
             .collect()
     };
     let user_prompt = format!(
-        "Memory: {}\n\nEntries:\n{}\n\nExisting links:\n{}\n\n\
-         Mark an entry for removal only if its content is purely a description of a link that \
-         exists — no additional detail (no when, no context, no qualifier). Preserve entries \
-         that carry detail beyond the link.",
+        "Memory: {}\n\nEntries:\n{}\n\nExisting links:\n{}",
         memory_id.0,
         entry_lines.join("\n"),
         if link_lines.is_empty() {
@@ -184,10 +206,10 @@ async fn identify_redundant(
 
     let Some(parsed) = crate::model::parse_structured::<RedundantEntries>(&response.completion)
     else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
 
-    // Parse the entry ids from strings back to EntryId.
+    // Parse the entry ids from strings back to EntryId, keeping only those that name a candidate.
     let entry_ids: Vec<crate::ids::EntryId> = parsed
         .retract_entry_ids
         .iter()
@@ -199,5 +221,5 @@ async fn identify_redundant(
         })
         .collect();
 
-    Ok(Some(entry_ids))
+    Ok(entry_ids)
 }

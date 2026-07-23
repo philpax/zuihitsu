@@ -253,14 +253,30 @@ impl MemoryBlock {
         // for `link("same_as", other)` as "these are the same person" — its stated intent is a merge —
         // so a create routes to the proposal path (an inert `MergeProposed` the operator confirms)
         // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
-        // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn. The
-        // `Agent` authority (maintenance passes) asserts `same_as` directly — the canonical-profile pass
-        // mints an empty profile and binds it, the "free merge" case with no visibility risk.
-        if relation == RelationName::SameAs && self.authority == Authority::Platform {
-            if create {
-                return self.propose_merge(from, to, None);
+        // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
+        if relation == RelationName::SameAs {
+            match self.authority {
+                Authority::Platform => {
+                    if create {
+                        return self.propose_merge(from, to, None);
+                    }
+                    return Err(MemoryError::MergeForbidden);
+                }
+                // The agent's own free-merge rule (issue #89): an `Authority::Agent` `same_as` asserts
+                // directly only when it binds a freshly-minted empty profile — one with no live entries
+                // of its own — since no visibility collapses when the bound node carries nothing. This is
+                // exactly the canonical-profile pass's mint-and-bind. Otherwise the assertion would merge
+                // two populated identities, collapsing their visibility classes, so it routes to the same
+                // inert `MergeProposed` machinery a platform turn's `same_as` produces — the merge waits
+                // for the operator. The rule lives in the guard, not the caller, so every `Agent`
+                // `same_as` is held to it.
+                Authority::Agent
+                    if create && !self.is_empty_profile(from)? && !self.is_empty_profile(to)? =>
+                {
+                    return self.propose_merge(from, to, None);
+                }
+                _ => {}
             }
-            return Err(MemoryError::MergeForbidden);
         }
         // A link from or to `self` modifies the self model — barred outside the console.
         self.guard_self(from)?;
@@ -326,6 +342,34 @@ impl MemoryBlock {
         };
         self.buffer.push(event);
         Ok(())
+    }
+
+    /// Designate `id` as its `same_as` class's primary (or release it when `designated` is false) —
+    /// the id class-level facts and reads resolve through (spec §Cross-platform identity). The
+    /// canonical-profile pass uses this to pin a bare profile as the readable identity for a platform
+    /// stub. Buffers a `ClassPrimaryDesignated` and touches the memory; the flag persists on the log
+    /// and survives a later unmerge. A `self` designation is barred like the block's other `self`
+    /// writes.
+    pub(crate) fn designate_primary(
+        &mut self,
+        id: MemoryId,
+        designated: bool,
+    ) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        self.touched.insert(id);
+        self.buffer
+            .push(EventPayload::class_primary_designated(id, designated));
+        Ok(())
+    }
+
+    /// Whether `id` is an empty profile: a memory with no live entries of its own `same_as` class. A
+    /// freshly-minted canonical profile is exactly this — a bare node with no facts — so binding it to
+    /// a stub collapses no visibility, which is what lets an `Authority::Agent` `same_as` assert it
+    /// directly rather than routing to the merge-proposal machinery. Reads committed state, so a
+    /// profile created earlier in this same block (not yet materialized) reads as empty, which is the
+    /// correct answer for the mint-and-bind case.
+    fn is_empty_profile(&self, id: MemoryId) -> Result<bool, MemoryError> {
+        Ok(self.engine.graph.lock().class_entries(id)?.is_empty())
     }
 }
 

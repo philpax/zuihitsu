@@ -57,6 +57,16 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             version: 2,
             body: body_of(include_str!("synthesis/entry_consolidation.md")),
         },
+        TemplateDef {
+            name: PromptTemplateName::NameIdentification,
+            version: 1,
+            body: body_of(include_str!("synthesis/name_identification.md")),
+        },
+        TemplateDef {
+            name: PromptTemplateName::LinkCleanup,
+            version: 1,
+            body: body_of(include_str!("synthesis/link_cleanup.md")),
+        },
     ]
 }
 

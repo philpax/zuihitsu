@@ -890,7 +890,7 @@ fn retract_if_live(
     memory: MemoryId,
     old: EntryId,
 ) -> Result<(), InstanceError> {
-    match block.retract(memory, old, "no longer set on the platform.") {
+    match block.retract(memory, old, "no longer set on the platform.", None) {
         Ok(()) | Err(MemoryError::UnknownEntry(_)) => Ok(()),
         Err(e) => Err(InstanceError::Memory(e)),
     }

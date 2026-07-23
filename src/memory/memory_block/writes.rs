@@ -314,12 +314,15 @@ impl MemoryBlock {
     /// must be non-empty (an unexplained retraction is unauditable). Buffers an `EntryRetracted`; the
     /// entry then drops from every live surface while remaining in history with its reason. Guarded
     /// exactly like `supersede`: platform authority may not retract a `self` entry, nor another
-    /// participant's confidence ([`MemoryBlock::guard_foreign_confidence_supersede`]).
+    /// participant's confidence ([`MemoryBlock::guard_foreign_confidence_supersede`]). A model-driven
+    /// caller (the link-cleanup maintenance pass) passes its `produced_by` so the tombstone carries the
+    /// model and template behind it; a mechanical or agent-authored retraction passes `None`.
     pub fn retract(
         &mut self,
         id: MemoryId,
         entry: impl Into<EntrySelector>,
         reason: &str,
+        produced_by: Option<ProducedBy>,
     ) -> Result<(), MemoryError> {
         // Recorded against the class primary when told through a platform-agnostic handle, matching where
         // `supersede` lands the tombstone — `live_class_entries` gathers the whole class either way, so
@@ -339,8 +342,12 @@ impl MemoryBlock {
         };
         self.guard_foreign_confidence_supersede(target)?;
         self.touched.insert(id);
-        self.buffer
-            .push(EventPayload::entry_retracted(id, entry, reason, None));
+        self.buffer.push(EventPayload::entry_retracted(
+            id,
+            entry,
+            reason,
+            produced_by,
+        ));
         Ok(())
     }
 

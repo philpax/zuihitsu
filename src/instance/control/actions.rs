@@ -398,7 +398,7 @@ impl Control<'_> {
             Vec::new(),
             max_entry_chars,
         )?;
-        match block.retract(memory_id, entry, reason) {
+        match block.retract(memory_id, entry, reason, None) {
             Ok(()) => {}
             Err(MemoryError::UnknownEntry(_)) => return Ok(RetractOutcome::UnknownEntry(entry)),
             Err(MemoryError::RetractionReasonRequired) => return Ok(RetractOutcome::EmptyReason),

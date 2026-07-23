@@ -304,7 +304,7 @@ pub(super) fn install_handle_methods(
                     api.lock_class(id).await?;
                     api.block
                         .lock()
-                        .retract(id, entry, &reason)
+                        .retract(id, entry, &reason, None)
                         .map_err(|error| route_error(error, &mut api.infra.lock()))
                 }
             }

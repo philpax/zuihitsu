@@ -999,11 +999,11 @@ fn retract_rejects_an_empty_reason() {
         .append(topic, "a fact", AppendOptions::default())
         .unwrap();
     assert!(matches!(
-        block.retract(topic, entry, "").unwrap_err(),
+        block.retract(topic, entry, "", None).unwrap_err(),
         MemoryError::RetractionReasonRequired
     ));
     assert!(matches!(
-        block.retract(topic, entry, "   ").unwrap_err(),
+        block.retract(topic, entry, "   ", None).unwrap_err(),
         MemoryError::RetractionReasonRequired
     ));
 }
@@ -1020,7 +1020,7 @@ fn retract_rejects_an_unknown_entry() {
         .unwrap();
     assert!(matches!(
         block
-            .retract(topic, EntryId::generate(), "gone")
+            .retract(topic, EntryId::generate(), "gone", None)
             .unwrap_err(),
         MemoryError::UnknownEntry(_)
     ));
@@ -1043,7 +1043,7 @@ fn retract_hides_the_entry_from_a_live_read_and_buffers_the_reason() {
         .append(topic, "withdrawn fact", AppendOptions::default())
         .unwrap();
     block
-        .retract(topic, withdrawn, "filed on the wrong topic")
+        .retract(topic, withdrawn, "filed on the wrong topic", None)
         .unwrap();
 
     // The live read no longer carries the retracted entry, but history keeps it.

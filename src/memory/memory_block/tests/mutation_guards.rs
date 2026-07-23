@@ -366,7 +366,9 @@ fn platform_authority_cannot_retract_a_foreign_confidence() {
         )
         .unwrap();
     assert!(matches!(
-        block.retract(topic, confided, "out of date").unwrap_err(),
+        block
+            .retract(topic, confided, "out of date", None)
+            .unwrap_err(),
         MemoryError::ForeignConfidenceSupersedeForbidden
     ));
 }
@@ -393,7 +395,7 @@ fn a_teller_may_retract_their_own_confidence() {
             told(Teller::Participant(speaker), VisibilityChoice::Private),
         )
         .unwrap();
-    block.retract(topic, mine, "no longer true").unwrap();
+    block.retract(topic, mine, "no longer true", None).unwrap();
 }
 
 #[test]

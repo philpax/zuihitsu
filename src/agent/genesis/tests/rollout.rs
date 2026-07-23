@@ -122,7 +122,7 @@ fn rollout_creates_a_complete_agent() {
         .iter()
         .filter(|e| matches!(e.payload, EventPayload::PromptTemplateRegistered { .. }))
         .count();
-    assert_eq!(templates, 7);
+    assert_eq!(templates, 9);
     let same_as = events.iter().any(|e| {
             matches!(&e.payload, EventPayload::LinkTypeRegistered { name, .. } if name.as_str() == "same_as")
         });
