@@ -127,6 +127,27 @@ impl MemoryBlock {
         superseded
     }
 
+    /// This block's pending attestations of `entry` — the `(teller, posture)` pairs buffered but not yet
+    /// committed — folded into the attestation write path so a second capture of the same entry within
+    /// the block sees the first (read-your-writes). Deliberately minimal: it reads only pending
+    /// [`EventPayload::EntryAttested`] events, since attestation retraction is not a block operation
+    /// here, and it is consulted only by the write path's idempotence check, not by the entry reads (a
+    /// pending attestation widening an entry's visibility mid-block is not reflected in `mem:entries`).
+    pub(super) fn pending_attestations(&self, entry: EntryId) -> Vec<(Teller, Visibility)> {
+        self.buffer
+            .iter()
+            .filter_map(|event| match event {
+                EventPayload::EntryAttested {
+                    entry: attested,
+                    teller,
+                    posture,
+                    ..
+                } if *attested == entry => Some((teller.clone(), posture.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// This block's pending content appends to any member of `members`, as entry refs, skipping any in
     /// `exclude` — the read-your-writes tail of a live or history entry read.
     pub(super) fn pending_entries(

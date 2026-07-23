@@ -100,8 +100,8 @@ pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView
 pub use instance::{
     Arbitration, CheckpointTrigger, ContextEntry, Control, DesignateOutcome, Instance,
     InstanceError, LinkError, LinkNode, LuaConsoleOutcome, MergeProposal, MessageInput, ModelCall,
-    ParticipantAttribute, ProjectOutcome, RetractOutcome, RosterResync, SelfEditOutcome,
-    SnapshotSchedule, UnmergeOutcome,
+    ParticipantAttribute, ProjectOutcome, RetractAttestationOutcome, RetractOutcome, RosterResync,
+    SelfEditOutcome, SnapshotSchedule, UnmergeOutcome,
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,

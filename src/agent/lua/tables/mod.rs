@@ -15,7 +15,7 @@ pub(super) use crate::{
     agent::turn::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn},
     event::TurnRole,
     ids::{MemoryName, TurnId},
-    memory::memory_block::{LinkDirection, LinkOptions, RelationSpec},
+    memory::memory_block::{AppendOutcome, LinkDirection, LinkOptions, RelationSpec, Retraction},
     time,
     vocabulary::{RelationName, TagName},
 };

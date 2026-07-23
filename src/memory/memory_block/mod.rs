@@ -41,9 +41,47 @@ pub use error::MemoryError;
 /// a bare string the agent typed — a full id, or a unique id prefix read off a rendered line — arrives
 /// as [`EntrySelector::Ref`] and is resolved against the memory's class (see
 /// [`MemoryBlock::resolve_entry_ref`]).
+#[derive(Debug)]
 pub enum EntrySelector {
     Id(EntryId),
     Ref(String),
+}
+
+/// What an `append` yielded once the dedup capture matrix ran: a fresh entry, or a corroboration of an
+/// existing entry the write was found to duplicate. The Lua layer hands back the entry either way (a
+/// corroboration returns the existing entry's handle) and surfaces the corroboration's note.
+#[derive(Debug)]
+pub enum AppendOutcome {
+    /// A new content entry was recorded; its id.
+    Appended(EntryId),
+    /// The write corroborated an existing entry rather than recording a duplicate — see
+    /// [`Corroboration`].
+    Corroborated(Corroboration),
+}
+
+/// An entry an `append` or an explicit `attest` stood behind rather than recording anew: the existing
+/// entry now attested, and the note the agent reads so the capture is never silent.
+#[derive(Debug)]
+pub struct Corroboration {
+    pub entry: EntryId,
+    pub note: String,
+}
+
+/// What a [`MemoryBlock::retract`] did. Under a conversation turn (platform authority) a retraction is
+/// per-attester: when the fact is corroborated by other tellers, only the speaker's own account is
+/// withdrawn and the entry stands; the Lua layer surfaces `Withdrawn`'s note into the agent's own
+/// output so the partial withdrawal is never silent. A maintenance pass or the console (agent or
+/// operator authority) always retracts the whole entry, as does a turn whose speaker is the fact's
+/// sole teller.
+#[derive(Debug)]
+pub enum Retraction {
+    /// The whole entry was tombstoned — the speaker was the fact's only teller, it was a
+    /// public/attributed fact the speaker never attested, or the write ran under agent/operator
+    /// authority (which retract the entry outright).
+    Entry,
+    /// Only the speaker's attestation was withdrawn; the fact stands, attested by the remaining
+    /// tellers. The note names those visible to the present audience — never the hidden ones.
+    Withdrawn { note: String },
 }
 
 impl From<EntryId> for EntrySelector {
@@ -322,6 +360,13 @@ pub struct AppendOptions {
     pub told_by: Option<Teller>,
     #[serde(skip)]
     pub exclude: Option<BTreeSet<MemoryId>>,
+    /// An entry the dedup scan skips — that entry only — so a re-append the agent has decided names a
+    /// genuinely different fact records anew rather than being folded into the entry a near-duplicate
+    /// check matched. Every other capture still fires. Resolved at the Lua boundary (an entry handle,
+    /// id, or unique id prefix) and set after, so it carries a resolved [`EntrySelector`] rather than a
+    /// raw Lua value.
+    #[serde(skip)]
+    pub distinct_from: Option<EntrySelector>,
 }
 
 /// The overrides a `links.create` call accepts: `visibility` forces the visibility instead of the

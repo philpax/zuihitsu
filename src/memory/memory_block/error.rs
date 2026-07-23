@@ -130,6 +130,10 @@ pub enum MemoryError {
     /// tombstone in history, so it must state why it was withdrawn — an unexplained retraction is
     /// unauditable, a teachable error rather than a silent tombstone.
     RetractionReasonRequired,
+    /// An operator per-attestation retraction named a teller who does not attest the entry. The
+    /// console withdraws a specific teller's account, so a teller standing behind nothing is a
+    /// misuse — surfaced like an unknown entry, never reaching the agent (this path is operator-only).
+    UnknownAttestation,
     /// A content entry exceeded the maximum length. Memory entries record distilled facts, not source
     /// content — the agent should summarize what it learned in under the limit rather than pasting a
     /// fetched page or raw transcript.
@@ -143,6 +147,12 @@ pub enum MemoryError {
         existing_entry_id: EntryId,
         snippet: String,
     },
+    /// A `mem:attest` (or an auto-corroboration) resolved to a posture wider than the entry's own
+    /// founding posture — the audience-widening invariant. A fact is held at a chosen audience; a
+    /// further teller may stand behind it at that audience or narrower, never wider. If the fact is now
+    /// openly stated where it was a confidence, the honest move is to append it afresh at the open
+    /// posture, and the private copy is folded in by the consolidation pass.
+    AttestationWiderThanEntry,
     /// A consolidation write violated one of the pass's own invariants — no sources, sources that do
     /// not share a visibility level, or a cross-teller merge at a non-public level. The maintenance
     /// pass is the only caller and it groups its sources to satisfy these before calling, so this is
@@ -301,6 +311,11 @@ impl std::fmt::Display for MemoryError {
                  mem:retract(entry, \"filed on the wrong person\"); a retraction with no reason is \
                  unauditable"
             ),
+            MemoryError::UnknownAttestation => write!(
+                f,
+                "no attestation by that teller on this entry to withdraw; the teller stands behind \
+                 nothing here"
+            ),
             MemoryError::ContentTooLong { length, limit } => write!(
                 f,
                 "this entry is {length} characters; memory entries record distilled facts, not source \
@@ -314,12 +329,19 @@ impl std::fmt::Display for MemoryError {
                 let preview = snippet_for(snippet);
                 write!(
                     f,
-                    "this fact is already held as entry {:?} — {preview}; supersede \
+                    "you already attest this fact — it is held as entry {:?} — {preview}. Supersede \
                      it with mem:supersede(entry, text) if the fact genuinely changed, or skip the \
                      write if it has not",
                     existing_entry_id.0
                 )
             }
+            MemoryError::AttestationWiderThanEntry => write!(
+                f,
+                "this fact is held at a narrower audience than you are attesting it to — an \
+                 attestation may stand at the entry's own posture or narrower, never wider. If it is \
+                 now openly stated where it was private, append it afresh at the open posture and the \
+                 private copy will be folded in"
+            ),
             MemoryError::ConsolidationInvariant(reason) => {
                 write!(f, "consolidation: {reason}")
             }

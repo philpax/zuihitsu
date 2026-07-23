@@ -760,10 +760,14 @@ impl From<TaintedWriteError> for LuaError {
 /// A block-consistency invariant: an entry the block just buffered could not be read back. A bug,
 /// not the agent's doing — surfaced as a catchable error rather than a panic so a misbehaving build
 /// does not tear the whole session down.
+// Each variant names the operation whose just-buffered entry could not be read back; the shared
+// `EntryMissing` suffix is the point (they are the same class of bug), not redundant naming.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 pub(super) enum BlockConsistencyError {
     AppendedEntryMissing,
     RevisedEntryMissing,
+    AttestedEntryMissing,
 }
 
 impl std::fmt::Display for BlockConsistencyError {
@@ -774,6 +778,9 @@ impl std::fmt::Display for BlockConsistencyError {
             }
             BlockConsistencyError::RevisedEntryMissing => {
                 write!(f, "the revised entry was not found in the block buffer")
+            }
+            BlockConsistencyError::AttestedEntryMissing => {
+                write!(f, "the attested entry could not be read back")
             }
         }
     }

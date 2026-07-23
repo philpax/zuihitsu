@@ -1,4 +1,4 @@
-//! Memory API reference entries: create, get, get_or_create, search, list, append, entries,
+//! Memory API reference entries: create, get, get_or_create, search, list, append, attest, entries,
 //! find_entry, history, details, supersede, retract, revise, rename, set_volatility, and the
 //! always-on block.abort.
 
@@ -226,6 +226,60 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                          itself a valid occurred_at — pass it directly — and may also stand in for any \
                          <ms> position, its endpoint covering the whole day"
                     ),
+                )
+                .optional(
+                    "distinct_from",
+                    AT::Entry,
+                    "when a near-duplicate check would otherwise fold this write into an existing \
+                     entry as a corroboration, name that entry — its object, id, or a unique id \
+                     prefix — to record this as a genuinely separate fact instead; the scan skips \
+                     exactly that entry. Reach for it only when you mean a different fact the check \
+                     mistook for the same one",
+                ),
+            "overrides",
+        )
+        .returns(AT::Entry);
+
+    let attest = AE::new("<memory>:attest")
+        .description(
+            "Stand behind an existing entry's fact as a further teller, instead of recording it \
+             again. When someone independently confirms something you already hold, attest the entry \
+             rather than appending a duplicate — the fact gains a corroborating teller and keeps its \
+             wording. An ordinary <memory>:append already does this for you when it detects a \
+             near-duplicate (returning the existing entry with a note); reach for attest when you \
+             have the entry in hand and mean to corroborate it directly. The attestation is governed \
+             like any confidence: its posture may sit at the entry's own audience or narrower, never \
+             wider — if the fact is now openly stated where it was private, append it afresh instead.",
+        )
+        .required(
+            "entry",
+            AT::Entry,
+            "the entry to stand behind — its object (from <memory>:entries or <memory>:find_entry), \
+             or its id or a unique id prefix as a string",
+        )
+        .optional(
+            "opts",
+            object()
+                .optional(
+                    "by_agent",
+                    AT::Boolean,
+                    "attest it as your own observation instead of the speaker's",
+                )
+                .optional(
+                    "told_by",
+                    AT::Handle,
+                    "attribute the attestation to a specific teller other than the current speaker — \
+                     a person handle or their name as a string",
+                )
+                .optional(
+                    "visibility",
+                    enum_of(["public", "private"]),
+                    "the attestation's posture; it may not be wider than the entry's own",
+                )
+                .optional(
+                    "exclude",
+                    AT::Handle.list(),
+                    "withhold the attestation from named parties, like append's exclude",
                 ),
             "overrides",
         )
@@ -329,7 +383,10 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              occurred_at when you know the date. That two-step is deliberate: a fact's visibility is \
              resolved on the memory it sits on, so moving it in place would quietly change its \
              meaning; re-asserting it on the right memory is the honest correction. A reason is \
-             required — an unexplained retraction is unauditable.",
+             required — an unexplained retraction is unauditable. When other tellers have \
+             corroborated the fact, retracting withdraws only your own account and the fact stands on \
+             theirs (you will see a note saying so); it drops entirely only once no teller stands \
+             behind it.",
         )
         .required(
             "entry",
@@ -404,6 +461,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         search,
         list,
         append,
+        attest,
         entries,
         find_entry,
         details,

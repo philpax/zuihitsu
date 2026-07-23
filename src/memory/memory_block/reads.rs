@@ -179,4 +179,15 @@ impl MemoryBlock {
             _ => None,
         })
     }
+    /// The [`EntryRef`] for an entry addressable this block, whether it was just appended (found in the
+    /// buffer) or already committed (read from the graph) — so a corroboration can hand back the
+    /// existing entry it stood behind, not only a freshly-appended one. Prefers the pending copy so a
+    /// same-block append still renders with the teller and visibility it was buffered under.
+    pub fn entry_ref_by_id_any(&self, entry_id: EntryId) -> Result<Option<EntryRef>, MemoryError> {
+        if let Some(entry) = self.entry_ref_by_id(entry_id) {
+            return Ok(Some(entry));
+        }
+        let committed = { self.engine.graph.lock().entry_by_id(entry_id)? };
+        Ok(committed.map(|(_, view)| self.entry_ref(view, &BTreeSet::new(), false, false)))
+    }
 }

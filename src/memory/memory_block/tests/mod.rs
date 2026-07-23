@@ -1,5 +1,6 @@
 //! Shared fixtures and the concern-grouped test submodules for the memory block.
 
+mod attestation_retraction;
 mod authority;
 mod conflict_suggestions;
 mod consolidation;

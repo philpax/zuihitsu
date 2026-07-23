@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryId,
     EntryView, EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
-    PromptTemplateName, RetractOutcome, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView,
-    Settings, UnmergeOutcome, genesis::GenesisStatus,
+    PromptTemplateName, RetractAttestationOutcome, RetractOutcome, Rollout, SeedSelf,
+    SelfEditOutcome, Seq, SessionView, Settings, Teller, UnmergeOutcome, genesis::GenesisStatus,
 };
 use zuihitsu_platform_connector_types::PlatformResponse;
 
@@ -418,6 +418,49 @@ pub(super) async fn retract_entry(
             entry.0, request.memory
         ))),
         RetractOutcome::EmptyReason => Err(ApiError::BadRequest(
+            "a retraction must have a reason".to_owned(),
+        )),
+    }
+}
+
+/// The body of a `POST /control/retract-attestation` — withdraw one teller's attestation from a live
+/// entry under operator authority. The named teller's account leaves the entry; if it was the last
+/// live attestation, the entry is tombstoned. `teller` is the wire [`Teller`] the console renders from
+/// an entry's attestation set.
+#[derive(Deserialize)]
+pub(super) struct RetractAttestationRequest {
+    memory: String,
+    entry: EntryId,
+    teller: Teller,
+    reason: String,
+}
+
+/// `POST /control/retract-attestation` — withdraw one teller's attestation from a live entry under
+/// operator authority (the console's per-attester lever). `404` when the memory, entry, or attestation
+/// is unknown; `400` on an empty reason. Operator authority (the whole `/control` surface is key-gated).
+pub(super) async fn retract_attestation(
+    State(state): State<AppState>,
+    Json(request): Json<RetractAttestationRequest>,
+) -> Result<Json<()>, ApiError> {
+    match state.server.control().retract_attestation(
+        &request.memory,
+        request.entry,
+        request.teller,
+        &request.reason,
+    )? {
+        RetractAttestationOutcome::Retracted => Ok(Json(())),
+        RetractAttestationOutcome::UnknownMemory => Err(ApiError::NotFound(format!(
+            "no live memory named {}",
+            request.memory
+        ))),
+        RetractAttestationOutcome::UnknownEntry(entry) => Err(ApiError::NotFound(format!(
+            "no live entry with id {} on {}",
+            entry.0, request.memory
+        ))),
+        RetractAttestationOutcome::UnknownAttestation => Err(ApiError::NotFound(
+            "the named teller does not attest this entry".to_owned(),
+        )),
+        RetractAttestationOutcome::EmptyReason => Err(ApiError::BadRequest(
             "a retraction must have a reason".to_owned(),
         )),
     }

@@ -23,6 +23,11 @@ pub(super) struct LiveEntry {
     pub entry_id: EntryId,
     pub told_by: Teller,
     pub visibility: Visibility,
+    /// The entry's live attestations as `(teller, posture)` pairs — the founding attestation plus any
+    /// further teller's, folded with this block's pending `EntryAttested`/`AttestationRetracted` so a
+    /// same-block corroboration is seen (read-your-writes). The supersede and retract guards read this
+    /// to decide whether the writing teller stands among the entry's tellers.
+    pub attestations: Vec<(Teller, Visibility)>,
 }
 
 impl MemoryBlock {
@@ -161,32 +166,54 @@ impl MemoryBlock {
         if self.authority != Authority::Platform {
             return Ok(());
         }
-        // Public and attributed entries surface to anyone; only a confidence is protected.
+        // An entry is a confidence iff its *founding* posture is a private one — the invariant keeps
+        // every attestation on it a confidence too. A public or attributed entry surfaces to anyone
+        // and is never gated here, even when it carries a hidden private attestation: gating on that
+        // would leak the attestation's existence through the refusal and make a public fact
+        // un-correctable.
         if !matches!(
             entry.visibility,
             Visibility::PrivateToTeller | Visibility::Exclude(_)
         ) {
             return Ok(());
         }
-        // Only a participant-told confidence can be foreign; agent- and genesis-told entries are not gated.
-        let Teller::Participant(teller) = &entry.told_by else {
-            return Ok(());
-        };
-        // The confidence is the current speaker's own (or a merged identity of theirs) iff the speaker is
-        // a participant in the same `same_as` class. An agent or bootstrap speaker is never that teller.
-        if let Teller::Participant(speaker) = &self.teller
-            && self.same_participant_class(*speaker, *teller)?
-        {
+        // Only a participant-founded confidence can be foreign; an agent- or genesis-founded private
+        // note is nobody's entrusted secret, so it is not gated.
+        if !matches!(entry.told_by, Teller::Participant(_)) {
             return Ok(());
         }
+        // The speaker's teller-class clears the guard iff it stands among the entry's live attesters.
+        // The founding teller is merely one attestation in the set, so this generalizes "the speaker
+        // is the teller" to "the speaker attests the fact": a speaker who privately corroborated a
+        // confidence may correct it, while one who never stood behind it may not.
+        for (teller, _) in &entry.attestations {
+            if self.same_teller_class(teller, &self.teller)? {
+                return Ok(());
+            }
+        }
         Err(MemoryError::ForeignConfidenceSupersedeForbidden)
+    }
+
+    /// Whether two tellers stand for the same identity: two participants of one `same_as` class, or the
+    /// same non-participant teller. The attestation write path keys on this — a corroboration by a
+    /// merged identity of a fact's founding teller is the same teller re-recording, not a second one.
+    pub(super) fn same_teller_class(&self, a: &Teller, b: &Teller) -> Result<bool, MemoryError> {
+        match (a, b) {
+            (Teller::Participant(x), Teller::Participant(y)) => self.same_participant_class(*x, *y),
+            (Teller::Agent, Teller::Agent) | (Teller::Bootstrap, Teller::Bootstrap) => Ok(true),
+            _ => Ok(false),
+        }
     }
 
     /// Whether two participant memories resolve to the same `same_as` class — so a confidence told by a
     /// merged identity of the current speaker counts as the speaker's own. Falls back to the memory's
     /// own id when it is unmerged (its own class), matching the read-time visibility predicate's
     /// identity model.
-    fn same_participant_class(&self, a: MemoryId, b: MemoryId) -> Result<bool, MemoryError> {
+    pub(super) fn same_participant_class(
+        &self,
+        a: MemoryId,
+        b: MemoryId,
+    ) -> Result<bool, MemoryError> {
         if a == b {
             return Ok(true);
         }
@@ -226,10 +253,20 @@ impl MemoryBlock {
         let mut entries: Vec<LiveEntry> = committed
             .into_iter()
             .filter(|entry| !pending_superseded.contains(&entry.entry_id))
-            .map(|entry| LiveEntry {
-                entry_id: entry.entry_id,
-                told_by: entry.told_by,
-                visibility: entry.visibility,
+            .map(|entry| {
+                // The committed live attestations are the fold's base; a same-block attestation or
+                // withdrawal folds over them below.
+                let base = entry
+                    .attestations
+                    .iter()
+                    .map(|attestation| (attestation.teller.clone(), attestation.posture.clone()))
+                    .collect();
+                LiveEntry {
+                    attestations: self.fold_pending_attestations(entry.entry_id, base),
+                    entry_id: entry.entry_id,
+                    told_by: entry.told_by,
+                    visibility: entry.visibility,
+                }
             })
             .collect();
         for event in &self.buffer {
@@ -243,7 +280,11 @@ impl MemoryBlock {
                 && members.contains(entry_memory)
                 && !pending_superseded.contains(entry_id)
             {
+                // A pending append has no committed row yet, so its founding attestation — the teller
+                // and posture it was buffered under — is the fold's base.
+                let base = vec![(told_by.clone(), visibility.clone())];
                 entries.push(LiveEntry {
+                    attestations: self.fold_pending_attestations(*entry_id, base),
                     entry_id: *entry_id,
                     told_by: told_by.clone(),
                     visibility: visibility.clone(),
@@ -251,6 +292,38 @@ impl MemoryBlock {
             }
         }
         Ok(entries)
+    }
+
+    /// Fold this block's pending attestation writes over `base` — the committed live attestations of
+    /// `entry` (or the founding attestation of a pending append) — so a guard read sees a same-block
+    /// corroboration or withdrawal (read-your-writes). A pending [`EventPayload::EntryAttested`]
+    /// upserts by exact teller (last-writer-wins, matching the fold's `(entry, teller)` key), and a
+    /// pending [`EventPayload::AttestationRetracted`] removes that teller's row.
+    pub(super) fn fold_pending_attestations(
+        &self,
+        entry: EntryId,
+        mut base: Vec<(Teller, Visibility)>,
+    ) -> Vec<(Teller, Visibility)> {
+        for event in &self.buffer {
+            match event {
+                EventPayload::EntryAttested {
+                    entry: attested,
+                    teller,
+                    posture,
+                    ..
+                } if *attested == entry => match base.iter_mut().find(|(held, _)| held == teller) {
+                    Some(slot) => slot.1 = posture.clone(),
+                    None => base.push((teller.clone(), posture.clone())),
+                },
+                EventPayload::AttestationRetracted {
+                    entry: retracted,
+                    teller,
+                    ..
+                } if *retracted == entry => base.retain(|(held, _)| held != teller),
+                _ => {}
+            }
+        }
+        base
     }
 
     /// Buffer a content entry and touch its memory, returning the minted entry id (so a write can be

@@ -23,7 +23,7 @@ use session::{OpenSession, RoutedTurn, TailSeed, carryover_tail};
 
 pub use control::{
     Arbitration, ContextEntry, Control, DesignateOutcome, LuaConsoleOutcome, MergeProposal,
-    ModelCall, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
+    ModelCall, RetractAttestationOutcome, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
 };
 pub use platform::{
     LinkError, LinkNode, MessageInput, ParticipantAttribute, Platform, ProjectOutcome, RosterResync,
