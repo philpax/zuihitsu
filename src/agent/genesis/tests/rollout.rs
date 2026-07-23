@@ -2,7 +2,7 @@
 
 use crate::{
     InstanceFeatures,
-    agent::genesis::{self, GenesisStatus, Rollout},
+    agent::genesis::{self, GenesisStatus, Rollout, TemplateReconciliation},
     event::{EventPayload, EventSource, PromptTemplateName},
     ids::Seq,
     settings::Settings,
@@ -316,10 +316,11 @@ fn reconcile_registers_only_names_the_log_has_never_seen() {
     let features = InstanceFeatures::default();
     genesis::rollout(&mut store, &clock(), &seed(), None, &features).unwrap();
 
-    // A born log holds every default, so the reconcile has nothing to add.
-    let registered = genesis::reconcile_new_templates(&mut store, &clock(), &features).unwrap();
+    // A born log holds every default at its build version, so the reconcile has nothing to do.
+    let counts = genesis::reconcile_templates(&mut store, &clock(), &features).unwrap();
     assert_eq!(
-        registered, 0,
+        counts,
+        TemplateReconciliation::default(),
         "a log born under this build already holds every default template"
     );
 }
@@ -334,47 +335,35 @@ fn reconcile_backfills_a_template_the_genesis_predates() {
     // one name, keeping everything else (a MemoryStore replays from events, so the surgery is a
     // filtered copy).
     let dropped = PromptTemplateName::EntryConsolidation;
-    let mut old_log = MemoryStore::new();
-    for event in store.read_from(Seq::ZERO).unwrap() {
-        if matches!(
-            &event.payload,
-            EventPayload::PromptTemplateRegistered { name, .. } if *name == dropped
-        ) {
-            continue;
-        }
-        old_log
-            .append(event.recorded_at, event.source.clone(), vec![event.payload])
-            .unwrap();
-    }
+    let mut old_log = log_without(&store, dropped);
 
     let defaults = crate::agent::genesis::seed::default_templates(&features);
-    let expected: Vec<u32> = defaults
+    let default_version = defaults
         .iter()
-        .filter(|template| template.name == dropped)
+        .find(|template| template.name == dropped)
         .map(|template| template.version)
-        .collect();
-    assert!(
-        !expected.is_empty(),
-        "the dropped name must exist among the build defaults"
-    );
-    let registered = genesis::reconcile_new_templates(&mut old_log, &clock(), &features).unwrap();
+        .expect("the dropped name must exist among the build defaults");
+
+    let counts = genesis::reconcile_templates(&mut old_log, &clock(), &features).unwrap();
     assert_eq!(
-        registered,
-        expected.len(),
-        "every default version of the absent name is backfilled, and nothing else"
+        counts,
+        TemplateReconciliation {
+            backfilled: 1,
+            ..Default::default()
+        },
+        "the absent name is backfilled, and nothing else"
     );
     let template = crate::agent::templates::latest_template(&old_log, dropped)
         .unwrap()
         .expect("the reconcile registered the template");
     assert_eq!(
-        Some(template.version),
-        expected.iter().copied().max(),
-        "the highest default version becomes the latest"
+        template.version, default_version,
+        "the build default version becomes the latest"
     );
 
-    // Idempotent: a second boot adds nothing.
-    let again = genesis::reconcile_new_templates(&mut old_log, &clock(), &features).unwrap();
-    assert_eq!(again, 0);
+    // Idempotent: a second boot does nothing.
+    let again = genesis::reconcile_templates(&mut old_log, &clock(), &features).unwrap();
+    assert_eq!(again, TemplateReconciliation::default());
 }
 
 #[test]
@@ -396,8 +385,8 @@ fn reconcile_never_touches_an_operator_curated_name() {
             )],
         )
         .unwrap();
-    let registered = genesis::reconcile_new_templates(&mut store, &clock(), &features).unwrap();
-    assert_eq!(registered, 0);
+    let counts = genesis::reconcile_templates(&mut store, &clock(), &features).unwrap();
+    assert_eq!(counts, TemplateReconciliation::default());
     let template =
         crate::agent::templates::latest_template(&store, PromptTemplateName::EntryConsolidation)
             .unwrap()
@@ -406,4 +395,147 @@ fn reconcile_never_touches_an_operator_curated_name() {
         template.version, 7,
         "the operator's version stays the latest"
     );
+}
+
+#[test]
+fn reconcile_upgrades_an_unchanged_default_to_a_newer_build_default() {
+    let mut store = MemoryStore::new();
+    let features = InstanceFeatures::default();
+    genesis::rollout(&mut store, &clock(), &seed(), None, &features).unwrap();
+
+    // Simulate a log born under an older build: the name's latest registration is Bootstrap-sourced
+    // at a version below the current build default. An unchanged default auto-tracks the build.
+    let name = PromptTemplateName::EntryConsolidation;
+    let default_version = default_version(&features, name);
+    let older = default_version - 1;
+    let mut old_log = log_without(&store, name);
+    old_log
+        .append(
+            Timestamp::from_millis(2),
+            EventSource::Bootstrap,
+            vec![EventPayload::prompt_template_registered(
+                name,
+                older,
+                "an older build default body".to_owned(),
+            )],
+        )
+        .unwrap();
+
+    let counts = genesis::reconcile_templates(&mut old_log, &clock(), &features).unwrap();
+    assert_eq!(
+        counts,
+        TemplateReconciliation {
+            upgraded: 1,
+            ..Default::default()
+        },
+        "the unchanged default is advanced to the newer build default"
+    );
+    let template = crate::agent::templates::latest_template(&old_log, name)
+        .unwrap()
+        .expect("the upgraded template stands");
+    assert_eq!(template.version, default_version);
+}
+
+#[test]
+fn reconcile_holds_an_operator_edited_name_even_when_outdated() {
+    let mut store = MemoryStore::new();
+    let features = InstanceFeatures::default();
+    genesis::rollout(&mut store, &clock(), &seed(), None, &features).unwrap();
+
+    // The operator edited this name back when the build default was lower; the build has since shipped
+    // a newer default. The curated surface is sovereign — surfaced as upgradeable, never auto-touched.
+    let name = PromptTemplateName::EntryConsolidation;
+    let default_version = default_version(&features, name);
+    let curated_version = default_version - 1;
+    let mut old_log = log_without(&store, name);
+    old_log
+        .append(
+            Timestamp::from_millis(2),
+            EventSource::Operator,
+            vec![EventPayload::prompt_template_registered(
+                name,
+                curated_version,
+                "an operator-authored body".to_owned(),
+            )],
+        )
+        .unwrap();
+
+    let counts = genesis::reconcile_templates(&mut old_log, &clock(), &features).unwrap();
+    assert_eq!(
+        counts,
+        TemplateReconciliation {
+            held_as_curated: 1,
+            ..Default::default()
+        },
+        "the outdated curated name is held, not upgraded"
+    );
+    let template = crate::agent::templates::latest_template(&old_log, name)
+        .unwrap()
+        .expect("the operator's registration stands");
+    assert_eq!(
+        template.version, curated_version,
+        "the curated version is untouched"
+    );
+}
+
+#[test]
+fn reconcile_never_downgrades_a_log_born_under_a_newer_build() {
+    let mut store = MemoryStore::new();
+    let features = InstanceFeatures::default();
+    genesis::rollout(&mut store, &clock(), &seed(), None, &features).unwrap();
+
+    // A log born under a future build carries a Bootstrap registration at a version above this build's
+    // default. The reconcile leaves it alone rather than registering an older default beneath it.
+    let name = PromptTemplateName::EntryConsolidation;
+    let future_version = default_version(&features, name) + 50;
+    let mut future_log = log_without(&store, name);
+    future_log
+        .append(
+            Timestamp::from_millis(2),
+            EventSource::Bootstrap,
+            vec![EventPayload::prompt_template_registered(
+                name,
+                future_version,
+                "a future build default body".to_owned(),
+            )],
+        )
+        .unwrap();
+
+    let counts = genesis::reconcile_templates(&mut future_log, &clock(), &features).unwrap();
+    assert_eq!(counts, TemplateReconciliation::default());
+    let template = crate::agent::templates::latest_template(&future_log, name)
+        .unwrap()
+        .expect("the future registration stands");
+    assert_eq!(
+        template.version, future_version,
+        "a newer registration is never downgraded"
+    );
+}
+
+/// The build default version for a template name — the fixture reference point the reconcile tests
+/// register older or newer versions around.
+fn default_version(features: &InstanceFeatures, name: PromptTemplateName) -> u32 {
+    crate::agent::genesis::seed::default_templates(features)
+        .into_iter()
+        .find(|template| template.name == name)
+        .map(|template| template.version)
+        .expect("the name is a build default")
+}
+
+/// A born log with every registration of `name` dropped, keeping everything else verbatim (a
+/// MemoryStore replays from events, so the surgery is a filtered copy). The reconcile tests then
+/// append the one registration whose latest-source and version they mean to probe.
+fn log_without(born: &MemoryStore, name: PromptTemplateName) -> MemoryStore {
+    let mut out = MemoryStore::new();
+    for event in born.read_from(Seq::ZERO).unwrap() {
+        if matches!(
+            &event.payload,
+            EventPayload::PromptTemplateRegistered { name: registered, .. } if *registered == name
+        ) {
+            continue;
+        }
+        out.append(event.recorded_at, event.source.clone(), vec![event.payload])
+            .unwrap();
+    }
+    out
 }

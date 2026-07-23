@@ -41,8 +41,8 @@ use control::{
     arbitrations, confirm_merge, create_agent, designate_primary, edit_self, entries, env_config,
     events, genesis, health, imprint, interactions, lua_api, maintenance_canonicalize,
     maintenance_consolidate, maintenance_link_cleanup, memories, memory, merge_proposals, metrics,
-    recurring, register_prompt, retract_attestation, retract_entry, run_lua, sessions,
-    set_settings, settings, snapshot as snapshot_handler, unmerge,
+    prompt_status, recurring, register_prompt, retract_attestation, retract_entry, run_lua,
+    sessions, set_settings, settings, snapshot as snapshot_handler, unmerge,
 };
 use platform::{join, link, message, message_stream, project, roster, self_memory, write_context};
 
@@ -536,6 +536,7 @@ fn router(state: AppState) -> Router {
         .route("/lua", post(run_lua))
         .route("/lua-api", get(lua_api))
         .route("/prompt", post(register_prompt))
+        .route("/prompt-status", get(prompt_status))
         .route("/maintenance/consolidate", post(maintenance_consolidate))
         .route("/maintenance/canonicalize", post(maintenance_canonicalize))
         .route("/maintenance/link-cleanup", post(maintenance_link_cleanup))

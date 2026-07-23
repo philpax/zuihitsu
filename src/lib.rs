@@ -31,7 +31,7 @@ pub use zuihitsu_core::{
 
 // The TypeScript wire-contract types live in `zuihitsu-frontend-types` (a separate crate that
 // depends only on `zuihitsu-core`, avoiding a build cycle with the main crate's `build.rs`).
-pub use zuihitsu_frontend_types::{BackendHealth, CircuitState};
+pub use zuihitsu_frontend_types::{BackendHealth, CircuitState, TemplateStatus};
 pub use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis

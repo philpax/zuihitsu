@@ -42,6 +42,8 @@ pub(crate) enum CliError {
     Embed(String),
     /// The `reindex` command could not delete the vector index.
     Reindex(String),
+    /// The `upgrade-prompts` command could not read the templates or append the registrations.
+    UpgradePrompts(String),
 }
 
 impl From<ClientError> for CliError {
@@ -81,6 +83,7 @@ impl std::fmt::Display for CliError {
             CliError::MarkdownFetch(message) => write!(f, "markdown-fetch: {message}"),
             CliError::Embed(message) => write!(f, "embed: {message}"),
             CliError::Reindex(message) => write!(f, "reindex: {message}"),
+            CliError::UpgradePrompts(message) => write!(f, "upgrade-prompts: {message}"),
         }
     }
 }
@@ -103,7 +106,8 @@ impl std::error::Error for CliError {
             | CliError::ClearOccurrence(_)
             | CliError::MarkdownFetch(_)
             | CliError::Embed(_)
-            | CliError::Reindex(_) => None,
+            | CliError::Reindex(_)
+            | CliError::UpgradePrompts(_) => None,
         }
     }
 }

@@ -20,6 +20,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
         api::ApiEntry,
         live::LiveEvent,
         package::{EvalPackage, PackageSummary},
+        prompts::TemplateStatus,
     };
     use zuihitsu_core::{
         brief::BriefTrace,
@@ -51,6 +52,8 @@ pub fn export_types(dir: &Path) -> Result<()> {
     // console reference renders (`GET /control/lua-api`).
     ApiEntry::export_all_to(dir).context("exporting ApiEntry")?;
     TurnProgress::export_all_to(dir).context("exporting TurnProgress")?;
+    // The prompt-template status the console badges curated surfaces from (`GET /control/prompt-status`).
+    TemplateStatus::export_all_to(dir).context("exporting TemplateStatus")?;
 
     // The core view types the console renders and the console-wasm DTOs compose from.
     // `export_all_to` writes each type and its transitive dependencies, so exporting `BriefTrace`

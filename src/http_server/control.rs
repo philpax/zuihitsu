@@ -13,7 +13,8 @@ use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryId,
     EntryView, EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
     PromptTemplateName, RetractAttestationOutcome, RetractOutcome, Rollout, SeedSelf,
-    SelfEditOutcome, Seq, SessionView, Settings, Teller, UnmergeOutcome, genesis::GenesisStatus,
+    SelfEditOutcome, Seq, SessionView, Settings, Teller, TemplateStatus, UnmergeOutcome,
+    genesis::GenesisStatus,
 };
 use zuihitsu_platform_connector_types::PlatformResponse;
 
@@ -496,6 +497,16 @@ pub(super) async fn lua_api(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ApiEntry>>, ApiError> {
     Ok(Json(state.server.control().lua_api()))
+}
+
+/// `GET /control/prompt-status` — each prompt template name's status against this build's defaults:
+/// its latest registered version, whether it is a curated (operator-edited) surface, the build's
+/// newest default version, and whether a newer default is available for a curated surface to adopt.
+/// The console badges the curated surfaces carrying a pending upgrade.
+pub(super) async fn prompt_status(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<TemplateStatus>>, ApiError> {
+    Ok(Json(state.server.control().template_statuses()?))
 }
 
 /// `POST /control/prompt` — register a new version of a prompt template (the operator edit path); the

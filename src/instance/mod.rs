@@ -281,12 +281,12 @@ impl Instance {
     /// in the commit window — and classify the log for the caller to act on. The single-writer log
     /// lock is acquired when the (file-backed) store is opened, before the instance is constructed.
     pub fn boot(&mut self) -> Result<GenesisStatus, InstanceError> {
-        // A born agent picks up any template names this build introduced after its genesis —
-        // additive only, so operator-curated registrations are never touched (see
-        // `genesis::reconcile_new_templates`). Before materialization, so the graph applies the
-        // registrations in the same catch-up.
+        // A born agent reconciles its templates against this build: names its genesis predates are
+        // backfilled, unchanged defaults (Bootstrap-latest) auto-track the build, and operator-curated
+        // surfaces are left untouched (see `genesis::reconcile_templates`). Before materialization, so
+        // the graph applies the registrations in the same catch-up.
         if genesis::status(self.engine.store.lock().as_ref())? == GenesisStatus::Complete {
-            genesis::reconcile_new_templates(
+            genesis::reconcile_templates(
                 self.engine.store.lock().as_mut(),
                 self.engine.clock.as_ref(),
                 &self.features,

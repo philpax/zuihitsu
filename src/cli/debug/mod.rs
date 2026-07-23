@@ -3,10 +3,12 @@
 //! catalogue. These read either the running server (arbitrations, interactions) or the config-selected
 //! store and servers (events, brief, revert, mcp), so the dispatch takes both a client and a config.
 //!
-//! Most commands are read-only, but four write: `revert` and `delete-memory` (documented on their own
-//! variants), and the two operator corrections `retract` and `clear-occurrence`. The corrections append
-//! one forward, operator-sourced event each — a retraction, or an occurrence withdrawal — so they need
-//! the single-writer log lock and the agent must be stopped first (see [`correction`]).
+//! Most commands are read-only, but five write: `revert` and `delete-memory` (documented on their own
+//! variants), the two operator corrections `retract` and `clear-occurrence`, and `upgrade-prompts`. The
+//! corrections append one forward, operator-sourced event each — a retraction, or an occurrence
+//! withdrawal — and `upgrade-prompts` re-registers stale build-default templates (see
+//! [`upgrade_prompts`]); each needs the single-writer log lock, so the agent must be stopped first (see
+//! [`correction`]).
 
 use clap::Subcommand;
 use zuihitsu::config::EnvConfig;
@@ -22,6 +24,7 @@ mod markdown_fetch;
 mod mcp;
 mod reindex;
 mod revert;
+mod upgrade_prompts;
 
 use brief::{BriefSelector, brief};
 use events::{EventQuery, events};
@@ -143,6 +146,17 @@ pub(crate) enum DebugCommand {
         #[arg(long)]
         yes: bool,
     },
+    /// Re-register stale build-default prompt templates against the running binary's defaults, so an
+    /// operator adopts a changed default body without re-running the agent. Default-tracking names
+    /// (an unchanged default, Bootstrap-sourced) are upgraded to a newer build default; operator-edited
+    /// surfaces are reported as held and overwritten only under `--force`. It opens the log read-write,
+    /// so the agent must be stopped first.
+    UpgradePrompts {
+        /// Overwrite operator-edited (curated) templates too, registering the build default under a
+        /// fresh operator registration. Without it, curated names are reported as held and left alone.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 pub(crate) fn dispatch(
@@ -197,5 +211,6 @@ pub(crate) fn dispatch(
         }
         DebugCommand::Embed { a, b } => embed::embed(config, a, b),
         DebugCommand::Reindex { yes } => reindex::reindex(config, *yes),
+        DebugCommand::UpgradePrompts { force } => upgrade_prompts::upgrade_prompts(config, *force),
     }
 }
