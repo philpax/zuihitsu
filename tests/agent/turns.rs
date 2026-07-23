@@ -169,7 +169,22 @@ async fn descriptions_regenerate_after_a_turn() {
         produced_by.template_name,
         PromptTemplateName::DescriptionRegen
     );
-    assert_eq!(produced_by.template_version, 2);
+    // Dynamic against the log: the property is that provenance names the registered template's
+    // version, not any particular number.
+    let registered = h
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            EventPayload::PromptTemplateRegistered {
+                name: PromptTemplateName::DescriptionRegen,
+                version,
+                ..
+            } => Some(version),
+            _ => None,
+        })
+        .max()
+        .expect("genesis registers the description template");
+    assert_eq!(produced_by.template_version, registered);
 }
 
 #[tokio::test]

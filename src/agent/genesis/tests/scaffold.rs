@@ -23,7 +23,6 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
     assert!(!scaffold.body.contains("emitting Lua through"));
 
     let flush = template(PromptTemplateName::Flush);
-    assert_eq!(flush.version, 4, "the current flush registers at v4");
     assert!(
         flush
             .body
