@@ -33,11 +33,13 @@ impl Graph {
                AND e.occurred_sort BETWEEN ?1 AND ?2
              ORDER BY e.occurred_sort, e.seq",
         )?;
-        query_map_into(
+        let mut rows = query_map_into(
             stmt,
             params![from.as_millisecond(), to.as_millisecond()],
             |row| self.occurrence_row(row),
-        )
+        )?;
+        self.attach_occurrence_attestations(&mut rows)?;
+        Ok(rows)
     }
 
     /// Live entries whose scheduled occurrence has come due but not yet fired — the scheduler's input
@@ -123,7 +125,23 @@ impl Graph {
                AND e.fired_at IS NOT NULL AND e.surfaced_at IS NULL
              ORDER BY e.occurred_sort, e.seq",
         )?;
-        query_map_into(stmt, [], |row| self.occurrence_row(row))
+        let mut rows = query_map_into(stmt, [], |row| self.occurrence_row(row))?;
+        self.attach_occurrence_attestations(&mut rows)?;
+        Ok(rows)
+    }
+
+    /// Fill in each entry's live attestation set for the `(memory, entry)` occurrence reads, batched
+    /// over the whole result — the tuple-shaped analogue of [`Graph::attach_attestations`].
+    fn attach_occurrence_attestations(
+        &self,
+        rows: &mut [(MemoryView, EntryView)],
+    ) -> Result<(), GraphError> {
+        let ids: Vec<EntryId> = rows.iter().map(|(_, entry)| entry.entry_id).collect();
+        let mut by_entry = self.attestations_for(&ids)?;
+        for (_, entry) in rows.iter_mut() {
+            entry.attestations = by_entry.remove(&entry.entry_id).unwrap_or_default();
+        }
+        Ok(())
     }
 
     /// Live memories that carry a `Recurring` occurrence — the `calendar.recurring()` listing. These

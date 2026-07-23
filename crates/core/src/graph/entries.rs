@@ -4,15 +4,15 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::Cardinality,
     graph::{
-        EntryOrigin, EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid,
-        timestamp_column,
+        AttestationView, EntryOrigin, EntryView, Graph, GraphError, MemoryView, RecurringEntry,
+        backend, parse_ulid, timestamp_column,
     },
     ids::{EntryId, MemoryId, Namespace},
     time::temporal::TemporalRef,
     vocabulary::RelationName,
 };
-use rusqlite::params;
-use std::collections::BTreeSet;
+use rusqlite::{params, params_from_iter};
+use std::collections::{BTreeSet, HashMap};
 
 impl Graph {
     /// Every live entry across all memories that carries a recurrence rule, with the memory it belongs
@@ -188,9 +188,10 @@ impl Graph {
             let entry = entry_from_row(row)?;
             Ok::<_, GraphError>((memory_id, entry))
         })?;
-        let Some((memory_id, entry)) = mapped else {
+        let Some((memory_id, mut entry)) = mapped else {
             return Ok(None);
         };
+        self.attach_attestations(std::slice::from_mut(&mut entry))?;
         Ok(self
             .memory_by_id(MemoryId(parse_ulid(&memory_id)?))?
             .map(|m| (m, entry)))
@@ -201,7 +202,60 @@ impl Graph {
     /// select the columns [`entry_from_row`] reads.
     fn collect_entries(&self, sql: &str, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         let stmt = self.conn.prepare(sql)?;
-        query_map_into(stmt, params![id.0.to_string()], entry_from_row)
+        let mut entries = query_map_into(stmt, params![id.0.to_string()], entry_from_row)?;
+        self.attach_attestations(&mut entries)?;
+        Ok(entries)
+    }
+
+    /// Fill in each entry's live attestation set from `entry_attestations` in one batched query over
+    /// the whole set — collect the entry ids, fetch every live attestation for them at once, and
+    /// attach each entry its own (founding first, then by commit order). One query for the read rather
+    /// than one per row, mirroring how the tag reads batch.
+    fn attach_attestations(&self, entries: &mut [EntryView]) -> Result<(), GraphError> {
+        let ids: Vec<EntryId> = entries.iter().map(|entry| entry.entry_id).collect();
+        let mut by_entry = self.attestations_for(&ids)?;
+        for entry in entries.iter_mut() {
+            entry.attestations = by_entry.remove(&entry.entry_id).unwrap_or_default();
+        }
+        Ok(())
+    }
+
+    /// The live attestations of every entry in `ids`, keyed by entry id and ordered founding first
+    /// then by commit order (`seq`). Only live attestations participate (`retracted_reason IS NULL`),
+    /// mirroring the live entry reads; a whole-entry or per-teller retraction drops its attestations
+    /// from this set. One query over the id set — the batched fetch the entry reads share.
+    pub(super) fn attestations_for(
+        &self,
+        ids: &[EntryId],
+    ) -> Result<HashMap<EntryId, Vec<AttestationView>>, GraphError> {
+        let mut by_entry: HashMap<EntryId, Vec<AttestationView>> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(by_entry);
+        }
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        let sql = format!(
+            "SELECT entry_id, teller, told_in, asserted_at, posture, phrasing, source_entry, \
+                    retracted_reason, seq
+             FROM entry_attestations
+             WHERE entry_id IN ({placeholders}) AND retracted_reason IS NULL
+             ORDER BY entry_id, seq"
+        );
+        let stmt = self.conn.prepare(&sql)?;
+        let rows: Vec<(String, AttestationView)> = query_map_into(
+            stmt,
+            params_from_iter(ids.iter().map(|id| id.0.to_string())),
+            |row| {
+                let entry_id: String = row.get("entry_id")?;
+                Ok::<_, GraphError>((entry_id, attestation_from_row(row)?))
+            },
+        )?;
+        for (entry_id, attestation) in rows {
+            by_entry
+                .entry(EntryId(parse_ulid(&entry_id)?))
+                .or_default()
+                .push(attestation);
+        }
+        Ok(by_entry)
     }
 
     /// The source entries consolidated into `replacement` by an `EntriesConsolidated` event, in
@@ -220,7 +274,9 @@ impl Graph {
              WHERE superseded_by = ?1
              ORDER BY seq",
         )?;
-        query_map_into(stmt, params![replacement.0.to_string()], entry_from_row)
+        let mut entries = query_map_into(stmt, params![replacement.0.to_string()], entry_from_row)?;
+        self.attach_attestations(&mut entries)?;
+        Ok(entries)
     }
 }
 
@@ -261,6 +317,32 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
             Some(platform) => EntryOrigin::PlatformConnector(platform),
             None => EntryOrigin::Recorded,
         },
+        // Populated by the batched attestation fetch after the row decode (see
+        // [`Graph::attach_attestations`]); a bare row read leaves it empty.
+        attestations: Vec::new(),
+    })
+}
+
+/// Decode one `entry_attestations` row into an [`AttestationView`], deserializing the structured
+/// `teller` / `told_in` / `posture` and parsing the `source_entry` id. The batched attestation
+/// fetch reads these columns by these names.
+pub(super) fn attestation_from_row(row: &rusqlite::Row<'_>) -> Result<AttestationView, GraphError> {
+    let teller: String = row.get("teller")?;
+    let told_in: Option<String> = row.get("told_in")?;
+    let posture: String = row.get("posture")?;
+    let source_entry: Option<String> = row.get("source_entry")?;
+    Ok(AttestationView {
+        teller: serde_json::from_str(&teller)?,
+        told_in: told_in
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?,
+        asserted_at: timestamp_column(row.get("asserted_at")?, "asserted_at")?,
+        posture: serde_json::from_str(&posture)?,
+        phrasing: row.get("phrasing")?,
+        source_entry: source_entry
+            .map(|id| parse_ulid(&id).map(EntryId))
+            .transpose()?,
+        retracted_reason: row.get("retracted_reason")?,
     })
 }
 

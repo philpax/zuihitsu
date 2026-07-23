@@ -24,6 +24,8 @@ const OUTCOME_TYPES = new Set<EventPayload["type"]>([
   "MemoryContentAppended",
   "MemorySuperseded",
   "EntryRetracted",
+  "EntryAttested",
+  "AttestationRetracted",
   "MemoryVolatilitySet",
   "MemoryDescriptionRegenerated",
   "BeliefArbitrated",
@@ -392,6 +394,8 @@ export function buildConversations(
       case "MemorySuperseded":
       case "EntriesConsolidated":
       case "EntryRetracted":
+      case "EntryAttested":
+      case "AttestationRetracted":
       case "EntryTemporalResolved":
       case "EntryTemporalResolveFailed":
       case "EntryDescriptionMirrored":
@@ -494,6 +498,8 @@ function outcomeMemoryIds(payload: EventPayload): string[] {
     case "EntryDescriptionMirrored":
       return [payload.id];
     case "EntryRetracted":
+    case "EntryAttested":
+    case "AttestationRetracted":
     case "BeliefArbitrated":
       return [payload.memory];
     case "TagAppliedToMemory":

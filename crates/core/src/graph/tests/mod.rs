@@ -14,6 +14,7 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
+mod attestation;
 mod consolidation;
 mod describe;
 mod designation;

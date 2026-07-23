@@ -11,7 +11,7 @@ use crate::{
 
 use crate::event::{
     AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
-    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause,
+    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause, Teller,
     TerminalCause, TurnRole, Volatility,
 };
 
@@ -85,6 +85,22 @@ impl EventPayload {
         EventPayload::EntryRetracted {
             memory,
             entry,
+            reason: reason.into(),
+            produced_by,
+        }
+    }
+
+    pub fn attestation_retracted(
+        memory: MemoryId,
+        entry: EntryId,
+        teller: Teller,
+        reason: impl Into<String>,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::AttestationRetracted {
+            memory,
+            entry,
+            teller,
             reason: reason.into(),
             produced_by,
         }

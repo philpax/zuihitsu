@@ -173,6 +173,29 @@ impl Graph {
                         ],
                     )
                     .map_err(backend)?;
+                // Record the founding attestation this entry carries by construction: the teller that
+                // recorded it stands behind its fact under the entry's own posture. This is what makes
+                // every existing log replay with a singleton attestation set — a later
+                // `EntryAttested` adds further tellers, but the founding one is always derived here
+                // from the append's own `told_by`/`told_in`/`asserted_at`/`visibility`.
+                self.conn
+                    .execute(
+                        "INSERT INTO entry_attestations \
+                         (entry_id, teller, told_in, asserted_at, posture, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            entry_id.0.to_string(),
+                            serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
+                            told_in
+                                .as_ref()
+                                .map(|r| serde_json::to_string(r).map_err(GraphError::Serialize))
+                                .transpose()?,
+                            asserted_at.as_millisecond(),
+                            serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
+                            event.seq.0 as i64,
+                        ],
+                    )
+                    .map_err(backend)?;
                 // Advance the memory's content watermark so it reads as stale until the describer's
                 // next pass considers it (spec §Write path → regenerate off the hot path).
                 self.conn
@@ -245,6 +268,98 @@ impl Graph {
                         params![entry.0.to_string(), reason],
                     )
                     .map_err(backend)?;
+                // Withdraw every teller's attestation too: a whole-entry retraction retires the fact
+                // outright, so no attestation still stands behind it. Stamping each live one keeps
+                // history coherent — a reader sees the same reason on the entry and on each teller.
+                self.conn
+                    .execute(
+                        "UPDATE entry_attestations SET retracted_reason = ?1
+                         WHERE entry_id = ?2 AND retracted_reason IS NULL",
+                        params![reason, entry.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::EntryAttested {
+                entry,
+                teller,
+                told_in,
+                asserted_at,
+                posture,
+                phrasing,
+                source_entry,
+                ..
+            } => {
+                // Upsert this teller's attestation, last-writer-wins on the (entry, teller) key: a
+                // re-attestation by the same teller overwrites the row (and revives it if it had been
+                // withdrawn). The audience-widening invariant — that no attestation is wider than the
+                // entry's founding posture — is the write path's to enforce; the fold trusts the
+                // recorded event and never rejects here, since replay must reproduce the log verbatim.
+                self.conn
+                    .execute(
+                        "INSERT INTO entry_attestations \
+                         (entry_id, teller, told_in, asserted_at, posture, phrasing, source_entry, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                         ON CONFLICT(entry_id, teller) DO UPDATE SET
+                             told_in = excluded.told_in,
+                             asserted_at = excluded.asserted_at,
+                             posture = excluded.posture,
+                             phrasing = excluded.phrasing,
+                             source_entry = excluded.source_entry,
+                             retracted_reason = NULL,
+                             seq = excluded.seq",
+                        params![
+                            entry.0.to_string(),
+                            serde_json::to_string(teller).map_err(GraphError::Serialize)?,
+                            told_in
+                                .as_ref()
+                                .map(|r| serde_json::to_string(r).map_err(GraphError::Serialize))
+                                .transpose()?,
+                            asserted_at.as_millisecond(),
+                            serde_json::to_string(posture).map_err(GraphError::Serialize)?,
+                            phrasing,
+                            source_entry.as_ref().map(|e| e.0.to_string()),
+                            event.seq.0 as i64,
+                        ],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::AttestationRetracted {
+                entry,
+                teller,
+                reason,
+                ..
+            } => {
+                let teller_json = serde_json::to_string(teller).map_err(GraphError::Serialize)?;
+                // Stamp this teller's attestation withdrawn in place; the row is otherwise immutable.
+                self.conn
+                    .execute(
+                        "UPDATE entry_attestations SET retracted_reason = ?1
+                         WHERE entry_id = ?2 AND teller = ?3",
+                        params![reason, entry.0.to_string(), teller_json],
+                    )
+                    .map_err(backend)?;
+                // When no live attestation remains, tombstone the entry exactly as EntryRetracted
+                // does — no teller still stands behind the fact, so it leaves every live surface (its
+                // own id in superseded_by, the reason recorded). While an attestation still stands, the
+                // entry stays live and the predicate reasons over the remaining set.
+                let live: i64 = self
+                    .conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM entry_attestations
+                         WHERE entry_id = ?1 AND retracted_reason IS NULL",
+                        params![entry.0.to_string()],
+                        |r| r.get(0),
+                    )
+                    .map_err(backend)?;
+                if live == 0 {
+                    self.conn
+                        .execute(
+                            "UPDATE content_entries SET superseded_by = ?1, retracted_reason = ?2
+                             WHERE entry_id = ?1",
+                            params![entry.0.to_string(), reason],
+                        )
+                        .map_err(backend)?;
+                }
             }
             EventPayload::EntryDescriptionMirrored { entry_id, .. } => {
                 // Flag the seed entry as a description mirror in place; the append row is otherwise

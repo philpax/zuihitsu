@@ -27,6 +27,7 @@ fn entry(text: &str, occurred_at: Option<TemporalRef>) -> EntryView {
         superseded_by: None,
         retracted_reason: None,
         origin: EntryOrigin::Recorded,
+        attestations: Vec::new(),
     }
 }
 

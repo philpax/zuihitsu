@@ -392,6 +392,8 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         | EventPayload::MemorySuperseded { .. }
         | EventPayload::EntriesConsolidated { .. }
         | EventPayload::EntryRetracted { .. }
+        | EventPayload::EntryAttested { .. }
+        | EventPayload::AttestationRetracted { .. }
         | EventPayload::MemoryDescriptionRegenerated { .. }
         | EventPayload::MemoryVolatilitySet { .. }
         | EventPayload::EntryTemporalResolved { .. }

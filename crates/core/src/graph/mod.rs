@@ -62,6 +62,62 @@ pub struct RecurringEntry {
     pub rrule: String,
 }
 
+/// One teller's endorsement of an entry's fact (spec §Visibility → attestations). An entry carries a
+/// set of these rather than a single teller: the founding attestation, derived at materialization
+/// from the entry's own `MemoryContentAppended`, plus any [`EventPayload::EntryAttested`] a further
+/// teller added. Each attestation is evaluated against the audience by its own `posture` and
+/// `teller`, and the visible subset is the chip rule's engine — a hidden attestation (one whose
+/// posture does not pass for the present audience) is absent from that subset even when the fact
+/// itself renders.
+///
+/// [`EventPayload::EntryAttested`]: crate::event::EventPayload::EntryAttested
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AttestationView {
+    /// The teller who stands behind the fact — resolved for the read-time predicate and the marker.
+    pub teller: Teller,
+    /// The conversation reference (turn or room) this attestation was asserted in, mirroring the
+    /// entry's own `told_in`.
+    pub told_in: Option<ConversationRef>,
+    /// When the attester recorded the endorsement.
+    pub asserted_at: Timestamp,
+    /// The attester's own audience posture, at or narrower than the entry's founding posture (the
+    /// audience-widening invariant, enforced by the write path).
+    pub posture: Visibility,
+    /// The attester's own wording when it differed from the entry text, kept for history and the
+    /// console only; `None` when the attester added no distinct phrasing.
+    pub phrasing: Option<String>,
+    /// The retired entry a consolidation carried this attestation from, or `None` for an attestation
+    /// asserted directly on this entry.
+    pub source_entry: Option<EntryId>,
+    /// The stated reason this attestation was withdrawn, on a history read; `None` for a live
+    /// attestation (the live entry reads carry only live attestations).
+    pub retracted_reason: Option<String>,
+}
+
+impl AttestationView {
+    /// The founding attestation an entry carries by construction: the endorsement its own
+    /// `MemoryContentAppended` recorded. Derived from the entry's `told_by`/`told_in`/`asserted_at`/
+    /// `visibility`, so a plain single-teller entry has exactly this one attestation and the
+    /// visibility predicate over it is bit-identical to reasoning over the entry's own fields.
+    pub fn founding(
+        teller: Teller,
+        told_in: Option<ConversationRef>,
+        asserted_at: Timestamp,
+        posture: Visibility,
+    ) -> AttestationView {
+        AttestationView {
+            teller,
+            told_in,
+            asserted_at,
+            posture,
+            phrasing: None,
+            source_entry: None,
+            retracted_reason: None,
+        }
+    }
+}
+
 /// A content entry as projected, ordered within its memory by commit order. `occurred_sort` is the
 /// denormalized representative instant of the entry's `occurred_at` (spec §Time), or `None` when the
 /// entry carries no occurrence (or only a `Recurring` one); recency ranking reads it.
@@ -103,6 +159,15 @@ pub struct EntryView {
     /// ordinary recorded one, since the maintenance cleanup passes must never mutate a
     /// connector-owned entry — the connector may supersede or retract it at any time.
     pub origin: EntryOrigin,
+    /// The entry's live attestations — the set of tellers standing behind its fact — founding first,
+    /// then by commit order. Every entry carries at least the founding attestation; a further teller's
+    /// [`EventPayload::EntryAttested`] adds another. The visibility predicate reasons over this set
+    /// (the widest passing verdict), and the visible subset is the chip rule's engine. Populated by
+    /// the entry reads as a batched fetch; an entry built without it (a hand-built view) is read by
+    /// the predicate as its founding attestation alone, so the two paths agree for a singleton.
+    ///
+    /// [`EventPayload::EntryAttested`]: crate::event::EventPayload::EntryAttested
+    pub attestations: Vec<AttestationView>,
 }
 
 /// Where a content entry came from, projected from the recording event's [`EventSource`]. Kept
@@ -470,6 +535,35 @@ impl Graph {
              CREATE INDEX IF NOT EXISTS idx_entries_pending_wakeup
                  ON content_entries(occurred_sort)
                  WHERE fired_at IS NOT NULL AND surfaced_at IS NULL;
+             CREATE TABLE IF NOT EXISTS entry_attestations (
+                 entry_id         TEXT    NOT NULL,
+                 -- The teller who stands behind the fact, stored as serde JSON (the same encoding
+                 -- content_entries.told_by uses), so the composite key ranges over the teller value.
+                 teller           TEXT    NOT NULL,
+                 told_in          TEXT,
+                 asserted_at      INTEGER NOT NULL,
+                 -- The attester's own audience posture (serde JSON of Visibility). At or narrower than
+                 -- the entry's founding posture by the audience-widening invariant, which the write
+                 -- path enforces; the fold trusts the recorded event and never rejects here.
+                 posture          TEXT    NOT NULL,
+                 -- The attester's own wording, when it differed from the entry text (history/console
+                 -- only), or NULL when the attestation added no distinct phrasing.
+                 phrasing         TEXT,
+                 -- The retired entry a consolidation carried this attestation from, or NULL for a
+                 -- direct endorsement.
+                 source_entry     TEXT,
+                 -- The stated reason this attestation was withdrawn (`AttestationRetracted`), or NULL
+                 -- for a live attestation. A whole-entry retraction stamps every live attestation's
+                 -- reason so history stays coherent.
+                 retracted_reason TEXT,
+                 seq              INTEGER NOT NULL,
+                 -- Identity is the (entry, teller) pair: a re-attestation by the same teller is
+                 -- last-writer-wins on the row, and the founding attestation is the teller the entry's
+                 -- own MemoryContentAppended recorded.
+                 PRIMARY KEY (entry_id, teller)
+             );
+             CREATE INDEX IF NOT EXISTS idx_entry_attestations_entry
+                 ON entry_attestations(entry_id, seq);
              CREATE TABLE IF NOT EXISTS entry_disputes (
                  entry_id  TEXT PRIMARY KEY,
                  memory_id TEXT NOT NULL,
@@ -599,6 +693,7 @@ impl Graph {
         const TABLES: &[&str] = &[
             "memories",
             "content_entries",
+            "entry_attestations",
             "tags",
             "memory_tags",
             "relations",

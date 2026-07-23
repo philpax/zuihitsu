@@ -12,6 +12,8 @@ impl EventPayload {
             EventPayload::MemorySuperseded { .. } => "MemorySuperseded",
             EventPayload::EntriesConsolidated { .. } => "EntriesConsolidated",
             EventPayload::EntryRetracted { .. } => "EntryRetracted",
+            EventPayload::EntryAttested { .. } => "EntryAttested",
+            EventPayload::AttestationRetracted { .. } => "AttestationRetracted",
             EventPayload::EntryTemporalResolved { .. } => "EntryTemporalResolved",
             EventPayload::EntryTemporalResolveFailed { .. } => "EntryTemporalResolveFailed",
             EventPayload::EntryDescriptionMirrored { .. } => "EntryDescriptionMirrored",
@@ -76,6 +78,8 @@ impl EventPayload {
             | EventPayload::MemorySuperseded { id, .. }
             | EventPayload::EntriesConsolidated { id, .. }
             | EventPayload::EntryRetracted { memory: id, .. }
+            | EventPayload::EntryAttested { memory: id, .. }
+            | EventPayload::AttestationRetracted { memory: id, .. }
             | EventPayload::EntryTemporalResolved { id, .. }
             | EventPayload::EntryTemporalResolveFailed { id, .. }
             | EventPayload::EntryDescriptionMirrored { id, .. }

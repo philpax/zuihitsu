@@ -274,6 +274,7 @@ mod tests {
             superseded_by: None,
             retracted_reason: None,
             origin: EntryOrigin::Recorded,
+            attestations: Vec::new(),
         }
     }
 

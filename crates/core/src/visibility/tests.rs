@@ -39,6 +39,9 @@ fn entry(told_by: Teller, visibility: Visibility) -> EntryView {
         superseded_by: None,
         retracted_reason: None,
         origin: EntryOrigin::Recorded,
+        // Left empty so the predicate reads the founding attestation off `told_by`/`visibility` —
+        // the fallback that keeps a hand-built singleton bit-identical to the pre-attestation fold.
+        attestations: Vec::new(),
     }
 }
 

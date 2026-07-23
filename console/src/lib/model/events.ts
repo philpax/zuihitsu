@@ -1,7 +1,7 @@
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { LinkSource } from "@zuihitsu/wire/types/LinkSource.ts";
-import { terminalCauseLabel } from "./labels.ts";
+import { tellerLabel, terminalCauseLabel } from "./labels.ts";
 
 /// The authoring authorities offered as an author filter in the Events view — genesis first, then
 /// the agent's turns, the operator's console actions, and the system's background work. A platform
@@ -57,6 +57,8 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "MemorySuperseded":
     case "EntriesConsolidated":
     case "EntryRetracted":
+    case "EntryAttested":
+    case "AttestationRetracted":
     case "EntryTemporalResolved":
     case "EntryTemporalResolveFailed":
     case "EntryDescriptionMirrored":
@@ -162,6 +164,8 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "MemoryContentAppended":
       return payload.id === memoryId;
     case "EntryRetracted":
+    case "EntryAttested":
+    case "AttestationRetracted":
     case "ScheduledJobFired":
     case "ScheduledItemSurfaced":
     case "BeliefArbitrated":
@@ -230,6 +234,10 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${ref(payload.id)} — consolidated ${payload.sources.length} ${payload.sources.length === 1 ? "entry" : "entries"}`;
     case "EntryRetracted":
       return `${ref(payload.memory)} — an entry retracted`;
+    case "EntryAttested":
+      return `${ref(payload.memory)} — attested by ${tellerLabel(payload.teller, nameById)}`;
+    case "AttestationRetracted":
+      return `${ref(payload.memory)} — ${tellerLabel(payload.teller, nameById)}'s attestation withdrawn`;
     case "EntryTemporalResolved":
       return `${ref(payload.id)} — time resolved`;
     case "EntryTemporalResolveFailed":

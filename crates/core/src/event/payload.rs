@@ -110,6 +110,46 @@ pub enum EventPayload {
         reason: String,
         produced_by: Option<ProducedBy>,
     },
+    /// A further teller's endorsement of an existing entry's fact — one entry, a set of (teller,
+    /// posture) attestations rather than a single `told_by`/`visibility` pair. The founding
+    /// attestation is derived at materialization from the entry's own `MemoryContentAppended`
+    /// (`told_by`/`told_in`/`asserted_at`/`visibility`), so every existing log replays with a
+    /// singleton attestation set; this event adds a second, third, and so on. Identity is the
+    /// `(entry, teller)` pair — a re-attestation by the same teller is last-writer-wins on that row.
+    ///
+    /// `asserted_at` is explicit because replay never reads envelope time. `posture` is the
+    /// attester's own audience posture, which the audience-widening invariant (enforced by the write
+    /// path, not the fold) keeps at or narrower than the entry's founding posture. `phrasing`
+    /// preserves the attester's own wording when it differed from the entry text, kept for history
+    /// and the console only. `source_entry` names the retired entry a consolidation carried this
+    /// attestation from, when the attestation arrived by absorbing another entry rather than by a
+    /// direct endorsement. `produced_by` records the inference behind an inference-driven attestation,
+    /// and is `None` for the agent's own mechanical write.
+    EntryAttested {
+        memory: MemoryId,
+        entry: EntryId,
+        teller: Teller,
+        told_in: Option<ConversationRef>,
+        asserted_at: Timestamp,
+        posture: Visibility,
+        phrasing: Option<String>,
+        source_entry: Option<EntryId>,
+        produced_by: Option<ProducedBy>,
+    },
+    /// Withdraws one teller's attestation from an entry, recording why. Applying it stamps that
+    /// attestation's `retracted_reason` in place; the attestation row is otherwise immutable. When no
+    /// live attestation remains on the entry afterwards, the entry is tombstoned exactly as
+    /// [`EventPayload::EntryRetracted`] tombstones one (its `superseded_by` is stamped with its own id
+    /// and this event's `reason` recorded), so an entry no teller still stands behind drops from every
+    /// live surface. `produced_by` is `None` for the agent's own mechanical withdrawal and carries
+    /// provenance only for an inference-driven one.
+    AttestationRetracted {
+        memory: MemoryId,
+        entry: EntryId,
+        teller: Teller,
+        reason: String,
+        produced_by: Option<ProducedBy>,
+    },
     /// Resolves an entry's `occurred_at` after the fact: the turn-end extraction pass read the
     /// entry's natural language ("last Tuesday") and produced a structured [`TemporalRef`]. The
     /// original `MemoryContentAppended` stays immutable; applying this recomputes the entry's

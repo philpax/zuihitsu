@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     event::{Teller, Visibility},
-    graph::{EntryView, GraphError, LinkVis, MemoryView},
+    graph::{AttestationView, EntryView, GraphError, LinkVis, MemoryView},
     ids::{MemoryId, MemoryName, Namespace, TurnId},
 };
 
@@ -81,6 +81,14 @@ pub fn visible(
 /// never live on any surface (spec §Visibility → superseded entries are not live); the live entry
 /// reads already exclude these in SQL, so this guard covers the search path, which resolves a vector
 /// hit through `entry_by_id` (which does not filter) before this predicate.
+///
+/// An entry carries a *set* of attestations — each a (teller, posture) endorsement of its fact — and
+/// the verdict is the **widest passing verdict** over the live ones: the fact surfaces if any teller
+/// standing behind it clears the audience, and it surfaces under that teller's widest posture (a
+/// `Public` founding attestation renders the fact even when a further teller's endorsement is a hidden
+/// confidence). When none passes, the founding attestation's own failure verdict is returned, so a
+/// singleton entry — the founding attestation alone, derived from `told_by`/`visibility` — is
+/// bit-identical to reasoning over the entry's own fields, the make-or-break compatibility property.
 pub fn explain(
     entry: &EntryView,
     memory: &MemoryView,
@@ -91,30 +99,123 @@ pub fn explain(
         return Ok(VisibilityDecision::Superseded);
     }
     let subject = subject_participant(memory.name.as_str(), memory.id);
-    Ok(match &entry.visibility {
+    // The effective attestation set: the populated one, or the entry's founding attestation
+    // synthesized from its own fields when a hand-built view left the set empty (the two agree for a
+    // singleton, so a view constructed without the batched fetch reads exactly as it did before).
+    let synthesized;
+    let attestations: &[AttestationView] = if entry.attestations.is_empty() {
+        synthesized = [founding_attestation(entry)];
+        &synthesized
+    } else {
+        &entry.attestations
+    };
+    let mut widest: Option<VisibilityDecision> = None;
+    // The founding attestation is first; its verdict is the failure returned when nothing passes.
+    let mut founding_verdict = VisibilityDecision::TellerAbsent;
+    for (index, attestation) in attestations.iter().enumerate() {
+        let verdict = explain_attestation(attestation, subject, present_set, class_of)?;
+        if index == 0 {
+            founding_verdict = verdict;
+        }
+        if verdict.is_visible() {
+            widest = Some(match widest {
+                Some(current) => wider(current, verdict),
+                None => verdict,
+            });
+        }
+    }
+    Ok(widest.unwrap_or(founding_verdict))
+}
+
+/// One attestation's verdict against the present set — today's per-posture logic parameterized by the
+/// attestation's own teller and posture. The entry-level [`explain`] combines these across the
+/// attestation set; the chip rule's [`visible_attestations`] filters by each one's own verdict.
+fn explain_attestation(
+    attestation: &AttestationView,
+    subject: Option<MemoryId>,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+) -> Result<VisibilityDecision, GraphError> {
+    let teller = &attestation.teller;
+    Ok(match &attestation.posture {
         Visibility::Public => VisibilityDecision::Public,
         Visibility::Attributed => VisibilityDecision::Attributed,
         Visibility::PrivateToTeller => {
-            if !teller_present(&entry.told_by, present_set, class_of)? {
+            if !teller_present(teller, present_set, class_of)? {
                 VisibilityDecision::TellerAbsent
-            } else if subject_blocks(subject, &entry.told_by, present_set, class_of)? {
+            } else if subject_blocks(subject, teller, present_set, class_of)? {
                 VisibilityDecision::SubjectPresent
             } else {
                 VisibilityDecision::TellerPresent
             }
         }
         Visibility::Exclude(excluded) => {
-            if !teller_present(&entry.told_by, present_set, class_of)? {
+            if !teller_present(teller, present_set, class_of)? {
                 VisibilityDecision::TellerAbsent
             } else if !no_excludee_present(excluded, present_set, class_of)? {
                 VisibilityDecision::ExcludeePresent
-            } else if subject_blocks(subject, &entry.told_by, present_set, class_of)? {
+            } else if subject_blocks(subject, teller, present_set, class_of)? {
                 VisibilityDecision::SubjectPresent
             } else {
                 VisibilityDecision::NotExcluded
             }
         }
     })
+}
+
+/// The visible subset of an entry's attestations for the present audience — the chip rule's engine.
+/// Each attestation passes on its own posture and teller, so a hidden attestation (a confidence whose
+/// teller is absent, say, endorsing an otherwise-public fact) is absent from this set with no residue,
+/// even though the fact itself renders. Renderers name the attesters from this subset; a superseded
+/// entry yields none.
+pub fn visible_attestations<'a>(
+    entry: &'a EntryView,
+    memory: &MemoryView,
+    present_set: &[MemoryId],
+    class_of: &ClassOf,
+) -> Result<Vec<&'a AttestationView>, GraphError> {
+    if entry.superseded_by.is_some() {
+        return Ok(Vec::new());
+    }
+    let subject = subject_participant(memory.name.as_str(), memory.id);
+    let mut visible = Vec::new();
+    for attestation in &entry.attestations {
+        if explain_attestation(attestation, subject, present_set, class_of)?.is_visible() {
+            visible.push(attestation);
+        }
+    }
+    Ok(visible)
+}
+
+/// The founding attestation of an entry, synthesized from its own `told_by`/`told_in`/`asserted_at`/
+/// `visibility` — the singleton set a view built without the batched attestation fetch reads as.
+fn founding_attestation(entry: &EntryView) -> AttestationView {
+    AttestationView::founding(
+        entry.told_by.clone(),
+        entry.told_in.clone(),
+        entry.asserted_at,
+        entry.visibility.clone(),
+    )
+}
+
+/// The wider of two *visible* verdicts, so the entry surfaces under the most permissive posture any
+/// teller standing behind it warrants: `Public` over `Attributed` over the teller-gated verdicts. Both
+/// arguments are already visible (the caller only combines passing verdicts), so a non-visible verdict
+/// ranks lowest and never wins.
+fn wider(a: VisibilityDecision, b: VisibilityDecision) -> VisibilityDecision {
+    if width_rank(a) >= width_rank(b) { a } else { b }
+}
+
+/// The audience breadth of a visible verdict, ordered widest first. Only the visible verdicts rank;
+/// the hidden ones share the floor, since [`wider`] is only ever handed passing verdicts.
+fn width_rank(verdict: VisibilityDecision) -> u8 {
+    match verdict {
+        VisibilityDecision::Public => 4,
+        VisibilityDecision::Attributed => 3,
+        VisibilityDecision::TellerPresent => 2,
+        VisibilityDecision::NotExcluded => 1,
+        _ => 0,
+    }
 }
 
 /// Whether `link` may surface to the participants in `present_set`, resolving identity through

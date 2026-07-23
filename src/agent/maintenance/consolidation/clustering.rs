@@ -372,6 +372,7 @@ mod tests {
             superseded_by: None,
             retracted_reason: None,
             origin,
+            attestations: Vec::new(),
         }
     }
 
