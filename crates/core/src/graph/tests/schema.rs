@@ -3,7 +3,7 @@
 //! graph. The guard is driven directly on an in-memory graph — the reset decision is pure logic
 //! over the stored stamp, and file persistence between opens is SQLite's property, not ours.
 
-use crate::graph::{Graph, schema_fingerprint};
+use crate::graph::{Graph, schema::schema_fingerprint};
 
 fn graph_with_a_row() -> Graph {
     let graph = Graph::open_in_memory().unwrap();
