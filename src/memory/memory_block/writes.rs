@@ -208,7 +208,21 @@ impl MemoryBlock {
                     let graph = self.engine.graph.lock();
                     if let Some((memory, entry)) = graph.entry_by_id(entry_id)? {
                         let entry_class = graph.class_id(memory.id)?.unwrap_or(memory.id);
-                        if entry.superseded_by.is_none() && entry_class == target_class {
+                        // Another teller's confidence is invisible to this check: an independent
+                        // statement of a fact someone else confided must append normally, not be
+                        // rejected against — or shown a snippet of — a confidence its speaker was
+                        // never told. Only an all-audience entry, or the confiding teller's own
+                        // repeat, captures.
+                        let visible_to_writer = match entry.visibility {
+                            Visibility::Public | Visibility::Attributed => true,
+                            Visibility::PrivateToTeller | Visibility::Exclude(_) => {
+                                entry.told_by == entry_teller(&opts, &self.teller)
+                            }
+                        };
+                        if entry.superseded_by.is_none()
+                            && entry_class == target_class
+                            && visible_to_writer
+                        {
                             return Err(MemoryError::DuplicateEntry {
                                 existing_entry_id: entry_id,
                                 snippet: entry.text,
