@@ -1,5 +1,6 @@
 //! Maintenance-pass scenarios: consolidation, canonical profiles, and link cleanup.
 
+mod append_dedup;
 mod canonicalize;
 mod consolidation;
 mod consolidation_privacy;
@@ -16,5 +17,6 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(canonicalize::NamesPlatformStub),
         Arc::new(canonicalize::AvoidsSpuriousMints),
         Arc::new(canonicalize::SuffixesNameCollision),
+        Arc::new(append_dedup::HandlesRepeatedFactGracefully),
     ]
 }
