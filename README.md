@@ -135,20 +135,11 @@ headers = { Authorization = "Bearer your-token" }
 # that platform. The key serialises redacted.
 [platform_connectors]
 discord = { key = "00000000-0000-0000-0000-000000000000" }
-
-[maintenance]
-# Autonomous data-hygiene passes that run off the hot path: consolidation,
-# canonical-profile minting, and link-redundant entry cleanup. Each pass gates on
-# activity (events since its last run), so an idle instance is never charged a model
-# call. Defaults shown.
-enabled = true                    # whether passes fire on the timer
-tick_seconds = 60                 # how often the maintenance driver ticks
-consolidation_min_activity = 20   # min events since last consolidation sweep
-canonicalize_min_activity = 5     # min events since last canonicalize sweep
-link_cleanup_min_activity = 20    # min events since last link-cleanup sweep
-consolidation_similarity_threshold = 0.85  # cosine threshold for consolidation clustering
-dedup_similarity_threshold = 0.95          # cosine threshold for append-time dedup
 ```
+
+The maintenance passes (consolidation, canonical-profile minting, and
+link-redundant entry cleanup) are tuned through the settings store, not this
+file — see the Settings section of `docs/maintenance-passes.md`.
 
 ## Going deeper
 
