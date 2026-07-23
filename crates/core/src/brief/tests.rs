@@ -138,6 +138,64 @@ fn current_room_brief_shows_confidential_regardless_of_present_set() {
 }
 
 #[test]
+fn a_corroborated_public_fact_carries_an_also_told_by_marker_in_the_brief() {
+    // Marcus plays cello — a public fact the agent recorded, corroborated by erin's attributed
+    // endorsement. The brief bakes an "also told by" marker naming the visible corroborator; a hidden
+    // private confidence (frank, absent) leaves no residue.
+    let marcus = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let frank = MemoryId::generate();
+    let entry = EntryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(marcus, "person/marcus"),
+        created(erin, "person/erin"),
+        created(frank, "person/frank"),
+        EventPayload::MemoryContentAppended {
+            id: marcus,
+            entry_id: entry,
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "plays cello".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+        EventPayload::EntryAttested {
+            memory: marcus,
+            entry,
+            teller: Teller::Participant(erin),
+            told_in: None,
+            asserted_at: Timestamp::from_millis(1_100),
+            posture: Visibility::Attributed,
+            phrasing: None,
+            source_entry: None,
+            produced_by: None,
+        },
+        EventPayload::EntryAttested {
+            memory: marcus,
+            entry,
+            teller: Teller::Participant(frank),
+            told_in: None,
+            asserted_at: Timestamp::from_millis(1_200),
+            posture: Visibility::PrivateToTeller,
+            phrasing: Some("frank mentioned it in confidence".to_owned()),
+            source_entry: None,
+            produced_by: None,
+        },
+    ]);
+
+    let out = compose_at_epoch(&graph, &Settings::default().brief, &[marcus], None, &[]);
+    assert!(
+        out.contains("plays cello [also told by person/erin]"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("frank"),
+        "the hidden attester leaves no residue: {out}"
+    );
+}
+
+#[test]
 fn an_aside_about_a_present_subject_is_suppressed_in_the_brief() {
     // Scenario 2 (composition half): Erin's private aside about Marcus. With Marcus present, his brief
     // block renders his public fact but the subject-guard suppresses the aside. (The surfaces-while-

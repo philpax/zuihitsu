@@ -169,7 +169,7 @@ async fn descriptions_regenerate_after_a_turn() {
         produced_by.template_name,
         PromptTemplateName::DescriptionRegen
     );
-    assert_eq!(produced_by.template_version, 1);
+    assert_eq!(produced_by.template_version, 2);
 }
 
 #[tokio::test]

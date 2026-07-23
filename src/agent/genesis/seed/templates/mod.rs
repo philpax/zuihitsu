@@ -23,7 +23,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
-            version: 1,
+            version: 2,
             body: body_of(include_str!("synthesis/description_regen.md")),
         },
         // The body leads with the omit-default because over-resolution is the dangerous direction: a

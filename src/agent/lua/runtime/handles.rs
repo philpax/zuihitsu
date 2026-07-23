@@ -677,6 +677,15 @@ pub(crate) fn make_entry_handle(
     // reparse; the metatable's `__tostring` renders it for display).
     handle.set("visibility", visibility_label(&entry.visibility))?;
     handle.set("told_by", entry.teller.as_str())?;
+    // The tellers standing behind the fact (its visible attestation subset, the agent skipped) — so a
+    // multiply-attested fact reads `from person/erin, person/dave` and a script can branch on
+    // `entry.attested_by`. Empty for an agent-only entry, where the metatable falls back to `told_by`.
+    if !entry.attesters.is_empty() {
+        handle.set(
+            "attested_by",
+            lua.create_sequence_from(entry.attesters.iter().map(String::as_str))?,
+        )?;
+    }
     handle.set("disputed", entry.disputed)?;
     // When set, `text` is already the withheld stub (the content never leaves the block); the flag
     // lets a script branch and lets the metatable render it as a withheld confidence, not bare text.

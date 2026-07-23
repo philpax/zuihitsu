@@ -298,6 +298,9 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              mem:retract(\"01KXETGK\", \"filed on the wrong person\"). entry.occurred_at, when \
              dated, is the same tagged \
              table append takes (e.g. entry.occurred_at.day), so you can match an entry by its date. \
+             entry.attested_by lists the further tellers standing behind a fact when more than one \
+             stands behind it — the same names the line marks `[via …]` — and is absent for an entry \
+             on its founding teller alone. \
              Capture the list — `local es = <memory>:entries()`; a bare call whose result you discard \
              returns nothing, not an empty memory. Each element renders as its own text: interpolate \
              one into a backtick string — `latest: {es[1]}` — to compose a reply, and iterate to fold \

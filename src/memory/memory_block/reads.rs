@@ -8,7 +8,9 @@ use crate::{
     ids::{EntryId, MemoryId, MemoryName},
 };
 
-use crate::memory::memory_block::{EntryRef, MemoryBlock, MemoryDetails, MemoryError};
+use crate::memory::memory_block::{
+    EntryRef, MemoryBlock, MemoryDetails, MemoryError, resolve::AnnotatedEntry,
+};
 
 impl MemoryBlock {
     /// Resolve a name to a memory id, or `None`, for `memory.get` — touches the result so it enters
@@ -58,7 +60,15 @@ impl MemoryBlock {
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
+            .map(|annotated| {
+                let AnnotatedEntry {
+                    entry,
+                    withheld,
+                    stale,
+                    attesters,
+                } = annotated;
+                self.entry_ref(entry, &disputed, withheld, stale, attesters)
+            })
             .collect();
         refs.extend(self.pending_entries(&members, &pending_superseded));
         Ok(refs)
@@ -79,7 +89,15 @@ impl MemoryBlock {
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
+            .map(|annotated| {
+                let AnnotatedEntry {
+                    entry,
+                    withheld,
+                    stale,
+                    attesters,
+                } = annotated;
+                self.entry_ref(entry, &disputed, withheld, stale, attesters)
+            })
             .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
@@ -170,6 +188,7 @@ impl MemoryBlock {
                 text: text.clone(),
                 visibility: visibility.clone(),
                 teller: self.teller_label(told_by),
+                attesters: Vec::new(),
                 disputed: false,
                 occurred_at: occurred_at.clone(),
                 withheld: false,
@@ -179,6 +198,7 @@ impl MemoryBlock {
             _ => None,
         })
     }
+
     /// The [`EntryRef`] for an entry addressable this block, whether it was just appended (found in the
     /// buffer) or already committed (read from the graph) — so a corroboration can hand back the
     /// existing entry it stood behind, not only a freshly-appended one. Prefers the pending copy so a
@@ -188,6 +208,9 @@ impl MemoryBlock {
             return Ok(Some(entry));
         }
         let committed = { self.engine.graph.lock().entry_by_id(entry_id)? };
-        Ok(committed.map(|(_, view)| self.entry_ref(view, &BTreeSet::new(), false, false)))
+        // A by-id handback carries only the founding teller; a live read is where the fuller attesting
+        // set materializes with its audience.
+        Ok(committed
+            .map(|(_, view)| self.entry_ref(view, &BTreeSet::new(), false, false, Vec::new())))
     }
 }

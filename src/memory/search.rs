@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use crate::{
     decay,
-    event::{Visibility, Volatility},
+    event::Volatility,
     graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, MemoryName, Namespace},
     memory::memory_block::LinkDirection,
@@ -170,14 +170,10 @@ pub fn search(
                 // staleness), via the vacant entry so the work and its `?` compose cleanly.
                 if let Entry::Vacant(slot) = markers.entry(primary) {
                     let mut parts = Vec::new();
-                    if entry.visibility != Visibility::Public {
-                        let teller = graph.teller_display(&entry.told_by)?;
-                        let marker = graph.marker_ref(entry.told_in.as_ref())?;
-                        if let Some(marker_text) =
-                            visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
-                        {
-                            parts.push(marker_text);
-                        }
+                    if let Some(marker_text) =
+                        graph.entry_provenance_marker(&entry, &memory, query.present_set)?
+                    {
+                        parts.push(marker_text);
                     }
                     let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
                     if decay::is_stale(memory.volatility, effective, now) {

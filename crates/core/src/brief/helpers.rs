@@ -119,7 +119,7 @@ fn visible_recent_facts(
         if !visibility::visible(&entry, memory, present_set, class_of)? {
             continue;
         }
-        facts.push(entry_fact(graph, memory, &entry, now)?);
+        facts.push(entry_fact(graph, memory, &entry, present_set, now)?);
     }
     let start = facts.len().saturating_sub(recent);
     Ok(facts.split_off(start))
@@ -133,17 +133,12 @@ fn entry_fact(
     graph: &Graph,
     memory: &MemoryView,
     entry: &EntryView,
+    present_set: &[MemoryId],
     now: Timestamp,
 ) -> Result<BriefFact, BriefError> {
     let mut markers = Vec::new();
-    if entry.visibility != Visibility::Public {
-        let teller = graph.teller_display(&entry.told_by)?;
-        let marker = graph.marker_ref(entry.told_in.as_ref())?;
-        if let Some(marker_text) =
-            visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
-        {
-            markers.push(marker_text);
-        }
+    if let Some(marker_text) = graph.entry_provenance_marker(entry, memory, present_set)? {
+        markers.push(marker_text);
     }
     let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
     if decay::is_stale(memory.volatility, effective, now) {

@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    event::{ModelPhase, Teller},
+    event::{ModelPhase, Teller, Visibility},
     graph::{EntryView, MemoryView},
     ids::MemoryId,
     model::{Completion, GenerateRequest, GenerateResponse, ModelError},
@@ -76,8 +76,9 @@ pub(super) fn statements_prompt(
             Some(occurred_at) => format!(" · occurred {}", time::format_occurrence(occurred_at)),
             None => String::new(),
         };
+        let attested = attested_note(entry, teller_names);
         prompt.push_str(&format!(
-            "{}. [from {teller} · {}{occurred}] {}\n",
+            "{}. [from {teller} · {}{occurred}{attested}] {}\n",
             index + 1,
             time::format_day(entry.asserted_at),
             entry.text
@@ -88,6 +89,42 @@ pub(super) fn statements_prompt(
          to restate.\n",
     );
     prompt
+}
+
+/// The ` · attested by …` clause a multiply-attested statement carries in its bracket, so the
+/// arbitration weighs corroboration (a fact several people independently stand behind is stronger
+/// than one voice). Counts only the `Public` and `Attributed` attestations — a hidden private
+/// endorsement contributes nothing, not even to the count, so no confidence leaks into the durable
+/// log prose — and skips the agent, the synthesizer of a consolidation replacement rather than an
+/// independent source (mirroring the via-list). Empty for a single-source statement (nothing to
+/// prefer), names for a small set, a bare count beyond three (keeping the line terse). Founding-first,
+/// each teller named at most once.
+fn attested_note(entry: &EntryView, teller_names: &BTreeMap<MemoryId, String>) -> String {
+    let names: Vec<&str> = entry
+        .attestations
+        .iter()
+        .filter(|attestation| {
+            matches!(
+                attestation.posture,
+                Visibility::Public | Visibility::Attributed
+            )
+        })
+        .filter_map(|attestation| match attestation.teller {
+            Teller::Participant(id) => Some(
+                teller_names
+                    .get(&id)
+                    .map(String::as_str)
+                    .unwrap_or("a participant"),
+            ),
+            Teller::Agent => None,
+            Teller::Bootstrap => Some("genesis"),
+        })
+        .collect();
+    match names.len() {
+        0 | 1 => String::new(),
+        n if n <= 3 => format!(" · attested by {}", names.join(", ")),
+        n => format!(" · attested by {n}"),
+    }
 }
 
 /// Drive one structured synthesis `request` through the shared recording seam, retrying a few times on

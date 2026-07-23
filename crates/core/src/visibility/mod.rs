@@ -468,6 +468,95 @@ pub fn attributed_marker(teller: &str, marker: Option<&MarkerTurn>) -> String {
     format_turn(&format!("[{body}]"), turn)
 }
 
+/// One visible attestation resolved for marker rendering: its own audience posture, its teller's
+/// display name, whether that teller is the agent (the synthesizer of a consolidation replacement,
+/// never named in a via- or corroboration-list), and its resolved conversation reference. The caller
+/// (search, brief) resolves each attestation of [`visible_attestations`] into one of these — the I/O
+/// (teller name, room) stays out of the pure predicate module, mirroring the `class_of` injection.
+pub struct MarkerAttestation {
+    pub posture: Visibility,
+    pub teller: String,
+    pub is_agent: bool,
+    pub marker: MarkerTurn,
+}
+
+/// The inline provenance marker an entry carries, built from its **visible** attestation subset for
+/// the present audience (the chip rule — [`visible_attestations`] supplies the subset, so a hidden
+/// attestation is already absent and leaves no residue here). The register is the widest visible
+/// posture:
+///
+/// - **Public**: freely shareable, so the founding source goes unmarked; any further visible tellers
+///   ride an `[also told by …]` corroboration marker (names for one or two, a count beyond).
+/// - **Attributed**: a `[via …]` marker naming the visible attesting tellers — the agent skipped, so
+///   a consolidation replacement founded [`Teller::Agent`] draws its via-list from the real tellers it
+///   carried, and renders no marker when only the agent remains visible. A lone teller keeps the full
+///   [`attributed_marker`] (room and turn token); several are named terse, a count beyond two.
+/// - **Confidence** (`PrivateToTeller`/`Exclude`): today's [`teller_private_marker`] over the widest
+///   visible confidence, unchanged.
+///
+/// `None` when the widest visible posture warrants no marker — a plain public entry, or an
+/// agent-only attributed one. The attestations are founding-first, matching [`visible_attestations`].
+pub fn entry_attestation_marker(visible: &[MarkerAttestation]) -> Option<String> {
+    let widest = visible.iter().map(|a| posture_rank(&a.posture)).max()?;
+    match widest {
+        3 => also_told_marker(visible),
+        2 => via_marker(visible),
+        _ => {
+            let confidence = visible.iter().find(|a| posture_rank(&a.posture) == 1)?;
+            Some(teller_private_marker(
+                &confidence.teller,
+                Some(&confidence.marker),
+            ))
+        }
+    }
+}
+
+/// The audience breadth of an attestation's own posture, ordered widest first: `Public` over
+/// `Attributed` over the teller-gated confidences. Drives which register [`entry_attestation_marker`]
+/// renders in.
+fn posture_rank(posture: &Visibility) -> u8 {
+    match posture {
+        Visibility::Public => 3,
+        Visibility::Attributed => 2,
+        Visibility::PrivateToTeller | Visibility::Exclude(_) => 1,
+    }
+}
+
+/// The `[via …]` marker for an attributed entry, naming the visible attesting tellers with the agent
+/// skipped. A lone teller keeps the full [`attributed_marker`] (room and turn token); two are named;
+/// beyond two the tail is a count, keeping the marker terse under the brief's budget. `None` when only
+/// the agent attests (the consolidation-replacement case — the synthesizer is not a source).
+fn via_marker(visible: &[MarkerAttestation]) -> Option<String> {
+    let attesters: Vec<&MarkerAttestation> = visible
+        .iter()
+        .filter(|a| matches!(a.posture, Visibility::Attributed) && !a.is_agent)
+        .collect();
+    match attesters.as_slice() {
+        [] => None,
+        [only] => Some(attributed_marker(&only.teller, Some(&only.marker))),
+        [a, b] => Some(format!("[via {}, {}]", a.teller, b.teller)),
+        [a, b, rest @ ..] => Some(format!("[via {}, {}, +{}]", a.teller, b.teller, rest.len())),
+    }
+}
+
+/// The `[also told by …]` corroboration marker for a public entry: the further visible tellers beyond
+/// the founding source (itself unmarked, since public content is freely shareable), the agent and any
+/// confidence skipped. Names for one or two corroborators, a count beyond. `None` when the public
+/// entry stands on its founding source alone.
+fn also_told_marker(visible: &[MarkerAttestation]) -> Option<String> {
+    let corroborators: Vec<&MarkerAttestation> = visible
+        .iter()
+        .skip(1)
+        .filter(|a| posture_rank(&a.posture) >= 2 && !a.is_agent)
+        .collect();
+    match corroborators.as_slice() {
+        [] => None,
+        [only] => Some(format!("[also told by {}]", only.teller)),
+        [a, b] => Some(format!("[also told by {}, {}]", a.teller, b.teller)),
+        more => Some(format!("[also told by {} others]", more.len())),
+    }
+}
+
 /// Append a `[turn:<ulid>]` token inside the closing bracket of a marker string, when a turn id is
 /// known. The token is the canonical reference form, so a renderer can resolve it into a link.
 /// Without a turn id, the marker is returned unchanged.

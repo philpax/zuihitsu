@@ -4,11 +4,14 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::{ConversationRef, Teller},
     graph::{
-        ConversationView, Graph, GraphError, OpenSessionView, ParticipantMint, SessionView,
-        backend, parse_ulid, timestamp_column,
+        AttestationView, ConversationView, EntryView, Graph, GraphError, MemoryView,
+        OpenSessionView, ParticipantMint, SessionView, backend, parse_ulid, timestamp_column,
     },
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
-    visibility::{MarkerRoom, MarkerTurn, room_display},
+    visibility::{
+        MarkerAttestation, MarkerRoom, MarkerTurn, entry_attestation_marker, room_display,
+        visible_attestations,
+    },
     vocabulary::TagName,
 };
 use rusqlite::{OptionalExtension, params};
@@ -175,6 +178,48 @@ impl Graph {
             turn_id: r.turn,
             room,
         })
+    }
+
+    /// The inline provenance marker `entry` carries when surfaced to `present_set` — the one place a
+    /// live surface (search, brief composition, the calendar) turns a visible entry into its marker.
+    /// Resolves the entry's **visible** attestation subset (the chip rule), resolving each teller and
+    /// room, and hands it to [`entry_attestation_marker`], so the marker speaks the attesting tellers
+    /// the audience may see and no hidden attestation leaves a residue. `None` for a public entry
+    /// standing on its founding source alone (and for a superseded one, which surfaces no attestation).
+    pub fn entry_provenance_marker(
+        &self,
+        entry: &EntryView,
+        memory: &MemoryView,
+        present_set: &[MemoryId],
+    ) -> Result<Option<String>, GraphError> {
+        let class_of = |id| self.class_id(id).map(|class| class.unwrap_or(id));
+        // A hand-built view left the attestation set empty; fall back to the founding attestation so a
+        // singleton reads bit-identically to reasoning over the entry's own `told_by`/`visibility`,
+        // mirroring the predicate's own synthesis (see [`explain`]).
+        let synthesized;
+        let entry = if entry.attestations.is_empty() {
+            let mut view = entry.clone();
+            view.attestations = vec![AttestationView::founding(
+                entry.told_by.clone(),
+                entry.told_in.clone(),
+                entry.asserted_at,
+                entry.visibility.clone(),
+            )];
+            synthesized = view;
+            &synthesized
+        } else {
+            entry
+        };
+        let mut resolved = Vec::new();
+        for attestation in visible_attestations(entry, memory, present_set, &class_of)? {
+            resolved.push(MarkerAttestation {
+                posture: attestation.posture.clone(),
+                teller: self.teller_display(&attestation.teller)?,
+                is_agent: matches!(attestation.teller, Teller::Agent),
+                marker: self.marker_ref(attestation.told_in.as_ref())?,
+            });
+        }
+        Ok(entry_attestation_marker(&resolved))
     }
 
     /// A session by id, with its participants, or `None` if unknown.

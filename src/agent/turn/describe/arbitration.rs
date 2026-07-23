@@ -28,8 +28,10 @@ const ARBITRATION_SYSTEM: &str = "You audit a numbered set of statements about o
     (leave `credited` empty when neither is yet known to be right), and a one-line reconciling note in \
     `statement`. Two accounts of the same fact attributed to different people still contradict; do not \
     treat them as compatible merely because each holds as someone's account. Only genuine \
-    contradictions count — not a fact being added, refined, or updated over time. When no two \
-    statements collide, return an empty `competing`.";
+    contradictions count — not a fact being added, refined, or updated over time. When you must judge \
+    which of two contradicting accounts to credit, other things being equal prefer the one \
+    independently attested by more people (the `attested by` clause in a statement's bracket) over a \
+    single-source account. When no two statements collide, return an empty `competing`.";
 
 /// Ask the model, in its own focused schema-constrained reply, which of the numbered statements assert
 /// incompatible values for the same fact (spec §Write path → arbitration). This is deliberately a

@@ -180,10 +180,21 @@ async fn describe_one(
             .collect();
         let mut teller_names: std::collections::BTreeMap<MemoryId, String> =
             std::collections::BTreeMap::new();
-        for entry in &entries {
-            if let Teller::Participant(teller) = entry.told_by
-                && let std::collections::btree_map::Entry::Vacant(slot) = teller_names.entry(teller)
-                && let Some(view) = graph.memory_by_id(teller)?
+        // Every teller behind an entry — its founding teller and each attesting teller — so the
+        // numbered statements can name the `attested by` corroborators, not only the founding source.
+        let entry_tellers = entries.iter().flat_map(|entry| {
+            std::iter::once(&entry.told_by).chain(
+                entry
+                    .attestations
+                    .iter()
+                    .map(|attestation| &attestation.teller),
+            )
+        });
+        for teller in entry_tellers {
+            if let Teller::Participant(teller) = teller
+                && let std::collections::btree_map::Entry::Vacant(slot) =
+                    teller_names.entry(*teller)
+                && let Some(view) = graph.memory_by_id(*teller)?
             {
                 slot.insert(view.name.as_str().to_owned());
             }

@@ -371,6 +371,64 @@ fn a_whole_entry_retraction_withdraws_every_attestation() {
 }
 
 #[test]
+fn the_provenance_marker_names_visible_attesters_and_leaks_no_hidden_one() {
+    // A public fact with a visible attributed corroborator (dave) and a hidden private confidence
+    // (frank, absent): the surfaced marker names dave and carries no residue of frank — the
+    // load-bearing privacy property of the chip rule at the render seam.
+    let project = MemoryId::generate();
+    let (dave, frank) = (MemoryId::generate(), MemoryId::generate());
+    let entry = EntryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(project, Namespace::Topic.with_name("hooli")),
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(frank, Namespace::Person.with_name("frank")),
+        appended(
+            project,
+            entry,
+            "the launch slipped",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+        attested(
+            project,
+            entry,
+            Teller::Participant(dave),
+            Visibility::Attributed,
+            None,
+        ),
+        attested(
+            project,
+            entry,
+            Teller::Participant(frank),
+            Visibility::PrivateToTeller,
+            Some("frank said so in confidence"),
+        ),
+    ]);
+
+    let view = &graph.entries_local(project).unwrap()[0];
+    let memory = graph.memory_by_id(project).unwrap().unwrap();
+    // No one present: dave's attributed corroboration is public-safe and shows; frank's confidence
+    // (teller absent) is hidden and leaves no residue.
+    let marker = graph
+        .entry_provenance_marker(view, &memory, &[])
+        .unwrap()
+        .expect("a corroborated public entry carries a marker");
+    assert_eq!(marker, "[also told by person/dave]");
+    assert!(
+        !marker.contains("frank"),
+        "the hidden attester never surfaces: {marker}"
+    );
+
+    // With frank present, his confidence joins the visible subset — but the fact is public, so it
+    // rides the corroboration register (still no confidential wording leaked into a shareable line).
+    let marker = graph
+        .entry_provenance_marker(view, &memory, &[frank])
+        .unwrap()
+        .expect("still corroborated");
+    assert!(!marker.contains("confidence"), "{marker}");
+}
+
+#[test]
 fn exclude_semantics_hold_through_the_attestation_path() {
     // An Exclude founding on a non-person memory (no subject-guard): visible while the teller is
     // present and no named excludee is, mirroring the pre-attestation Exclude semantics.

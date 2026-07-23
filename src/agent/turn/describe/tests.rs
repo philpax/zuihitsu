@@ -3,13 +3,23 @@ use std::collections::BTreeMap;
 use super::{extract::ExtractedTime, synthesis::statements_prompt};
 use crate::{
     event::{Teller, Visibility, Volatility},
-    graph::{EntryOrigin, EntryView, MemoryView},
+    graph::{AttestationView, EntryOrigin, EntryView, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
     time::{self, CivilDate, Rrule, TemporalRef, Timestamp},
 };
 
 fn ms(date: &str) -> i64 {
     time::civil_date_to_millis(date).unwrap()
+}
+
+/// A `Public` attestation by a participant — a corroborating source for the `attested by` clause.
+fn attestation(teller: Teller, posture: Visibility) -> AttestationView {
+    AttestationView::founding(
+        teller,
+        None,
+        Timestamp::from_millis(ms("2026-06-08")),
+        posture,
+    )
 }
 
 /// A minimal agent-told entry carrying `text` and an optional occurrence, for the prompt-shape tests.
@@ -63,6 +73,55 @@ fn statements_prompt_annotates_a_dated_statement_and_leaves_an_undated_one() {
     assert!(prompt.contains("1. [from the agent · Mon 08 Jun · occurred 2026-10-03] Vendor demo"));
     // The undated statement's bracket is unchanged — no occurrence, no trailing annotation.
     assert!(prompt.contains("2. [from the agent · Mon 08 Jun] The demo is locked for this date."));
+}
+
+#[test]
+fn statements_prompt_notes_a_multiply_attested_statement_and_ignores_a_hidden_one() {
+    let memory = memory("topic/hooli");
+    let (erin, dave, frank) = (
+        MemoryId::generate(),
+        MemoryId::generate(),
+        MemoryId::generate(),
+    );
+    let teller_names: BTreeMap<MemoryId, String> = [
+        (erin, "person/erin".to_owned()),
+        (dave, "person/dave".to_owned()),
+        (frank, "person/frank".to_owned()),
+    ]
+    .into_iter()
+    .collect();
+
+    // The launch slip: erin's public account, dave's attributed corroboration, and frank's hidden
+    // private confidence. The clause counts erin and dave; frank's private endorsement never bumps it.
+    let mut multi = entry("The launch slipped", None);
+    multi.told_by = Teller::Participant(erin);
+    multi.attestations = vec![
+        attestation(Teller::Participant(erin), Visibility::Public),
+        attestation(Teller::Participant(dave), Visibility::Attributed),
+        attestation(Teller::Participant(frank), Visibility::PrivateToTeller),
+    ];
+    // A single-source sibling: erin alone, so no clause.
+    let mut single = entry("The venue is booked", None);
+    single.told_by = Teller::Participant(erin);
+    single.attestations = vec![attestation(Teller::Participant(erin), Visibility::Public)];
+
+    let prompt = statements_prompt(
+        &memory,
+        &[multi, single],
+        &teller_names,
+        Timestamp::from_millis(ms("2026-06-08")),
+    );
+    assert!(
+        prompt.contains("attested by person/erin, person/dave"),
+        "{prompt}"
+    );
+    // The hidden private endorsement leaves no residue in the durable prompt prose.
+    assert!(!prompt.contains("person/frank"), "{prompt}");
+    // The single-source statement carries no clause.
+    assert!(
+        prompt.contains("2. [from person/erin · Mon 08 Jun] The venue is booked"),
+        "{prompt}"
+    );
 }
 
 #[test]

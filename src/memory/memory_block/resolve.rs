@@ -10,6 +10,7 @@ use crate::{
     ids::{EntryId, MemoryId, MemoryName},
     memory::visibility::{
         default_link_visibility, default_visibility_named, subject_participant, visible,
+        visible_attestations,
     },
 };
 
@@ -19,6 +20,18 @@ use crate::memory::memory_block::{
     Authority, EntryRef, EntrySelector, ForcedVisibility, MIN_ENTRY_PREFIX, MemoryBlock,
     MemoryError, VisibilityChoice, WITHHELD_STUB,
 };
+
+/// A live-or-history entry with the read-time annotations [`MemoryBlock::annotate`] computes: whether
+/// its content is `withheld` from the present audience, whether it is `stale`, and the readable labels
+/// of the attesters the audience may see. Projected into an [`EntryRef`] by [`MemoryBlock::entry_ref`].
+pub(super) struct AnnotatedEntry {
+    pub(super) entry: EntryView,
+    pub(super) withheld: bool,
+    pub(super) stale: bool,
+    /// The visible attesting tellers (agent excluded), resolved to labels by
+    /// [`MemoryBlock::entry_ref`] off the graph lock the annotating read holds.
+    pub(super) attesters: Vec<Teller>,
+}
 
 impl MemoryBlock {
     /// The visibility a content entry is written at, or a teachable failure. An explicit choice is
@@ -171,6 +184,9 @@ impl MemoryBlock {
                     text: text.clone(),
                     visibility: visibility.clone(),
                     teller: self.teller_label(told_by),
+                    // A pending append carries only its founding attestation, so the read falls back
+                    // to the lone teller until it commits and a fuller set materializes.
+                    attesters: Vec::new(),
                     disputed: false,
                     occurred_at: occurred_at.clone(),
                     withheld: false,
@@ -192,6 +208,7 @@ impl MemoryBlock {
         disputed: &BTreeSet<EntryId>,
         withheld: bool,
         stale: bool,
+        attesters: Vec<Teller>,
     ) -> EntryRef {
         EntryRef {
             disputed: disputed.contains(&view.entry_id),
@@ -203,6 +220,11 @@ impl MemoryBlock {
             },
             visibility: view.visibility,
             teller: self.teller_label(&view.told_by),
+            // Resolved here, outside the graph lock the annotating read holds.
+            attesters: attesters
+                .iter()
+                .map(|teller| self.teller_label(teller))
+                .collect(),
             occurred_at: view.occurred_at,
             withheld,
             stale,
@@ -227,7 +249,7 @@ impl MemoryBlock {
         graph: &Graph,
         id: MemoryId,
         entries: Vec<EntryView>,
-    ) -> Result<Vec<(EntryView, bool, bool)>, MemoryError> {
+    ) -> Result<Vec<AnnotatedEntry>, MemoryError> {
         let now = self.now();
         let memory = graph.memory_by_id(id)?;
         let volatility = memory
@@ -245,15 +267,43 @@ impl MemoryBlock {
                 // entry" would lie. A live read never reaches here with a superseded entry.
                 let stale =
                     entry.superseded_by.is_none() && decay::is_stale(volatility, effective, now);
+                // Probe with supersession cleared, matching the withheld check: history still surfaces
+                // a superseded entry, and its attesters are its provenance.
+                let mut probe = entry.clone();
+                probe.superseded_by = None;
                 let withheld = match (audience, &memory) {
-                    (true, Some(memory)) => {
-                        let mut probe = entry.clone();
-                        probe.superseded_by = None;
-                        !visible(&probe, memory, &self.present_set, &class_of)?
-                    }
+                    (true, Some(memory)) => !visible(&probe, memory, &self.present_set, &class_of)?,
                     _ => false,
                 };
-                Ok((entry, withheld, stale))
+                // With an audience present, keep only the attesters the audience may see, so a hidden
+                // attestation leaves no residue; with no one present (a solo flush or maintenance
+                // pass), the agent sees its whole record, matching the withheld carve-out. The agent
+                // is skipped — the synthesizer of a consolidation replacement is not a source. The
+                // tellers are resolved to labels in [`MemoryBlock::entry_ref`], off the graph lock this
+                // read holds.
+                let attester_tellers: Vec<Teller> = match (audience, &memory) {
+                    (true, Some(memory)) => {
+                        visible_attestations(&probe, memory, &self.present_set, &class_of)?
+                            .into_iter()
+                            .map(|attestation| attestation.teller.clone())
+                            .collect()
+                    }
+                    _ => entry
+                        .attestations
+                        .iter()
+                        .map(|attestation| attestation.teller.clone())
+                        .collect(),
+                };
+                let attesters = attester_tellers
+                    .into_iter()
+                    .filter(|teller| !matches!(teller, Teller::Agent))
+                    .collect();
+                Ok(AnnotatedEntry {
+                    entry,
+                    withheld,
+                    stale,
+                    attesters,
+                })
             })
             .collect()
     }

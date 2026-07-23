@@ -175,8 +175,17 @@ pub struct EntryRef {
     pub visibility: Visibility,
     /// Who the entry is attributed to, resolved to a readable label ("person/erin", "you" for the
     /// agent's own note) — so a read shows where a fact came from, which is what tells the agent whose
-    /// confidence it is.
+    /// confidence it is. The founding teller; the fuller attesting set is [`EntryRef::attesters`].
     pub teller: String,
+    /// The tellers who stand behind this entry's fact, resolved to readable labels — its **visible**
+    /// attestation subset for the read's present audience, the agent (the synthesizer of a
+    /// consolidation replacement) skipped and each named at most once, founding-first. A read renders
+    /// these in place of the lone `teller` when non-empty, so a multiply-attested fact reads `from
+    /// person/erin, person/dave` and a consolidation replacement reads its real tellers rather than the
+    /// agent. A hidden attestation is filtered out here (no residue). Empty for an agent-only entry (the
+    /// read falls back to `teller`) and for the append-echo and by-id handbacks, which carry only the
+    /// founding teller.
+    pub attesters: Vec<String>,
     /// Whether the entry is under an unresolved belief arbitration — a fact the agent recorded as
     /// contested and should surface as such rather than assert as settled. Lets a read advertise the
     /// dispute so the agent honors it when answering, instead of confidently picking one account.

@@ -464,3 +464,58 @@ fn a_public_entry_with_a_hidden_attestation_is_retractable_by_an_uninvolved_spea
         "the whole public entry is retracted"
     );
 }
+
+/// A live read names every attester the audience may see and hides a confided one: a public fact
+/// corroborated by two participants and privately confided by a third reads `from person/erin,
+/// person/dave` while frank is absent, his confidence leaving no residue in the read.
+#[test]
+fn a_read_names_visible_attesters_and_hides_a_confided_one() {
+    let topic = MemoryId::generate();
+    let (erin, dave, frank) = (
+        MemoryId::generate(),
+        MemoryId::generate(),
+        MemoryId::generate(),
+    );
+    let entry = EntryId::generate();
+    let graph = committed(vec![
+        EventPayload::memory_created(topic, Namespace::Topic.with_name("launch")),
+        EventPayload::memory_created(erin, Namespace::Person.with_name("erin")),
+        EventPayload::memory_created(dave, Namespace::Person.with_name("dave")),
+        EventPayload::memory_created(frank, Namespace::Person.with_name("frank")),
+        appended(
+            topic,
+            entry,
+            "the launch shipped on the third",
+            Teller::Participant(erin),
+            Visibility::Public,
+        ),
+        attested(
+            topic,
+            entry,
+            Teller::Participant(dave),
+            Visibility::Attributed,
+        ),
+        attested(
+            topic,
+            entry,
+            Teller::Participant(frank),
+            Visibility::PrivateToTeller,
+        ),
+    ]);
+
+    // Read with dave present (frank absent): erin's public founding and dave's attributed
+    // corroboration surface; frank's confidence is hidden.
+    let mut block = block_present(graph, Teller::Agent, Authority::Agent, vec![dave]);
+    let refs = block.entries(topic).unwrap();
+    let read = refs.iter().find(|r| r.entry_id == entry).unwrap();
+    assert_eq!(
+        read.attesters,
+        vec!["person/erin".to_owned(), "person/dave".to_owned()],
+        "the read names the visible attesters, founding-first"
+    );
+    assert!(
+        !read.attesters.iter().any(|name| name.contains("frank")),
+        "the confided attester leaves no residue: {:?}",
+        read.attesters
+    );
+}

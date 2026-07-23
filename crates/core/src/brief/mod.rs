@@ -19,7 +19,6 @@ use std::{collections::HashSet, fmt::Write as _};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    event::Visibility,
     graph::{Graph, GraphError},
     ids::{MemoryId, MemoryName},
     settings::BriefSettings,
@@ -518,15 +517,11 @@ pub(super) fn compose_packed(
                 .occurred_sort
                 .map_or_else(String::new, time::format_day);
             let mut line = format!("- {when}: {} — {}", memory.name.as_str(), entry.text);
-            if entry.visibility != Visibility::Public {
-                let teller = graph.teller_display(&entry.told_by)?;
-                let marker = graph.marker_ref(entry.told_in.as_ref())?;
-                if let Some(marker_text) =
-                    visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
-                {
-                    line.push(' ');
-                    line.push_str(&marker_text);
-                }
+            if let Some(marker_text) =
+                graph.entry_provenance_marker(&entry, &memory, present_set)?
+            {
+                line.push(' ');
+                line.push_str(&marker_text);
             }
             lines.push(format!("{line}\n"));
         }
