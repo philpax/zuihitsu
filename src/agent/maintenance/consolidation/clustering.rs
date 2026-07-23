@@ -138,11 +138,15 @@ pub(super) async fn embed_class_entries(
 
 /// Group a class's live entries into tier-1 synthesis groups by visibility posture, as entry indices.
 /// A group is the unit within which clustering and synthesis run, so the grouping fixes the audience
-/// of every synthesized replacement: [`Visibility::Public`] entries merge across tellers (the teller is
-/// provenance there, not the audience-bearing payload), while attributed, private-to-teller, and
-/// exclude entries group per teller (and per exact exclude set), since the teller determines who may
-/// see the fact. This is what keeps a private confidence from being synthesized into a copy attributed
-/// to, or visible to, anyone but its own teller.
+/// of every synthesized replacement: [`Visibility::Public`] and [`Visibility::Attributed`] entries
+/// merge across tellers (both surface to everyone, so synthesizing two relayed accounts leaks nothing
+/// — the tellers survive as attestations on the replacement), while [`Visibility::PrivateToTeller`] and
+/// [`Visibility::Exclude`] entries group per teller (and per exact exclude set). That per-teller split
+/// is the deliberate privacy-correct residual where duplication survives: a synthesized text interleaves
+/// its sources' clauses, and two confidences' audiences are incomparable (each reaches only its own
+/// teller, or all-but-its-own-excluded-set), so merging them would either widen one confidence's
+/// audience or attribute it to a teller who never told it. Keeping them apart keeps a private confidence
+/// from being synthesized into a copy visible to, or attributed to, anyone but its own teller.
 pub(super) fn tier1_groups(entries: &[EntryView]) -> Vec<Vec<usize>> {
     let mut groups: Vec<(PostureKey, Vec<usize>)> = Vec::new();
     for (i, entry) in entries.iter().enumerate() {
@@ -205,17 +209,19 @@ pub(super) fn cluster_within(
     clusters
 }
 
-/// The tier-2 cross-level dedup plan: a more-private entry whose fact is already attested by a
-/// more-public entry (cosine ≥ the stricter `threshold`) is retired into that entry. Returns each
-/// retained replacement entry paired with the source entries to fold into it.
+/// The tier-2 cross-level dedup plan: an entry whose fact is already attested by a wider-or-equal
+/// entry (cosine ≥ the stricter `threshold`) is retired into that entry, its own teller surviving as an
+/// attestation the write path leaves on the replacement. Returns each retained replacement entry paired
+/// with the source entries to fold into it.
 ///
-/// Only a genuinely private source — [`Visibility::PrivateToTeller`] or [`Visibility::Exclude`] — is
-/// eligible, and only an all-audience entry ([`Visibility::Public`] or [`Visibility::Attributed`], both
-/// visible to anyone) is a valid replacement. That guarantees the replacement's audience is a superset
-/// of the source's, so retiring the private copy leaks nothing — the fact is already attested at least
-/// as widely. An attributed entry is never a source (it is not private, and folding it away would drop
-/// its attribution), and a private entry is never a replacement, so no dedup rotates or narrows an
-/// audience. Among qualifying replacements the most public, then most similar, wins.
+/// A source is eligible for a target when its posture is strictly narrower than, or attribution-
+/// preserving under, the target's (see [`is_absorbable`]): a [`Visibility::PrivateToTeller`] or
+/// [`Visibility::Exclude`] confidence folds into any all-audience entry, and a [`Visibility::Attributed`]
+/// entry folds into a plain [`Visibility::Public`] one — the attribution survives as an `Attributed`
+/// attestation on the public entry, so no audience is rotated or narrowed and nothing leaks. A
+/// [`Visibility::Public`] entry is never a source (it is already the widest audience), and a private
+/// entry is never a replacement, so a fold only ever collapses a narrower or equally-wide copy into an
+/// at-least-as-wide one. Among qualifying replacements the most public, then most similar, wins.
 pub(super) fn tier2_absorptions(
     entries: &[EntryView],
     embeddings: &[Embedding],
@@ -229,12 +235,14 @@ pub(super) fn tier2_absorptions(
         // absorbed entry must not point its `superseded_by` at an entry the connector may supersede
         // out from under it). Excluding it from both keeps the cleanup off connector-owned records
         // entirely.
-        if entry.origin.is_connector() || !is_private_source(&entry.visibility) {
+        if entry.origin.is_connector() || matches!(entry.visibility, Visibility::Public) {
             continue;
         }
         let mut best: Option<(usize, bool, f32)> = None;
         for (j, candidate) in entries.iter().enumerate() {
-            if j == i || candidate.origin.is_connector() || !is_all_audience(&candidate.visibility)
+            if j == i
+                || candidate.origin.is_connector()
+                || !is_absorbable(&entry.visibility, &candidate.visibility)
             {
                 continue;
             }
@@ -269,13 +277,14 @@ pub(super) fn tier2_absorptions(
         .collect()
 }
 
-/// The posture that fixes an entry's tier-1 group. Public entries share one key regardless of teller;
-/// every other posture keys on the teller (and, for an exclude, the exact withheld set), since the
-/// teller determines the audience.
+/// The posture that fixes an entry's tier-1 group. Public and attributed entries each share one key
+/// regardless of teller (both surface to everyone); the private and exclude postures key on the teller
+/// (and, for an exclude, the exact withheld set), since below the all-audience tier the teller
+/// determines who may see the fact.
 #[derive(PartialEq, Eq)]
 enum PostureKey {
     Public,
-    Attributed(Teller),
+    Attributed,
     PrivateToTeller(Teller),
     Exclude(Teller, BTreeSet<MemoryId>),
 }
@@ -283,23 +292,30 @@ enum PostureKey {
 fn posture_key(entry: &EntryView) -> PostureKey {
     match &entry.visibility {
         Visibility::Public => PostureKey::Public,
-        Visibility::Attributed => PostureKey::Attributed(entry.told_by.clone()),
+        Visibility::Attributed => PostureKey::Attributed,
         Visibility::PrivateToTeller => PostureKey::PrivateToTeller(entry.told_by.clone()),
         Visibility::Exclude(set) => PostureKey::Exclude(entry.told_by.clone(), set.clone()),
     }
 }
 
-/// Whether an entry is a private confidence eligible to be retired by a more-public near-duplicate.
-fn is_private_source(visibility: &Visibility) -> bool {
+/// Whether a `source` entry may be retired into a `target` entry — the tier-2 eligibility rule. A fold
+/// is sound exactly when the target's audience is a superset of the source's, or the two are equally
+/// wide but the fold preserves the source's attribution as an attestation:
+///
+/// - a private or exclude confidence into any all-audience entry (the classic narrower-into-wider case);
+/// - an attributed entry into a plain public one (equally wide, but the attribution survives as an
+///   `Attributed` attestation the write path leaves on the public entry).
+///
+/// Never a [`Visibility::Public`] source (already the widest), and never a private target, so a fold
+/// never rotates or narrows an audience.
+fn is_absorbable(source: &Visibility, target: &Visibility) -> bool {
     matches!(
-        visibility,
-        Visibility::PrivateToTeller | Visibility::Exclude(_)
+        (source, target),
+        (
+            Visibility::PrivateToTeller | Visibility::Exclude(_),
+            Visibility::Public | Visibility::Attributed,
+        ) | (Visibility::Attributed, Visibility::Public)
     )
-}
-
-/// Whether an entry surfaces to anyone — a valid, audience-superset replacement for a private source.
-fn is_all_audience(visibility: &Visibility) -> bool {
-    matches!(visibility, Visibility::Public | Visibility::Attributed)
 }
 
 /// Cut a dendrogram at a given dissimilarity threshold, returning a flat cluster label per point.
@@ -394,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn attributed_entries_split_by_teller() {
+    fn attributed_entries_group_across_tellers() {
         let alice = MemoryId::generate();
         let bob = MemoryId::generate();
         let entries = vec![
@@ -404,8 +420,45 @@ mod tests {
         let groups = tier1_groups(&entries);
         assert_eq!(
             groups.len(),
+            1,
+            "attributed entries are all-audience, so they co-synthesize across tellers"
+        );
+        assert_eq!(groups[0].len(), 2);
+    }
+
+    #[test]
+    fn attributed_and_private_never_share_a_group() {
+        let alice = MemoryId::generate();
+        // An attributed entry surfaces to everyone; a private one reaches only its teller. They must
+        // never co-synthesize, even from the same teller — the private text would widen to all-audience.
+        let entries = vec![
+            entry("a", Teller::Participant(alice), Visibility::Attributed),
+            entry("a", Teller::Participant(alice), Visibility::PrivateToTeller),
+        ];
+        let groups = tier1_groups(&entries);
+        assert_eq!(
+            groups.len(),
             2,
-            "attributed entries with different tellers never co-synthesize"
+            "an attributed and a private entry land in different groups"
+        );
+    }
+
+    #[test]
+    fn private_entries_split_by_teller() {
+        let alice = MemoryId::generate();
+        let bob = MemoryId::generate();
+        // The privacy-correct residual: two confidences of the same fact from different tellers reach
+        // incomparable audiences (each only its own teller), so they never co-synthesize — duplication
+        // survives rather than one confidence widening or being misattributed.
+        let entries = vec![
+            entry("a", Teller::Participant(alice), Visibility::PrivateToTeller),
+            entry("b", Teller::Participant(bob), Visibility::PrivateToTeller),
+        ];
+        let groups = tier1_groups(&entries);
+        assert_eq!(
+            groups.len(),
+            2,
+            "private entries with different tellers never co-synthesize"
         );
     }
 
@@ -509,6 +562,43 @@ mod tests {
             tier2_absorptions(&entries, &embeddings, 0.95),
             vec![(public_id, vec![source_id])]
         );
+    }
+
+    #[test]
+    fn tier2_absorbs_an_attributed_source_into_a_public_entry() {
+        let alice = MemoryId::generate();
+        let embeddings = vec![vec![1.0, 0.0], vec![1.0, 0.0]];
+        // An attributed entry is all-audience but attribution-bearing. Folding it into a plain public
+        // near-duplicate is sound — both surface to everyone — and the attribution survives as an
+        // Attributed attestation the write path leaves on the public entry.
+        let attributed = entry(
+            "attributed",
+            Teller::Participant(alice),
+            Visibility::Attributed,
+        );
+        let public = entry("public", Teller::Agent, Visibility::Public);
+        let attributed_id = attributed.entry_id;
+        let public_id = public.entry_id;
+        let entries = vec![attributed, public];
+        assert_eq!(
+            tier2_absorptions(&entries, &embeddings, 0.95),
+            vec![(public_id, vec![attributed_id])]
+        );
+    }
+
+    #[test]
+    fn tier2_never_absorbs_an_attributed_source_into_an_attributed_target() {
+        let alice = MemoryId::generate();
+        let bob = MemoryId::generate();
+        let embeddings = vec![vec![1.0, 0.0], vec![1.0, 0.0]];
+        // An attributed source folds only into a plain public target, never another attributed one:
+        // the target carries its own teller's attribution, and collapsing two attributed accounts would
+        // muddy whose attribution stands. Neither is retired.
+        let entries = vec![
+            entry("a", Teller::Participant(alice), Visibility::Attributed),
+            entry("b", Teller::Participant(bob), Visibility::Attributed),
+        ];
+        assert!(tier2_absorptions(&entries, &embeddings, 0.95).is_empty());
     }
 
     #[test]

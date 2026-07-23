@@ -4,9 +4,9 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    event::{EventPayload, Teller, Visibility},
+    event::{ConversationRef, EventPayload, Teller, Visibility},
     ids::MemoryId,
-    time::TemporalRef,
+    time::{TemporalRef, Timestamp},
     vocabulary::TagName,
 };
 
@@ -23,6 +23,14 @@ pub(super) struct LiveEntry {
     pub entry_id: EntryId,
     pub told_by: Teller,
     pub visibility: Visibility,
+    /// The entry's own text — carried so a consolidation can preserve a retired source's exact wording
+    /// as the `phrasing` of the attestation it leaves on the replacement.
+    pub text: String,
+    /// Where the entry was told, and when it was asserted — the provenance a consolidation copies onto
+    /// the attestation it leaves on the replacement, so a retired or merged source's teller survives
+    /// with its original `told_in` and `asserted_at`.
+    pub told_in: Option<ConversationRef>,
+    pub asserted_at: Timestamp,
     /// The entry's live attestations as `(teller, posture)` pairs — the founding attestation plus any
     /// further teller's, folded with this block's pending `EntryAttested`/`AttestationRetracted` so a
     /// same-block corroboration is seen (read-your-writes). The supersede and retract guards read this
@@ -266,6 +274,9 @@ impl MemoryBlock {
                     entry_id: entry.entry_id,
                     told_by: entry.told_by,
                     visibility: entry.visibility,
+                    text: entry.text,
+                    told_in: entry.told_in,
+                    asserted_at: entry.asserted_at,
                 }
             })
             .collect();
@@ -275,6 +286,9 @@ impl MemoryBlock {
                 entry_id,
                 told_by,
                 visibility,
+                text,
+                told_in,
+                asserted_at,
                 ..
             } = event
                 && members.contains(entry_memory)
@@ -288,6 +302,9 @@ impl MemoryBlock {
                     entry_id: *entry_id,
                     told_by: told_by.clone(),
                     visibility: visibility.clone(),
+                    text: text.clone(),
+                    told_in: told_in.clone(),
+                    asserted_at: *asserted_at,
                 });
             }
         }

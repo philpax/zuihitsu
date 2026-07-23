@@ -7,23 +7,29 @@
 //! block:
 //!
 //! **Tier 1 — within-level synthesis.** Live entries are grouped by visibility posture (see
-//! [`clustering::tier1_groups`]): public entries merge across tellers, while attributed, private, and
-//! exclude entries group per teller (and per exact exclude set), since below the public level the
-//! teller is the audience-bearing payload, not mere provenance. Within a group, near-duplicates are
-//! clustered at `consolidation_similarity_threshold` and the model synthesizes one richer replacement.
-//! The replacement inherits the group's visibility verbatim, and its teller is the group's teller when
-//! uniform or [`Teller::Agent`] for a cross-teller public merge. Because synthesis never crosses a
-//! level, a private confidence's text is never merged into a copy visible to a wider audience.
+//! [`clustering::tier1_groups`]): public and attributed entries each merge across tellers (both surface
+//! to everyone, so synthesizing two relayed accounts leaks nothing), while private and exclude entries
+//! group per teller (and per exact exclude set), since below the all-audience tier the teller is the
+//! audience-bearing payload, not mere provenance. Within a group, near-duplicates are clustered at
+//! `consolidation_similarity_threshold` and the model synthesizes one richer replacement. The
+//! replacement inherits the group's visibility verbatim, and its teller is the group's teller when
+//! uniform or [`Teller::Agent`] for a cross-teller merge (permitted at the public or attributed level).
+//! Each distinct source teller survives as an [`EntryAttested`](crate::event::EventPayload::EntryAttested) on the replacement, so a
+//! cross-teller merge preserves who the accounts came from rather than collapsing them into the agent.
+//! Because synthesis never crosses a level, a private confidence's text is never merged into a copy
+//! visible to a wider audience.
 //!
-//! **Tier 2 — cross-level dedup, never synthesis.** After tier 1 commits, a more-private live entry
-//! whose fact is already attested by a more-public one — at the stricter `dedup_similarity_threshold`,
-//! not the looser consolidation bar — is retired into that public entry via `EntriesConsolidated` with
-//! the existing public entry as the replacement. No new entry is written and the private text enters no
-//! prompt: a fact already attested at least as widely is redundant in its private copy, and the
-//! stricter bar is where "same fact" is credible enough to act on. This is the one place consolidation
-//! crosses tellers and postures, exactly the case the foreign-confidence supersede guard exists for;
-//! the write clears that guard under [`Authority::Agent`] precisely because the replacement's audience
-//! is a verified superset of the retired entry's.
+//! **Tier 2 — cross-level dedup, never synthesis.** After tier 1 commits, a narrower (or equally-wide
+//! but attributed) live entry whose fact is already attested by a wider entry — at the stricter
+//! `dedup_similarity_threshold`, not the looser consolidation bar — is retired into that entry via
+//! `EntriesConsolidated`, the existing wider entry as the replacement. No new entry is written and the
+//! retired text enters no prompt; instead the write path leaves an [`EntryAttested`](crate::event::EventPayload::EntryAttested) on
+//! the replacement carrying the retired source's teller, posture, and exact phrasing, so the fact is
+//! absorbed rather than merely dropped. A fact already attested at least as widely is redundant in its
+//! narrower copy, and the stricter bar is where "same fact" is credible enough to act on. This is the
+//! one place consolidation crosses tellers and postures, exactly the case the foreign-confidence
+//! supersede guard exists for; the write clears that guard under [`Authority::Agent`] precisely because
+//! the replacement's audience is a verified superset of the retired entry's.
 //!
 //! Source entries are tombstoned (stamped `superseded_by` = the replacement), dropping them from live
 //! surfaces while preserving them in history, and each `EntriesConsolidated` carries the full
