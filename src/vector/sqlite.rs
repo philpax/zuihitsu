@@ -10,6 +10,7 @@ use sqlite_vec::sqlite3_vec_init;
 use crate::{
     db::query_map_into,
     ids::Seq,
+    model::embed::Embedding,
     vector::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord},
 };
 
@@ -83,6 +84,33 @@ impl VectorIndex for SqliteVectorIndex {
             .execute("DELETE FROM vectors WHERE id = ?1", params![id.0.as_str()])
             .map_err(backend)?;
         Ok(())
+    }
+
+    fn get(&self, id: &VectorId) -> Result<Option<Embedding>, VectorError> {
+        let blob: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT embedding FROM vectors WHERE id = ?1",
+                params![id.0.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some(blob) = blob else {
+            return Ok(None);
+        };
+        // vec0 returns a float32 vector as a little-endian byte blob; decode it back to the embedding.
+        if blob.len() % 4 != 0 {
+            return Err(VectorError::Backend(format!(
+                "stored vector has {} bytes, not a whole number of 4-byte floats",
+                blob.len()
+            )));
+        }
+        let embedding = blob
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            .collect();
+        Ok(Some(embedding))
     }
 
     fn len(&self) -> Result<usize, VectorError> {
@@ -226,6 +254,32 @@ mod tests {
                 .iter()
                 .all(|hit| hit.id != VectorId::new("climbing gym"))
         );
+    }
+
+    #[tokio::test]
+    async fn get_reads_back_the_stored_vector_and_reports_a_missing_key() {
+        // The consolidation pass reads an already-indexed vector back rather than re-embedding it, so
+        // the decoded vector must round-trip the stored one within f32 round-trip error.
+        let embedder = CpuEmbedder::try_new().unwrap();
+        let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
+        let embedding = vector(&embedder, "climbing gym").await;
+        index
+            .upsert(VectorRecord {
+                id: VectorId::new("entry:a"),
+                embedding: embedding.clone(),
+                model_id: embedder.model_id().into(),
+            })
+            .unwrap();
+
+        let read_back = index.get(&VectorId::new("entry:a")).unwrap().unwrap();
+        assert_eq!(read_back.len(), embedding.len());
+        assert!(
+            read_back
+                .iter()
+                .zip(&embedding)
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+        assert_eq!(index.get(&VectorId::new("entry:missing")).unwrap(), None);
     }
 
     #[tokio::test]

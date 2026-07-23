@@ -54,7 +54,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::EntryConsolidation,
-            version: 1,
+            version: 2,
             body: body_of(include_str!("synthesis/entry_consolidation.md")),
         },
     ]

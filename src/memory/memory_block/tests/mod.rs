@@ -2,6 +2,7 @@
 
 mod authority;
 mod conflict_suggestions;
+mod consolidation;
 mod content_limit;
 mod mutation_guards;
 mod writes;

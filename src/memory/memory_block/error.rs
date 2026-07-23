@@ -143,6 +143,12 @@ pub enum MemoryError {
         existing_entry_id: EntryId,
         snippet: String,
     },
+    /// A consolidation write violated one of the pass's own invariants — no sources, sources that do
+    /// not share a visibility level, or a cross-teller merge at a non-public level. The maintenance
+    /// pass is the only caller and it groups its sources to satisfy these before calling, so this is
+    /// an internal guard against a grouping bug rather than an agent-facing teachable error; it
+    /// carries the invariant it caught for the operator's log.
+    ConsolidationInvariant(&'static str),
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -313,6 +319,9 @@ impl std::fmt::Display for MemoryError {
                      write if it has not",
                     existing_entry_id.0
                 )
+            }
+            MemoryError::ConsolidationInvariant(reason) => {
+                write!(f, "consolidation: {reason}")
             }
             MemoryError::Graph(error) => write!(f, "memory: {error}"),
         }

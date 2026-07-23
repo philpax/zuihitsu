@@ -93,12 +93,14 @@ leaves the original `MemoryContentAppended` immutable. Live surfaces then exclud
 entry, while history surfaces (`<memory>:history()`, the console) still show it.
 
 Consolidation is the many-to-one counterpart: `EntriesConsolidated` tombstones a cluster of
-semantically-overlapping source entries (stamping each one's `superseded_by` = the replacement
-entry id, exactly as supersession does) and records the full source list and the synthesized
-replacement. A maintenance pass running under `Authority::Agent` (the maintenance-pass authority
-tier — permits cross-teller supersede and free `same_as` assertion while blocking `self` writes)
-synthesizes the replacement entry, which carries `Teller::Agent` and the least-restrictive
-visibility of its sources. See [Maintenance passes](maintenance-passes.md).
+source entries (stamping each one's `superseded_by` = the replacement entry id, exactly as
+supersession does) and records the full source list and the replacement. A maintenance pass running
+under `Authority::Agent` (the maintenance-pass authority tier — clears the foreign-confidence
+supersede guard and permits free `same_as` assertion, while blocking `self` writes) drives it through
+the ordinary block write path. The replacement is either a freshly synthesized entry inheriting its
+same-level cluster's visibility (and teller, or `Teller::Agent` for a cross-teller public merge), or —
+for the cross-level dedup of a more-private copy against a more-public one — an existing all-audience
+entry, with no new text written. See [Maintenance passes](maintenance-passes.md).
 
 Retraction is the tombstone counterpart, for when a fact has no in-place replacement — most often because it was filed on the wrong memory. `EntryRetracted` (via `<memory>:retract(entry, reason)`) records why the fact was withdrawn and drops the entry from every live surface exactly as supersession does: the projection stamps `superseded_by` with the entry's *own* id — a self-referential tombstone, so every `superseded_by IS NULL` live filter hides it with no successor to point at — and records the reason in `retracted_reason`, which is what tells a retraction apart from a supersession. The original `MemoryContentAppended` stays immutable, and history surfaces show the tombstone with its reason. A reason is required (an unexplained retraction is unauditable). There is deliberately no move affordance: because visibility resolves per memory (see [Visibility](visibility.md)), relocating an entry in place would silently rewrite its meaning, so the honest correction is to retract it here and re-assert it on the right memory with a fresh append (carrying the original `told_by`, and `occurred_at` when the date is known).
 

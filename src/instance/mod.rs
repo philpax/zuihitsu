@@ -49,6 +49,7 @@ use crate::{
     engine::Engine,
     graph::Graph,
     ids::{ConversationId, MemoryId, Seq},
+    instance::workers::MaintenanceStart,
     mcp::{McpHost, McpServerConfig},
     memory::search::{SearchHit, SearchQuery, search as rank_search},
     metrics::observe_search,
@@ -424,30 +425,42 @@ impl Instance {
         self.passes.baseline_maintenance_cursors(&self.engine)
     }
 
-    /// Drive the consolidation pass. Returns how many memories were considered.
+    /// Drive the consolidation pass on demand — the CLI/console entry point. Returns how many memories
+    /// were considered. Unlike the timer driver (which resumes from the incremental cursor), the manual
+    /// path sweeps the whole log from the start ([`MaintenanceStart::FromStart`]): a fresh instance
+    /// seeds the cursor to log-head at boot, so an incremental manual pass would be a no-op that defeats
+    /// its purpose. The pass is idempotent, so a full re-sweep is safe.
     pub async fn consolidation_catch_up(
         &self,
         model: &dyn ModelClient,
     ) -> Result<usize, InstanceError> {
         self.passes
-            .consolidation_catch_up(&self.engine, model)
+            .consolidation_catch_up(&self.engine, model, MaintenanceStart::FromStart)
             .await
     }
 
-    /// Drive the canonical-profile pass. Returns how many stubs were considered.
+    /// Drive the canonical-profile pass on demand. Returns how many stubs were considered. Sweeps from
+    /// the start of the log, like [`Instance::consolidation_catch_up`] — see it for the timer/manual
+    /// asymmetry.
     pub async fn canonicalize_catch_up(
         &self,
         model: &dyn ModelClient,
     ) -> Result<usize, InstanceError> {
-        self.passes.canonicalize_catch_up(&self.engine, model).await
+        self.passes
+            .canonicalize_catch_up(&self.engine, model, MaintenanceStart::FromStart)
+            .await
     }
 
-    /// Drive the link-redundant entry cleanup pass. Returns how many memories were considered.
+    /// Drive the link-redundant entry cleanup pass on demand. Returns how many memories were considered.
+    /// Sweeps from the start of the log, like [`Instance::consolidation_catch_up`] — see it for the
+    /// timer/manual asymmetry.
     pub async fn link_cleanup_catch_up(
         &self,
         model: &dyn ModelClient,
     ) -> Result<usize, InstanceError> {
-        self.passes.link_cleanup_catch_up(&self.engine, model).await
+        self.passes
+            .link_cleanup_catch_up(&self.engine, model, MaintenanceStart::FromStart)
+            .await
     }
 
     /// The lazily-minted async lock serializing `conversation`'s session lifecycle. Delegates to

@@ -1,6 +1,7 @@
-//! Consolidation scenario: three overlapping public entries on a person are consolidated
-//! into one after a maintenance pass. The gating oracle checks that the source entries are
-//! tombstoned (not live) and an `EntriesConsolidated` event was recorded.
+//! Consolidation scenario: a duplicate pair of public entries on a person is consolidated into
+//! one after a maintenance pass, while a related-but-distinct entry on the same person survives.
+//! The oracles check that an `EntriesConsolidated` event was recorded, the pair is tombstoned
+//! (not live), and the distinct entry is still live.
 
 use async_trait::async_trait;
 use zuihitsu::{EntryId, Event, EventPayload, MemoryId, MemoryName, Teller, Timestamp, Visibility};
@@ -14,10 +15,10 @@ use crate::{
     step::EvalStep,
 };
 
-/// Three overlapping public entries on `person/alex` — "Alex is a backend engineer", "Alex works
-/// on the backend", "Alex is the team's backend lead" — are seeded. After a maintenance pass, the
-/// gating oracle checks that an `EntriesConsolidated` event was recorded and the source entries
-/// are no longer live.
+/// A duplicate pair on `person/alex` — "Alex is a backend engineer", "Alex works as a backend
+/// engineer" — is seeded beside the distinct "Alex is the team's backend lead". After a
+/// maintenance pass, the oracles check that an `EntriesConsolidated` event was recorded, the pair
+/// is no longer live, and the distinct role fact is.
 pub struct ConsolidatesOverlappingEntries;
 
 #[async_trait]
@@ -26,9 +27,11 @@ impl Scenario for ConsolidatesOverlappingEntries {
         ScenarioMeta {
             name: "consolidates_overlapping_entries".to_owned(),
             category: Category::Writes,
-            description: "Three overlapping public entries on a person are consolidated into one \
-                          after a maintenance pass. The gating oracle checks that the source \
-                          entries are tombstoned and an EntriesConsolidated event was recorded."
+            description: "Two rephrasings of the same fact on a person are consolidated into one \
+                          after a maintenance pass, while a related-but-distinct fact on the same \
+                          person survives untouched. The oracles check that an EntriesConsolidated \
+                          event was recorded, the duplicate pair is tombstoned, and the distinct \
+                          entry is still live."
                 .to_owned(),
             bar: Bar::Metric { threshold: 0.5 },
         }
@@ -39,8 +42,11 @@ impl Scenario for ConsolidatesOverlappingEntries {
         let now = run_start();
         let seed = vec![
             EventPayload::memory_created(alex, MemoryName::new("person/alex")),
+            // A genuine duplicate pair (contextual cosine ~0.96 under the live embedder — the
+            // bands are empirical; `debug embed` is the tuning tool) plus a related-but-distinct
+            // control (~0.70 against the pair) that must survive the sweep.
             append(alex, now, "Alex is a backend engineer"),
-            append(alex, now, "Alex works on the backend"),
+            append(alex, now, "Alex works as a backend engineer"),
             append(alex, now, "Alex is the team's backend lead"),
         ];
         vec![
@@ -60,27 +66,37 @@ impl Scenario for ConsolidatesOverlappingEntries {
         // Structural: the three source entries are no longer live (tombstoned). Check by exact text
         // match — the replacement entry may contain overlapping words, so a substring check would
         // false-positive on the replacement. Each source's full text must not appear as a live entry.
-        let source_texts = [
+        let duplicate_texts = [
             "Alex is a backend engineer",
-            "Alex works on the backend",
-            "Alex is the team's backend lead",
+            "Alex works as a backend engineer",
         ];
-        let all_tombstoned = source_texts
+        let pair_tombstoned = duplicate_texts
             .iter()
             .all(|&text| !analysis::live_entry_exact(events, "alex", text));
+
+        // The related-but-distinct control must survive: a role fact is not a rephrasing, and a
+        // sweep that folds it in is over-merging.
+        let control_live =
+            analysis::live_entry_exact(events, "alex", "Alex is the team's backend lead");
 
         vec![
             Verdict::metric_outcome(
                 "recorded an EntriesConsolidated event",
                 consolidated,
-                "the maintenance pass consolidated the overlapping entries",
+                "the maintenance pass consolidated the duplicate pair",
                 "no EntriesConsolidated event was recorded",
             ),
             Verdict::metric_outcome(
-                "tombstoned all three source entries",
-                all_tombstoned,
-                "the source entries are no longer live",
-                "one or more source entries are still live",
+                "tombstoned the duplicate pair",
+                pair_tombstoned,
+                "both rephrasings of the fact are no longer live",
+                "a rephrasing of the duplicated fact is still live",
+            ),
+            Verdict::metric_outcome(
+                "kept the related-but-distinct fact live",
+                control_live,
+                "the distinct role fact survived the sweep",
+                "the distinct role fact was folded into the consolidation",
             ),
         ]
     }

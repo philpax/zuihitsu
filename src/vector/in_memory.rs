@@ -6,6 +6,7 @@ use smol_str::SmolStr;
 
 use crate::{
     ids::Seq,
+    model::embed::Embedding,
     vector::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord},
 };
 
@@ -33,6 +34,14 @@ impl VectorIndex for InMemoryVectorIndex {
     fn remove(&mut self, id: &VectorId) -> Result<(), VectorError> {
         self.records.retain(|record| &record.id != id);
         Ok(())
+    }
+
+    fn get(&self, id: &VectorId) -> Result<Option<Embedding>, VectorError> {
+        Ok(self
+            .records
+            .iter()
+            .find(|record| &record.id == id)
+            .map(|record| record.embedding.clone()))
     }
 
     fn len(&self) -> Result<usize, VectorError> {

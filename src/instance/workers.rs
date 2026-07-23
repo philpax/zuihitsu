@@ -27,6 +27,29 @@ use crate::{
     instance::{BackgroundPasses, Instance},
 };
 
+/// Where a maintenance pass begins its sweep. The timer-driven driver resumes from the pass's stored
+/// incremental cursor; an on-demand invocation (CLI or console) sweeps the whole log from the start,
+/// since a fresh instance seeds every cursor to log-head at boot, which would make an incremental
+/// manual pass a no-op. The passes are idempotent, so a full re-sweep is safe.
+#[derive(Clone, Copy)]
+pub(crate) enum MaintenanceStart {
+    /// Resume from the stored incremental cursor — the timer path.
+    Cursor,
+    /// Sweep the whole log from the start — the on-demand backfill path.
+    FromStart,
+}
+
+impl MaintenanceStart {
+    /// The seq to begin from: the stored cursor for [`MaintenanceStart::Cursor`], or [`Seq::ZERO`] for
+    /// [`MaintenanceStart::FromStart`].
+    fn cursor(self, stored: &Mutex<Seq>) -> Seq {
+        match self {
+            MaintenanceStart::Cursor => *stored.lock(),
+            MaintenanceStart::FromStart => Seq::ZERO,
+        }
+    }
+}
+
 impl BackgroundPasses {
     /// Construct with the link-inference cursor seeded to `head`, matching `boot`'s re-seed behavior:
     /// everything written so far is treated as already processed, so a restart does not re-run that
@@ -219,39 +242,50 @@ impl BackgroundPasses {
     /// Catch the consolidation pass up to the log. Returns how many memories it considered. The
     /// activity gate (events since last cursor advance) must be checked by the caller before invoking
     /// this — the background driver does so; the on-demand CLI/console paths always run.
+    ///
+    /// `start` decides the window: the timer-driven driver resumes from the incremental
+    /// [`MaintenanceStart::Cursor`]; the on-demand entry points pass [`MaintenanceStart::FromStart`] to
+    /// sweep the whole log, since a fresh instance seeds the cursor to log-head at boot and the
+    /// incremental cursor would otherwise make a manual pass a no-op. Either way the advanced cursor is
+    /// stored, so a full sweep folds into the timer's cursor too — safe because the pass is idempotent.
     pub async fn consolidation_catch_up(
         &self,
-        engine: &Engine,
+        engine: &Arc<Engine>,
         model: &dyn ModelClient,
+        start: MaintenanceStart,
     ) -> Result<usize, InstanceError> {
         let _guard = self.consolidation_guard.lock().await;
-        let cursor = *self.consolidation_cursor.lock();
+        let cursor = start.cursor(&self.consolidation_cursor);
         let (advanced, count) = maintenance::consolidation::catch_up(engine, model, cursor).await?;
         *self.consolidation_cursor.lock() = advanced;
         Ok(count)
     }
 
-    /// Catch the canonicalize pass up to the log. Returns how many stubs it considered.
+    /// Catch the canonicalize pass up to the log. Returns how many stubs it considered. See
+    /// [`BackgroundPasses::consolidation_catch_up`] for the `start` (timer vs on-demand) asymmetry.
     pub async fn canonicalize_catch_up(
         &self,
-        engine: &Engine,
+        engine: &Arc<Engine>,
         model: &dyn ModelClient,
+        start: MaintenanceStart,
     ) -> Result<usize, InstanceError> {
         let _guard = self.canonicalize_guard.lock().await;
-        let cursor = *self.canonicalize_cursor.lock();
+        let cursor = start.cursor(&self.canonicalize_cursor);
         let (advanced, count) = maintenance::canonicalize::catch_up(engine, model, cursor).await?;
         *self.canonicalize_cursor.lock() = advanced;
         Ok(count)
     }
 
-    /// Catch the link-cleanup pass up to the log. Returns how many memories it considered.
+    /// Catch the link-cleanup pass up to the log. Returns how many memories it considered. See
+    /// [`BackgroundPasses::consolidation_catch_up`] for the `start` (timer vs on-demand) asymmetry.
     pub async fn link_cleanup_catch_up(
         &self,
-        engine: &Engine,
+        engine: &Arc<Engine>,
         model: &dyn ModelClient,
+        start: MaintenanceStart,
     ) -> Result<usize, InstanceError> {
         let _guard = self.link_cleanup_guard.lock().await;
-        let cursor = *self.link_cleanup_cursor.lock();
+        let cursor = start.cursor(&self.link_cleanup_cursor);
         let (advanced, count) = maintenance::link_cleanup::catch_up(engine, model, cursor).await?;
         *self.link_cleanup_cursor.lock() = advanced;
         Ok(count)
@@ -444,7 +478,7 @@ impl Instance {
                         *self.passes.consolidation_cursor.lock(),
                         settings.maintenance.consolidation_min_activity,
                     ).unwrap_or(false) {
-                        match self.passes.consolidation_catch_up(&self.engine, model.as_ref()).await {
+                        match self.passes.consolidation_catch_up(&self.engine, model.as_ref(), MaintenanceStart::Cursor).await {
                             Ok(considered) if considered > 0 => {
                                 tracing::debug!(considered, "consolidation pass consolidated entries")
                             }
@@ -460,7 +494,7 @@ impl Instance {
                         *self.passes.canonicalize_cursor.lock(),
                         settings.maintenance.canonicalize_min_activity,
                     ).unwrap_or(false) {
-                        match self.passes.canonicalize_catch_up(&self.engine, model.as_ref()).await {
+                        match self.passes.canonicalize_catch_up(&self.engine, model.as_ref(), MaintenanceStart::Cursor).await {
                             Ok(considered) if considered > 0 => {
                                 tracing::debug!(considered, "canonicalize pass minted profiles")
                             }
@@ -476,7 +510,7 @@ impl Instance {
                         *self.passes.link_cleanup_cursor.lock(),
                         settings.maintenance.link_cleanup_min_activity,
                     ).unwrap_or(false) {
-                        match self.passes.link_cleanup_catch_up(&self.engine, model.as_ref()).await {
+                        match self.passes.link_cleanup_catch_up(&self.engine, model.as_ref(), MaintenanceStart::Cursor).await {
                             Ok(considered) if considered > 0 => {
                                 tracing::debug!(considered, "link cleanup pass retracted redundant entries")
                             }

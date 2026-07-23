@@ -1,7 +1,7 @@
 //! Content write operations: create, rename, append, supersede, revise, and set volatility.
 
 use crate::{
-    event::{EventPayload, Teller, Visibility},
+    event::{EventPayload, ProducedBy, Teller, Visibility},
     graph::GraphError,
     ids::{EntryId, MemoryId, MemoryName},
     memory::visibility::subject_participant,
@@ -389,6 +389,125 @@ impl MemoryBlock {
             .into_iter()
             .find(|entry| entry.entry_id == old)
             .and_then(|entry| entry.occurred_at))
+    }
+
+    /// Tier 1 consolidation: replace `sources` with a freshly synthesized entry on `id`'s `same_as`
+    /// class. Every source must be a live entry of the class sharing one visibility level — the
+    /// maintenance pass groups its clusters by level before synthesizing, so a cluster is always
+    /// same-level — and the replacement inherits that level verbatim. Its teller is the sources' shared
+    /// teller, or [`Teller::Agent`] for a cross-teller merge, which is permitted only at
+    /// [`Visibility::Public`], where the teller is provenance rather than the audience-bearing payload it
+    /// is for an attributed or private entry. Buffers the replacement's `MemoryContentAppended` followed
+    /// by the [`EventPayload::EntriesConsolidated`] that tombstones the sources, as one transaction.
+    /// Runs the foreign-confidence supersede guard on each source like [`MemoryBlock::supersede`]: a
+    /// maintenance pass drives it under `Authority::Agent`, which the guard clears, and preserving each
+    /// source's teller and level keeps the fact visible to exactly its original audience.
+    pub fn consolidate(
+        &mut self,
+        id: MemoryId,
+        sources: &[EntryId],
+        replacement_text: String,
+        produced_by: Option<ProducedBy>,
+    ) -> Result<EntryId, MemoryError> {
+        self.transaction(|block| {
+            let id = block.class_write_target(id)?;
+            block.guard_self(id)?;
+            block.guard_operator(id)?;
+            let live = block.live_class_entries(id)?;
+            let mut visibility: Option<Visibility> = None;
+            let mut teller: Option<Teller> = None;
+            let mut uniform_teller = true;
+            for source in sources {
+                let Some(entry) = live.iter().find(|entry| entry.entry_id == *source) else {
+                    return Err(MemoryError::UnknownEntry(source.0.to_string()));
+                };
+                block.guard_foreign_confidence_supersede(entry)?;
+                match &visibility {
+                    None => visibility = Some(entry.visibility.clone()),
+                    Some(level) if *level != entry.visibility => {
+                        return Err(MemoryError::ConsolidationInvariant(
+                            "a cluster's sources must share one visibility level",
+                        ));
+                    }
+                    Some(_) => {}
+                }
+                match &teller {
+                    None => teller = Some(entry.told_by.clone()),
+                    Some(shared) if *shared != entry.told_by => uniform_teller = false,
+                    Some(_) => {}
+                }
+            }
+            let Some(visibility) = visibility else {
+                return Err(MemoryError::ConsolidationInvariant(
+                    "a consolidation needs at least one source",
+                ));
+            };
+            // A cross-teller merge collapses attribution to the agent, which is only sound where the
+            // teller is provenance rather than the audience-bearing payload — that is, a public entry.
+            if !uniform_teller && visibility != Visibility::Public {
+                return Err(MemoryError::ConsolidationInvariant(
+                    "a cross-teller merge is only permitted at the public visibility level",
+                ));
+            }
+            let told_by = if uniform_teller {
+                teller.expect("a teller is recorded whenever a source is seen")
+            } else {
+                Teller::Agent
+            };
+            let replacement =
+                block.push_content(id, replacement_text, told_by, visibility, None)?;
+            block.buffer.push(EventPayload::entries_consolidated(
+                id,
+                sources.to_vec(),
+                replacement,
+                produced_by,
+            ));
+            Ok(replacement)
+        })
+    }
+
+    /// Tier 2 consolidation: retire `sources` into an already-live `replacement` entry, recording the
+    /// many-to-one relationship without synthesizing anything. The maintenance pass uses this to drop a
+    /// private near-duplicate whose fact is already attested by a more public entry (the `replacement`),
+    /// so no `MemoryContentAppended` is written — the replacement already exists — and the private text
+    /// never enters a synthesis. Every `source` and the `replacement` must be a live entry of `id`'s
+    /// `same_as` class. Runs the foreign-confidence supersede guard on each source: this is deliberately
+    /// the cross-teller, cross-posture case the guard exists for, so it is permitted only under
+    /// `Authority::Agent` (which the guard clears), and only because the pass has verified the fact is
+    /// already attested at a more public level whose audience is a superset of the source's.
+    pub fn consolidate_into(
+        &mut self,
+        id: MemoryId,
+        sources: &[EntryId],
+        replacement: EntryId,
+        produced_by: Option<ProducedBy>,
+    ) -> Result<(), MemoryError> {
+        let id = self.class_write_target(id)?;
+        self.guard_self(id)?;
+        self.guard_operator(id)?;
+        if sources.is_empty() {
+            return Err(MemoryError::ConsolidationInvariant(
+                "a consolidation needs at least one source",
+            ));
+        }
+        let live = self.live_class_entries(id)?;
+        if !live.iter().any(|entry| entry.entry_id == replacement) {
+            return Err(MemoryError::UnknownEntry(replacement.0.to_string()));
+        }
+        for source in sources {
+            let Some(entry) = live.iter().find(|entry| entry.entry_id == *source) else {
+                return Err(MemoryError::UnknownEntry(source.0.to_string()));
+            };
+            self.guard_foreign_confidence_supersede(entry)?;
+        }
+        self.touched.insert(id);
+        self.buffer.push(EventPayload::entries_consolidated(
+            id,
+            sources.to_vec(),
+            replacement,
+            produced_by,
+        ));
+        Ok(())
     }
 
     /// Set a memory's volatility — how fast its facts go out of date. `high` for fast-changing status

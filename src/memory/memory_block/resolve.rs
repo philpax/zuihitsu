@@ -106,18 +106,25 @@ impl MemoryBlock {
         set
     }
 
-    /// The entries this block has superseded or retracted but not yet committed — applied to the live
-    /// reads so a correction's effect is visible within the block (read-your-writes). A retraction
-    /// tombstones its entry exactly as a supersession does, so both drop from the live read here.
+    /// The entries this block has superseded, retracted, or consolidated away but not yet committed —
+    /// applied to the live reads so a correction's effect is visible within the block
+    /// (read-your-writes). A retraction tombstones its entry exactly as a supersession does, and a
+    /// consolidation tombstones each of its source entries, so all of them drop from the live read here.
     pub(super) fn pending_superseded(&self) -> BTreeSet<EntryId> {
-        self.buffer
-            .iter()
-            .filter_map(|event| match event {
+        let mut superseded = BTreeSet::new();
+        for event in &self.buffer {
+            match event {
                 EventPayload::MemorySuperseded { entry, .. }
-                | EventPayload::EntryRetracted { entry, .. } => Some(*entry),
-                _ => None,
-            })
-            .collect()
+                | EventPayload::EntryRetracted { entry, .. } => {
+                    superseded.insert(*entry);
+                }
+                EventPayload::EntriesConsolidated { sources, .. } => {
+                    superseded.extend(sources.iter().copied());
+                }
+                _ => {}
+            }
+        }
+        superseded
     }
 
     /// This block's pending content appends to any member of `members`, as entry refs, skipping any in
