@@ -3,10 +3,17 @@
 //! For each platform stub identified since the cursor:
 //! 1. If a bare (non-platform-qualified) `same_as` member is already the designated primary, skip —
 //!    the stub already has a canonical identity.
-//! 2. If a bare member exists but none is designated, designate that member primary and skip minting.
-//!    This is the hand-merged case: the operator linked the person's `person/<name>` profile to the
-//!    stub with `same_as` but never wrote a designation, so the pass completes the identity rather
-//!    than colliding on the name and minting a suffixed duplicate.
+//! 2. If bare members exist but none is designated, designate one primary and skip minting. This is
+//!    the hand-merged case: the operator linked the person's `person/<name>` profile to the stub with
+//!    `same_as` but never wrote a designation, so the pass completes the identity rather than colliding
+//!    on the name and minting a suffixed duplicate. With exactly one bare member the choice is
+//!    deterministic — designate it, no model call. With several (an imprint artifact like
+//!    `person/operator` alongside the person's real profile, both bare and both earliest-ULID
+//!    contenders), the pass does not blind-pick by ULID: it reads the stub's evidence and calls the
+//!    model to identify the canonical name, then designates the bare member whose handle matches
+//!    `person/<identified-name>`. On an abstention, or a name matching no bare member, it falls back to
+//!    the earliest-ULID bare member (the deterministic outcome) and warns that the choice was
+//!    unarbitrated.
 //! 3. Otherwise read the stub's entries and call the model to identify a canonical name, abstaining
 //!    when the evidence is weak. On a name, mint a fresh `person/<name>` profile — disambiguating with
 //!    a suffix on a genuine collision with a *different* person — assert `same_as`, and designate it
@@ -81,9 +88,20 @@ pub async fn catch_up(
     for &stub_id in &stubs {
         match canonical_profile_state(engine, stub_id)? {
             CanonicalState::Designated => continue,
-            CanonicalState::Undesignated(member) => {
-                // The hand-merged case: a bare `same_as` member exists but no designation was ever
-                // written. Designate that member primary rather than minting a colliding duplicate.
+            CanonicalState::Undesignated(bare_members) => {
+                // The hand-merged case: bare `same_as` members exist but no designation was ever
+                // written. Designate one primary rather than minting a colliding duplicate. With one
+                // candidate the choice is deterministic; with several the model arbitrates from the
+                // stub's evidence, falling back to the earliest ULID when it cannot.
+                let member = choose_bare_member(
+                    engine,
+                    model,
+                    &recording,
+                    &template.body,
+                    stub_id,
+                    &bare_members,
+                )
+                .await?;
                 if let Err(error) = block.designate_primary(member, true) {
                     tracing::warn!(
                         stub = ?stub_id,
@@ -203,9 +221,10 @@ enum CanonicalState {
     /// A bare (non-platform-qualified) `same_as` member is already the designated primary — the stub
     /// has a canonical identity; nothing to do.
     Designated,
-    /// A bare member exists but none is designated — the hand-merged case; designate this member
-    /// primary rather than minting a duplicate.
-    Undesignated(MemoryId),
+    /// Bare members exist but none is designated — the hand-merged case; designate one primary rather
+    /// than minting a duplicate. Ordered by ULID (earliest first), so the first element is the
+    /// deterministic fallback when the model cannot arbitrate among several.
+    Undesignated(Vec<MemoryId>),
     /// No bare member — identify a name and mint a canonical profile.
     None,
 }
@@ -228,16 +247,17 @@ fn collect_platform_stubs(
 }
 
 /// Classify `stub_id`'s canonical-profile state. A bare `same_as` member designated primary means the
-/// stub is done; a bare member with no designation is the hand-merged case (designate it, never mint);
-/// no bare member at all means the pass should identify a name and mint one. Among undesignated bare
-/// members the earliest by ULID is chosen, for a deterministic outcome.
+/// stub is done; bare members with no designation are the hand-merged case (designate one, never mint);
+/// no bare member at all means the pass should identify a name and mint one. The undesignated bare
+/// members are returned ordered by ULID (earliest first), so the caller has a deterministic fallback
+/// when several contend and the model cannot arbitrate.
 fn canonical_profile_state(
     engine: &Engine,
     stub_id: MemoryId,
 ) -> Result<CanonicalState, InstanceError> {
     let graph = engine.graph.lock();
     let members = graph.class_members(stub_id)?;
-    let mut earliest_bare: Option<MemoryId> = None;
+    let mut bare: Vec<MemoryId> = Vec::new();
     for member in &members {
         let Some(memory) = graph.memory_by_id(*member)? else {
             continue;
@@ -250,15 +270,102 @@ fn canonical_profile_state(
         if graph.is_primary_designated(*member)? {
             return Ok(CanonicalState::Designated);
         }
-        earliest_bare = Some(match earliest_bare {
-            Some(current) => current.min(*member),
-            None => *member,
-        });
+        bare.push(*member);
     }
-    Ok(match earliest_bare {
-        Some(member) => CanonicalState::Undesignated(member),
-        None => CanonicalState::None,
+    Ok(if bare.is_empty() {
+        CanonicalState::None
+    } else {
+        // Ordered by ULID so the first is the earliest — the deterministic fallback.
+        bare.sort();
+        CanonicalState::Undesignated(bare)
     })
+}
+
+/// Pick which undesignated bare member to designate primary. With exactly one candidate the choice is
+/// deterministic — return it, no model call. With several (an imprint artifact like `person/operator`
+/// beside the person's real profile), read the stub's evidence and call the model to identify the
+/// canonical name, then return the bare member whose handle is `person/<identified-name>`. On an
+/// abstention, an identification error, or a name matching no candidate, fall back to the earliest-ULID
+/// candidate and warn that the choice was unarbitrated. The model call is recorded exactly as the
+/// minting path's identification is, so replay stays deterministic.
+async fn choose_bare_member(
+    engine: &Engine,
+    model: &dyn ModelClient,
+    recording: &Recording,
+    template_body: &str,
+    stub_id: MemoryId,
+    bare_members: &[MemoryId],
+) -> Result<MemoryId, InstanceError> {
+    // `canonical_profile_state` sorts by ULID, so the first is the deterministic fallback.
+    let earliest = bare_members[0];
+    if bare_members.len() == 1 {
+        return Ok(earliest);
+    }
+
+    let entries: Vec<EntryView> = {
+        let graph = engine.graph.lock();
+        graph.class_entries(stub_id)?
+    };
+    if entries.is_empty() {
+        tracing::warn!(
+            stub = ?stub_id,
+            candidates = bare_members.len(),
+            chosen = ?earliest,
+            "canonicalize: no evidence to arbitrate among bare members; designating the \
+             earliest-ULID candidate unarbitrated"
+        );
+        return Ok(earliest);
+    }
+
+    let identified =
+        match identify_name(engine, model, recording, template_body, stub_id, &entries).await {
+            Ok(Some(name)) => name,
+            Ok(None) => {
+                tracing::warn!(
+                    stub = ?stub_id,
+                    candidates = bare_members.len(),
+                    chosen = ?earliest,
+                    "canonicalize: model abstained on the name; designating the earliest-ULID bare \
+                     member unarbitrated"
+                );
+                return Ok(earliest);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    stub = ?stub_id,
+                    %error,
+                    chosen = ?earliest,
+                    "canonicalize: name identification failed; designating the earliest-ULID bare \
+                     member unarbitrated"
+                );
+                return Ok(earliest);
+            }
+        };
+
+    let target: MemoryName = Namespace::Person.with_name(&identified).into();
+    let matched = {
+        let graph = engine.graph.lock();
+        bare_members.iter().copied().find(|member| {
+            graph
+                .memory_by_id(*member)
+                .ok()
+                .flatten()
+                .is_some_and(|memory| memory.name == target)
+        })
+    };
+    match matched {
+        Some(member) => Ok(member),
+        None => {
+            tracing::warn!(
+                stub = ?stub_id,
+                identified = %identified,
+                chosen = ?earliest,
+                "canonicalize: identified name matches no bare member; designating the \
+                 earliest-ULID candidate unarbitrated"
+            );
+            Ok(earliest)
+        }
+    }
 }
 
 /// Resolve a name to a unique handle, appending a suffix if `person/<name>` already exists — a genuine

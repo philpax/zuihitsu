@@ -248,6 +248,117 @@ async fn a_hand_merged_stub_designates_its_bare_member_rather_than_minting() {
     );
 }
 
+/// Seed a bare `person/<name>` profile `same_as`-linked to `stub`, with no designation — a hand-merged
+/// bare member the pass must arbitrate over when several contend.
+fn bare_member(stub: MemoryId, member: MemoryId, name: &str) -> Vec<EventPayload> {
+    vec![
+        EventPayload::memory_created(member, Namespace::Person.with_name(name)),
+        EventPayload::link_created(
+            stub,
+            member,
+            RelationName::SameAs,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn several_bare_members_designate_the_model_identified_one_not_the_earliest_ulid() {
+    // Two undesignated bare members contend: an imprint artifact (`person/operator`, the earliest ULID)
+    // and the person's real named profile (a later ULID). The old blind-pick-by-ULID rule would
+    // designate the artifact; the pass must instead read the stub's evidence, identify the real name,
+    // and designate the matching member — the later ULID here, proving the choice is arbitrated, not
+    // positional.
+    let stub = MemoryId::generate();
+    let a = MemoryId::generate();
+    let b = MemoryId::generate();
+    let earliest = a.min(b);
+    let latest = a.max(b);
+    let mut events = prerequisites();
+    events.extend([
+        EventPayload::memory_created(stub, Namespace::Person.with_name("rowan@discord")),
+        EventPayload::MemoryContentAppended {
+            id: stub,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "Goes by Rowan on the server.".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+        EventPayload::participant_identified(stub, "discord", "rowan#4242"),
+    ]);
+    // The imprint artifact is the earliest ULID; the real profile is the later one.
+    events.extend(bare_member(stub, earliest, "operator"));
+    events.extend(bare_member(stub, latest, "rowan"));
+    let engine = engine_with(events);
+    let model = ScriptedModel::new([Completion::Reply(r#"{"name": "rowan"}"#.to_owned())]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        designations(&engine),
+        vec![(latest, true)],
+        "the model-identified bare member is designated, not the earliest-ULID artifact"
+    );
+    assert!(
+        minted_person_names(&engine)
+            .iter()
+            .all(|name| name != "person/rowan-2"),
+        "no suffixed duplicate is minted for a stub that already has bare members"
+    );
+}
+
+#[tokio::test]
+async fn several_bare_members_fall_back_to_the_earliest_when_the_model_abstains() {
+    // Two undesignated bare members contend, but the evidence is too weak to name: the model abstains
+    // (an empty object). The pass falls back to the earliest-ULID candidate deterministically rather
+    // than leaving the stub undesignated.
+    let stub = MemoryId::generate();
+    let a = MemoryId::generate();
+    let b = MemoryId::generate();
+    let earliest = a.min(b);
+    let latest = a.max(b);
+    let mut events = prerequisites();
+    events.extend([
+        EventPayload::memory_created(stub, Namespace::Person.with_name("someone@discord")),
+        EventPayload::MemoryContentAppended {
+            id: stub,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "likes long walks".to_owned(),
+            told_by: Teller::Agent,
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+        EventPayload::participant_identified(stub, "discord", "someone#0009"),
+    ]);
+    events.extend(bare_member(stub, earliest, "operator"));
+    events.extend(bare_member(stub, latest, "rowan"));
+    let engine = engine_with(events);
+    // The model abstains: an empty object parses to `NameIdentification { name: None }`.
+    let model = ScriptedModel::new([Completion::Reply("{}".to_owned())]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        designations(&engine),
+        vec![(earliest, true)],
+        "an abstention falls back to the earliest-ULID bare member"
+    );
+}
+
 #[tokio::test]
 async fn an_entryless_stub_is_left_unnamed() {
     // A stub with no bare member and no entries has no name evidence: the pass abstains, calling the
