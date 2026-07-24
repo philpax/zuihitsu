@@ -278,13 +278,10 @@ async fn main() -> ExitCode {
 fn list_scenarios() -> ExitCode {
     use anstyle::{AnsiColor, Style};
 
-    let mut scenarios = scenarios::all();
-    scenarios.sort_by(|a, b| {
-        let (ma, mb) = (a.meta(), b.meta());
-        format!("{:?}", ma.category)
-            .cmp(&format!("{:?}", mb.category))
-            .then_with(|| ma.name.cmp(&mb.name))
-    });
+    // The registry is already in canonical order — categories in `Category` order, each category in
+    // its registry order — which is also the console's display order and a fresh run's execution
+    // order, so the listing mirrors both rather than re-sorting alphabetically.
+    let scenarios = scenarios::all();
 
     let mut out = anstream::stdout();
     let cat_style = Style::new().fg_color(Some(AnsiColor::Cyan.into())).bold();
