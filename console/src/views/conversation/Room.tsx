@@ -17,7 +17,8 @@ import { type Participation, ModelCalls } from "./conversationContexts.ts";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
 import { type Channel, hasScopeChar } from "./channelUtilities.ts";
 import { turnTokens } from "./turnUtilities.ts";
-import { useFollowBottom } from "./useFollowBottom.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
+import { useTranscriptScroll } from "./useTranscriptScroll.ts";
 
 /// One conversation, open: its header, sessions, and transcript, plus — live and at the head — a
 /// composer routed to the room's authority (the imprint room writes `self`; the rest are ordinary
@@ -142,7 +143,21 @@ export function Room({
   const inflightSignal = inflight
     ? `${inflight.step}:${inflight.phase}:${inflight.reasoning.length}:${inflight.reply.length}:${inflight.restarts}`
     : "";
-  useFollowBottom(atHead, `${cursor}|${optimistic !== null}|${thinking}|${inflightSignal}`);
+  // Live (a composer is present) windows the transcript, opens on the tail, and offers a jump-to-latest
+  // pill; a read-only eval run keeps the whole transcript and only follows its foot at the head. A
+  // `?turn` deep link to this room opens the window around that turn rather than the tail.
+  const { search } = useStream();
+  const turns = channel.conversation?.turns ?? [];
+  const focusTurn = search.turn ?? null;
+  const focusIndex = focusTurn ? turns.findIndex((turn) => turn.turnId === focusTurn) : -1;
+  const scroll = useTranscriptScroll({
+    mode: participate ? "live" : "review",
+    active: atHead,
+    total: turns.length,
+    focusIndex: focusIndex >= 0 ? focusIndex : null,
+    footSignal: `${cursor}|${optimistic !== null}|${thinking}|${inflightSignal}`,
+    inflightActive: inflight != null,
+  });
 
   return (
     <div className="flex w-full max-w-240 min-w-0 flex-col">
@@ -185,6 +200,9 @@ export function Room({
           conversation={channel.conversation}
           cursor={cursor}
           inflight={inflight}
+          window={scroll.window}
+          topRef={scroll.topRef}
+          bottomRef={scroll.bottomRef}
         />
       ) : (
         <p className="text-sm text-ink-faint">
@@ -204,6 +222,8 @@ export function Room({
       {deferred !== null && !deferredCovered && <DeferredNotice />}
 
       {thinking && <ThinkingIndicator />}
+
+      {scroll.showJump && <JumpToLatest count={scroll.newCount} onClick={scroll.jumpToLatest} />}
 
       {/* The composer floats in the workspace's bottom dock, so you can start typing from anywhere
           in the transcript. It mirrors the view's transcript-and-rooms grid so the writing line
@@ -268,6 +288,29 @@ function UnknownTurnNotice() {
       <span className="font-mono text-2xs tracking-widest uppercase">
         that turn link points nowhere in view — an unknown id, or a moment past the timeline cursor
       </span>
+    </div>
+  );
+}
+
+/// A floating jump-to-latest indicator, shown when the reader has scrolled up off the foot while new
+/// activity lands at the tail — a quiet pill in the transcript's register (faint ink on paper, a
+/// hairline border), with the count of unseen turns in clay. Clicking it snaps the window back to the
+/// tail and re-pins the follow. Sits above the docked composer; the wrapper passes clicks through its
+/// empty margins so only the pill itself is interactive.
+function JumpToLatest({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-20 flex justify-center">
+      <button
+        onClick={onClick}
+        className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-paper/95 px-3.5 py-1.5 font-mono text-2xs text-ink-soft shadow-sm backdrop-blur-sm transition-colors hover:text-ink"
+      >
+        {count > 0 && (
+          <span className="text-clay">
+            {count} new message{count > 1 ? "s" : ""}
+          </span>
+        )}
+        <span className="tracking-widest uppercase">jump to latest ↓</span>
+      </button>
     </div>
   );
 }

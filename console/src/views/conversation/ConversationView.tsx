@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import { type Replica } from "../../lib/replica/replica.ts";
 import { useNavigate } from "../../lib/nav/historyContext.ts";
+import { Redirect } from "../../lib/nav/history.tsx";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { nameById } from "../../lib/model/labels.ts";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
@@ -20,6 +21,7 @@ import {
   hasScopeChar,
   imprintChannel,
   localKey,
+  mostRecentlyUpdated,
   newRoomChannel,
   toChannel,
 } from "./channelUtilities.ts";
@@ -152,22 +154,26 @@ export function ConversationView({
         channel.conversation?.turns.some((turn) => turn.turnId === linkedTurnId),
       ) ?? null)
     : null;
-  // Without an explicit `?room`, the default room is *pinned to the first resolution* rather than
-  // recomputed per render: the channel list is sorted by activity, so a default that followed it
-  // would yank the reader to whichever room last received a message. Landing on the busiest room is
-  // right once, at open; after that the reader moves rooms only by choosing (the pulse in the list
-  // shows where the action is). Set during render (React's reset-on-prop-change pattern), so the
-  // pin lands in the same pass the first channel appears.
-  const [defaultKey, setDefaultKey] = useState<string | null>(null);
+  // Without an explicit `?room`, the default is the most-recently-updated conversation — the one whose
+  // latest turn has the highest seq — reflected into the address bar just below so the open room deep-
+  // links and survives a view switch. A `?turn` deep link resolves its own room (`linkedChannel`), so
+  // it is not overridden here.
   const first = groups[0]?.channels[0] ?? null;
-  if (defaultKey === null && first) setDefaultKey(first.key);
+  const mostRecent = mostRecentlyUpdated(all);
   const selected =
     all.find((channel) => channel.key === selectedKey) ??
     linkedChannel ??
     pending ??
-    all.find((channel) => channel.key === defaultKey) ??
+    mostRecent ??
     first ??
     null;
+  // The URL sync: when no room is named and none is deep-linked, replace the location with the most-
+  // recently-updated room so the address bar carries the open room. The room already renders from the
+  // fallback above, so this only rewrites the URL — no blank redirect frame — and once it lands the
+  // selection drives the view (so a later message to another room no longer moves the reader). No
+  // conversations yet ⇒ no target ⇒ the empty state stands.
+  const defaultRoom =
+    selectedKey === null && linkedTurnId === null && mostRecent ? mostRecent : null;
 
   // The rooms with a generation in flight, marked in the channel list (the pulse in the sidebar,
   // text in the mobile dropdown) so a stable selection still shows where the agent is working.
@@ -203,6 +209,7 @@ export function ConversationView({
           <ConversationNames.Provider value={convNames}>
             <EventsBySeq.Provider value={eventsBySeq}>
               <TurnRefs.Provider value={refTargets}>
+                {defaultRoom && <Redirect to={link.conversation({ room: defaultRoom.key, seq })} />}
                 {/* The transcript-and-rooms grid — the room list sits to the right, so the horizontal read
             is content first, navigation second (and the eval frame's scenario rail keeps the left
             edge to itself). The docked composer below mirrors it, so keep the two template strings
