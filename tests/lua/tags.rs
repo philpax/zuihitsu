@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, Namespace, TagName, TerminalCause};
 
 #[tokio::test]
 async fn a_created_tag_can_be_applied_and_listed() {

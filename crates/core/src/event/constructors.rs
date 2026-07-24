@@ -3,16 +3,15 @@ use std::collections::BTreeMap;
 use smol_str::SmolStr;
 
 use crate::{
+    event::{
+        AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
+        LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause, Teller,
+        TerminalCause, TurnRole, Volatility,
+    },
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
     settings::Settings,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
-};
-
-use crate::event::{
-    AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
-    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause, Teller,
-    TerminalCause, TurnRole, Volatility,
 };
 
 impl EventPayload {

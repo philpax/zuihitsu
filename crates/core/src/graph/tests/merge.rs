@@ -1,7 +1,6 @@
-use super::materialized;
 use crate::{
     event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
-    graph::EntryView,
+    graph::{EntryView, tests::materialized},
     ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,

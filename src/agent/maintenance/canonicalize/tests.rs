@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::catch_up;
 use crate::{
+    agent::maintenance::canonicalize::catch_up,
     clock::ManualClock,
     engine::Engine,
     event::{

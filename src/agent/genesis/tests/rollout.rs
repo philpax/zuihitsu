@@ -2,15 +2,16 @@
 
 use crate::{
     InstanceFeatures,
-    agent::genesis::{self, GenesisStatus, Rollout, TemplateReconciliation},
+    agent::genesis::{
+        self, GenesisStatus, Rollout, TemplateReconciliation,
+        tests::{clock, seed},
+    },
     event::{EventPayload, EventSource, PromptTemplateName},
     ids::Seq,
     settings::Settings,
     store::{MemoryStore, Store},
     time::Timestamp,
 };
-
-use super::{clock, seed};
 
 /// The compaction settings in the `ConfigSet` genesis wrote.
 fn logged_compaction(store: &dyn Store) -> crate::settings::CompactionSettings {

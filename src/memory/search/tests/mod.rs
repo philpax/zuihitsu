@@ -1,5 +1,3 @@
-use super::{SALIENCE_CAP, SearchHit, SearchQuery, recency_bonus, search};
-
 use crate::{
     InstanceFeatures,
     agent::genesis::{self, SeedSelf},
@@ -10,7 +8,10 @@ use crate::{
     },
     graph::Graph,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq},
-    memory::memory_block::LinkDirection,
+    memory::{
+        memory_block::LinkDirection,
+        search::{SALIENCE_CAP, SearchHit, SearchQuery, recency_bonus, search},
+    },
     model::{
         embed::{CpuEmbedder, Embedder},
         index::Indexer,

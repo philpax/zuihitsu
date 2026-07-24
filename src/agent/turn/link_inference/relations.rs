@@ -1,6 +1,9 @@
 //! The inference context and the model call that identifies relationships.
 
 use crate::{
+    agent::turn::link_inference::{
+        LinkInferenceArgs, Recording, link_inference_argument, prompt::render_prompt,
+    },
     engine::Engine,
     event::ModelPhase,
     graph::{EntryView, MemoryView, RelationView},
@@ -10,10 +13,6 @@ use crate::{
     },
     time::Timestamp,
     vocabulary::RelationName,
-};
-
-use crate::agent::turn::link_inference::{
-    LinkInferenceArgs, Recording, link_inference_argument, prompt::render_prompt,
 };
 
 /// The gathered inputs for one memory's inference, held outside the graph lock.

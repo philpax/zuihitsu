@@ -2,12 +2,14 @@
 //! person-seed visibility gates keyed on teller and authority, and the platform-namespace rename
 //! guards.
 
-use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
 use crate::{
     clock::ManualClock,
     event::Teller,
     graph::Graph,
     ids::{MemoryId, Namespace},
+    memory::memory_block::tests::writes::{
+        AppendOptions, Authority, MemoryError, VisibilityChoice, block,
+    },
     time::Timestamp,
     vocabulary::RelationName,
 };

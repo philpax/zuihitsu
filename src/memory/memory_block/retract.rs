@@ -7,10 +7,11 @@
 use crate::{
     event::{EventPayload, ProducedBy, Teller},
     ids::{EntryId, MemoryId},
-    memory::visibility::visible_attestations,
+    memory::{
+        memory_block::{Authority, EntrySelector, MemoryBlock, MemoryError, Retraction},
+        visibility::visible_attestations,
+    },
 };
-
-use crate::memory::memory_block::{Authority, EntrySelector, MemoryBlock, MemoryError, Retraction};
 
 impl MemoryBlock {
     /// Retract `entry` on `id`, recording `reason` — the agent withdraws a fact rather than replacing

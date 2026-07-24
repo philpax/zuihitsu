@@ -4,13 +4,14 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::GraphError,
     ids::{EntryId, MemoryId, MemoryName},
-    memory::visibility::subject_participant,
+    memory::{
+        memory_block::{
+            AppendOptions, Authority, EntrySelector, MemoryBlock, MemoryError,
+            reconcile_forced_visibility, suggest::most_similar,
+        },
+        visibility::subject_participant,
+    },
     time::TemporalRef,
-};
-
-use crate::memory::memory_block::{
-    AppendOptions, Authority, EntrySelector, MemoryBlock, MemoryError, reconcile_forced_visibility,
-    suggest::most_similar,
 };
 
 impl MemoryBlock {

@@ -3,7 +3,7 @@
 //! `memory.get(hits[1].name)`, a `links.create` endpoint — is refused within the block, while a
 //! same-block write to a *named* memory is untouched and the taint dies with the block.
 
-use super::*;
+use crate::search::{BlockOutcome, Harness, TerminalCause};
 
 #[tokio::test]
 async fn the_taught_confirmation_path_works_on_the_next_block() {

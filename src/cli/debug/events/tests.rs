@@ -1,4 +1,4 @@
-use super::*;
+use crate::cli::debug::events::*;
 use anstyle::AnsiColor;
 use zuihitsu::{
     Event, EventPayload, MemoryId, Seq, Volatility, event::EventSource, ids::MemoryName,

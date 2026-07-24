@@ -6,15 +6,14 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::{
+    agent::{
+        lua::{self, BlockOutcome, Session},
+        turn::{BlockContext, TurnError},
+    },
     engine::Engine,
     event::TerminalCause,
     metrics::{observe_lua_block, observe_lua_block_error},
     model::{ToolCall, ToolSpec, schema_of},
-};
-
-use crate::agent::{
-    lua::{self, BlockOutcome, Session},
-    turn::{BlockContext, TurnError},
 };
 
 /// The system prompt's API-description block: the build-derived Lua API catalogue, plus the connected

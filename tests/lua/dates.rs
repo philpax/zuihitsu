@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness};
 
 #[tokio::test]
 async fn calendar_computes_dates_for_occurred_at() {

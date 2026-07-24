@@ -1,12 +1,14 @@
 //! Relationship ranking and the participant budget: edges float by type weight, the cap keeps the
 //! highest-ranked edges with recency breaking ties, the char budget and the speaker guarantee decide
 //! which present participants keep a full block, and a pre-pairing brief reconstructs its endpoints.
-use super::{
-    appended, compose_at_epoch, compose_at_epoch_answering, created, linked, materialized,
-    register_relation, relationship_lines,
-};
 use crate::{
-    brief::{self, Brief, BriefRelationship},
+    brief::{
+        self, Brief, BriefRelationship,
+        tests::{
+            appended, compose_at_epoch, compose_at_epoch_answering, created, linked, materialized,
+            register_relation, relationship_lines,
+        },
+    },
     event::{Teller, Visibility},
     ids::{MemoryId, MemoryName},
     settings::Settings,

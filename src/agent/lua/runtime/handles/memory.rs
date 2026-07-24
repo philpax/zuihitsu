@@ -5,14 +5,17 @@
 
 use mlua::{Lua, Table, Value};
 
-use crate::{graph::RelationView, ids::MemoryId, memory::memory_block::MemoryDetails};
-
-use crate::agent::lua::{
-    error::{HandleAssignmentError, HandleError, HandleKind},
-    runtime::{
-        handles::{make_entry_handle, make_link_handle},
-        render,
+use crate::{
+    agent::lua::{
+        error::{HandleAssignmentError, HandleError, HandleKind},
+        runtime::{
+            handles::{make_entry_handle, make_link_handle},
+            render,
+        },
     },
+    graph::RelationView,
+    ids::MemoryId,
+    memory::memory_block::MemoryDetails,
 };
 use ulid::Ulid;
 

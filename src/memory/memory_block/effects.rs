@@ -4,15 +4,12 @@
 use std::collections::BTreeSet;
 
 use crate::{
+    engine::Engine,
     event::{ConversationRef, EventPayload, Teller, Visibility},
     ids::MemoryId,
+    memory::memory_block::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError},
     time::{TemporalRef, Timestamp},
     vocabulary::TagName,
-};
-
-use crate::{
-    engine::Engine,
-    memory::memory_block::{Authority, BlockEffects, EntryId, MemoryBlock, MemoryError},
 };
 
 /// A live entry of a memory's `same_as` class, reduced to the fields the supersede guards read: its

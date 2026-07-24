@@ -5,11 +5,13 @@
 use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
 use reqwest::StatusCode;
 
-use super::{
-    is_transient,
-    response::{ChatResponse, into_response},
+use crate::model::{
+    Completion, Usage,
+    openai::{
+        is_transient,
+        response::{ChatResponse, into_response},
+    },
 };
-use crate::model::{Completion, Usage};
 
 fn api_error(status: StatusCode) -> OpenAIError {
     OpenAIError::ApiError(ApiErrorResponse {
@@ -258,8 +260,10 @@ mod embed_truncation {
 
     use parking_lot::Mutex;
 
-    use super::super::{embed_truncated, is_length_overflow, truncate_chars};
-    use crate::model::ModelError;
+    use crate::model::{
+        ModelError,
+        openai::{embed_truncated, is_length_overflow, truncate_chars},
+    };
 
     fn overflow() -> ModelError {
         ModelError::Backend {

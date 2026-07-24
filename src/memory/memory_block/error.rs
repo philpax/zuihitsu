@@ -4,10 +4,9 @@
 use crate::{
     graph::GraphError,
     ids::{EntryId, MemoryName},
+    memory::memory_block::MIN_ENTRY_PREFIX,
     vocabulary::{RelationName, TagName},
 };
-
-use crate::memory::memory_block::MIN_ENTRY_PREFIX;
 
 /// How many characters of an entry's text an ambiguous-prefix candidate line shows, so the agent can
 /// tell the matches apart without the message running long.

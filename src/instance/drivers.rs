@@ -14,6 +14,7 @@ use crate::{
     agent::{Flush, TurnView, bounded_buffer_turns, flushed_up_to, run_flush},
     event::{SessionEndCause, TurnRole},
     ids::ConversationId,
+    instance::{Instance, InstanceError, OpenSession, SnapshotSchedule},
     memory::scheduler,
     metrics::{observe_flush_turn, observe_wakeups_fired, observe_worker_error},
     model::ModelClient,
@@ -21,8 +22,6 @@ use crate::{
     snapshot,
     time::Timestamp,
 };
-
-use crate::instance::{Instance, InstanceError, OpenSession, SnapshotSchedule};
 
 /// What drove a checkpoint sweep. The two triggers apply different gate sets, so
 /// [`Instance::checkpoint_live_sessions`] and [`Instance::checkpoint_delta`] branch on it: a timer

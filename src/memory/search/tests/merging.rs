@@ -1,4 +1,4 @@
-use super::*;
+use crate::memory::search::tests::*;
 
 /// Merge two stubs into one `same_as` class (operator-adjudicated), mirroring the graph merge tests'
 /// payload pattern: register the symmetric `same_as` relation, then link the pair.

@@ -1,12 +1,14 @@
 //! Visibility defaults for writes about a person: an aside about a third party defaults private, while
 //! an agent-authored write about a person has no protective default and must be classified explicitly.
 
-use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, Teller, Visibility},
     graph::Graph,
     ids::{MemoryId, Namespace},
+    memory::memory_block::tests::writes::{
+        AppendOptions, Authority, MemoryError, VisibilityChoice, block,
+    },
     time::Timestamp,
 };
 

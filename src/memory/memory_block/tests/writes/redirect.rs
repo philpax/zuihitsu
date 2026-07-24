@@ -2,14 +2,14 @@
 //! the class primary — the earliest-ULID stub, or the operator-designated one — while a
 //! platform-qualified handle, a same-block create, and the operator anchor are each left untouched.
 
-use super::{
-    AppendOptions, Authority, VisibilityChoice, block, designated_primary_seed, graph_from,
-};
 use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
     graph::Graph,
     ids::{MemoryId, Namespace},
+    memory::memory_block::tests::writes::{
+        AppendOptions, Authority, VisibilityChoice, block, designated_primary_seed, graph_from,
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,

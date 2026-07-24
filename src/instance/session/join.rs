@@ -3,12 +3,11 @@
 use crate::{
     event::{ConversationRef, EventPayload, EventSource, Initiation, TurnRole},
     ids::{ConversationId, MemoryId, SessionId, TurnId},
+    instance::{Instance, InstanceError},
     memory::brief,
     model::ModelClient,
     settings::Settings,
 };
-
-use crate::instance::{Instance, InstanceError};
 
 impl Instance {
     /// Record a participant arriving mid-session: a `ParticipantJoined` plus the joiner's brief,

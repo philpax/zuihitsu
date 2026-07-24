@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use super::catch_up;
 use crate::{
+    agent::maintenance::consolidation::catch_up,
     clock::ManualClock,
     engine::Engine,
     event::{EventPayload, EventSource, PromptTemplateName, Teller, Visibility},

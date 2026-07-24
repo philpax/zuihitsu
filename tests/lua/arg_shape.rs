@@ -5,7 +5,7 @@
 //! (`memory.search`, `memory.create`, `mem:append`, `calendar.date`), confirm the correct shape still
 //! commits, and confirm Luau's own string/number coercion survives the wrapper.
 
-use super::*;
+use crate::{BlockOutcome, Harness, MemoryName, Namespace, TerminalCause};
 
 #[tokio::test]
 async fn search_with_a_table_query_is_a_teachable_error() {

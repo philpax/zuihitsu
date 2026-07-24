@@ -2,15 +2,15 @@
 //! recurrence is a teachable error, a failed revise rolls its append back, and the graph error carries
 //! its memory-context prefix.
 
-use super::{
-    AppendOptions, Authority, MemoryError, VisibilityChoice, block, designated_primary_seed,
-    graph_from,
-};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, Teller},
     graph::{Graph, GraphError},
     ids::Namespace,
+    memory::memory_block::tests::writes::{
+        AppendOptions, Authority, MemoryError, VisibilityChoice, block, designated_primary_seed,
+        graph_from,
+    },
     time::{Rrule, TemporalRef, Timestamp},
 };
 

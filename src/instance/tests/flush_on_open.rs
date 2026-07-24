@@ -5,9 +5,8 @@
 //! through `route_message` (the real `ensure_session` hook) and, for the gate-isolation cases, call
 //! `checkpoint_live_sessions` directly with each [`CheckpointTrigger`].
 
-use super::*;
 use crate::{
-    CheckpointTrigger, ConversationLocator, PersonId, SeedSelf, TEST_PLATFORM,
+    CheckpointTrigger, ConversationLocator, Instance, PersonId, SeedSelf, TEST_PLATFORM,
     clock::ManualClock,
     event::{EventPayload, PromptTemplateName, TurnRole},
     ids::{ConversationId, Seq},

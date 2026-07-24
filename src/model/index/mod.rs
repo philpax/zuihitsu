@@ -22,11 +22,10 @@ mod tests;
 use crate::{
     event::Event,
     ids::{EntryId, MemoryId},
+    model::{ModelError, embed::Embedder},
     store::{Store, StoreError, Subscription},
     vector::{VectorError, VectorId, VectorIndex},
 };
-
-use crate::model::{ModelError, embed::Embedder};
 
 pub use batch::{Batch, NameResolver, ResolvedOp, apply_batch, embed_batch};
 

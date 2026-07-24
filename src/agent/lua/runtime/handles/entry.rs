@@ -5,12 +5,11 @@
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::{
+    agent::lua::error::HandleError,
     event::Visibility,
     ids::EntryId,
     memory::memory_block::{EntryRef, EntrySelector},
 };
-
-use crate::agent::lua::error::HandleError;
 use ulid::Ulid;
 
 /// Build an entry handle `{ id = "<ulid>", text = "..." }` backed by the entry metatable, so it

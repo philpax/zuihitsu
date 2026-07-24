@@ -4,15 +4,18 @@
 
 use std::sync::Arc;
 
-use super::{
-    AppendOptions, Authority, MemoryError, VisibilityChoice, attestations, block_with_retrieval,
-};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, EventSource, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, MemoryName, Namespace},
-    memory::memory_block::{AppendOutcome, EntrySelector},
+    memory::memory_block::{
+        AppendOutcome, EntrySelector,
+        tests::writes::{
+            AppendOptions, Authority, MemoryError, VisibilityChoice, attestations,
+            block_with_retrieval,
+        },
+    },
     model::embed::{CpuEmbedder, Embedder},
     store::{MemoryStore, Store},
     time::Timestamp,

@@ -3,7 +3,7 @@
 //! reads exactly the set `mem:entries` returns (including this block's pending appends), returns a lone
 //! match's entry object or nil, and surfaces ambiguity teachably rather than taking the first hit.
 
-use super::*;
+use crate::{BlockOutcome, Harness, Namespace, TerminalCause};
 
 #[tokio::test]
 async fn find_entry_matches_case_insensitively() {

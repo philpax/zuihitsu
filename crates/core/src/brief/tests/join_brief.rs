@@ -1,9 +1,11 @@
 //! The structured join brief projects to the frozen markup: a `Brief` assembled from a summary, a
 //! public fact, an attributed fact carrying its `[via …]` provenance marker, and a relationship
 //! renders to the exact agent-facing text the string composer produces.
-use super::{appended, created, materialized};
 use crate::{
-    brief::{self, Brief, BriefFact, BriefRelationship},
+    brief::{
+        self, Brief, BriefFact, BriefRelationship,
+        tests::{appended, created, materialized},
+    },
     event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
     ids::{MemoryId, MemoryName},
     settings::Settings,

@@ -4,17 +4,16 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    agent::turn::describe::{
+        ExtractedArbitration, SynthesisCall,
+        extract::arbitrate_argument,
+        synthesis::{ask_structured, statements_prompt},
+    },
     event::{ArbitrationResolution, EventPayload, ProducedBy, PromptTemplateName},
     graph::{EntryView, MemoryView},
     ids::{EntryId, MemoryId},
     model::{GenerateRequest, ModelError},
     time::Timestamp,
-};
-
-use crate::agent::turn::describe::{
-    ExtractedArbitration, SynthesisCall,
-    extract::arbitrate_argument,
-    synthesis::{ask_structured, statements_prompt},
 };
 
 /// The self-contained system prompt for the focused [`arbitrate`] call. It carries the whole

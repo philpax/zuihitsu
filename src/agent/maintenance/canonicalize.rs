@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     InstanceError,
-    agent::templates,
+    agent::{templates, turn::Recording},
     engine::Engine,
     event::{EventSource, ModelPhase, PromptTemplateName, Teller},
     graph::EntryView,
@@ -34,8 +34,6 @@ use crate::{
     settings::CaptureLevel,
     vocabulary::RelationName,
 };
-
-use crate::agent::turn::Recording;
 
 /// Run one canonicalize sweep. Returns `(new_cursor, stubs_considered)`.
 pub async fn catch_up(

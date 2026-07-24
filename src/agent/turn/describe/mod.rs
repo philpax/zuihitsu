@@ -16,6 +16,7 @@ mod occurrences;
 mod synthesis;
 
 use crate::{
+    agent::turn::{Recording, TurnError, templates},
     engine::Engine,
     event::{EventPayload, EventSource, ProducedBy, PromptTemplateName, Teller, Visibility},
     graph::EntryView,
@@ -24,8 +25,6 @@ use crate::{
     settings::CaptureLevel,
     time::TemporalRef,
 };
-
-use crate::agent::turn::{Recording, TurnError, templates};
 use templates::PromptTemplate;
 
 pub(super) use extract::{ExtractedArbitration, ExtractedOccurrence, SynthesizeArgs};

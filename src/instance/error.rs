@@ -2,18 +2,17 @@
 //! to the underlying subsystem error (store, graph, turn, MCP, index, search, Lua).
 
 use crate::{
-    agent::lua::LuaError,
+    agent::{TurnError, lua::LuaError},
     graph::GraphError,
     ids::ConversationId,
+    mcp::McpError,
     memory::{
         brief::BriefError, identity::IdentityError, memory_block::MemoryError,
-        scheduler::SchedulerError,
+        scheduler::SchedulerError, search::SearchError,
     },
     model::index::IndexError,
     store::StoreError,
 };
-
-use crate::{agent::TurnError, mcp::McpError, memory::search::SearchError};
 
 /// An instance-side failure, delegating its message to the underlying error.
 #[derive(Debug)]

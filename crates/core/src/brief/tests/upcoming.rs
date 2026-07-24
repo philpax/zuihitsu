@@ -1,7 +1,7 @@
 //! The `<upcoming/>` window: a near-future occurrence within the default window surfaces while a far
 //! one does not, and the subject-guard suppresses an upcoming aside once its subject is present.
-use super::{appended_at, compose_at_epoch, created, materialized};
 use crate::{
+    brief::tests::{appended_at, compose_at_epoch, created, materialized},
     event::{Teller, Visibility},
     ids::MemoryId,
     settings::Settings,

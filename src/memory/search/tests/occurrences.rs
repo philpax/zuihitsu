@@ -1,4 +1,4 @@
-use super::*;
+use crate::memory::search::tests::*;
 #[tokio::test]
 async fn a_hit_carries_the_resolved_occurrence() {
     // The date-legibility guarantee: a scheduled fact's resolved occurrence rides on the hit, so a

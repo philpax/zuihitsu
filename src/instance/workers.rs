@@ -12,19 +12,16 @@ use crate::{
     agent::{
         maintenance, run_describe_catch_up, run_describe_catch_up_for, run_link_inference_catch_up,
     },
+    engine::Engine,
     event::{EventPayload, EventSource},
     ids::{MemoryId, MemoryName, Seq},
+    instance::{BackgroundPasses, Instance},
     metrics::{observe_describe_priority_escape, observe_worker_error},
     model::{
         ModelArbiter, ModelClient,
         index::{IndexError, apply_batch, embed_batch},
     },
     settings::Settings,
-};
-
-use crate::{
-    engine::Engine,
-    instance::{BackgroundPasses, Instance},
 };
 
 /// Where a maintenance pass begins its sweep. The timer-driven driver resumes from the pass's stored

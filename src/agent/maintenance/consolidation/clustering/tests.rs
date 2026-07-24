@@ -2,11 +2,14 @@
 //! posture, clustering within each posture level by embedding similarity, and the
 //! cross-level tier-2 dedup that folds near-identical entries across levels.
 
-use super::*;
 use crate::{
+    agent::maintenance::consolidation::clustering::{
+        cluster_within, tier1_groups, tier2_absorptions,
+    },
     event::{Teller, Visibility},
     graph::{EntryOrigin, EntryView},
     ids::{EntryId, MemoryId},
+    model::embed::Embedding,
     time::Timestamp,
 };
 

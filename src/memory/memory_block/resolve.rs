@@ -3,22 +3,23 @@
 
 use std::collections::BTreeSet;
 
+use ulid::Ulid;
+
 use crate::{
     decay,
     event::{EventPayload, Teller, Visibility},
     graph::{EntryView, Graph, GraphError},
     ids::{EntryId, MemoryId, MemoryName},
-    memory::visibility::{
-        default_link_visibility, default_visibility_named, subject_participant, visible,
-        visible_attestations,
+    memory::{
+        memory_block::{
+            Authority, EntryRef, EntrySelector, ForcedVisibility, MIN_ENTRY_PREFIX, MemoryBlock,
+            MemoryError, VisibilityChoice, WITHHELD_STUB,
+        },
+        visibility::{
+            default_link_visibility, default_visibility_named, subject_participant, visible,
+            visible_attestations,
+        },
     },
-};
-
-use ulid::Ulid;
-
-use crate::memory::memory_block::{
-    Authority, EntryRef, EntrySelector, ForcedVisibility, MIN_ENTRY_PREFIX, MemoryBlock,
-    MemoryError, VisibilityChoice, WITHHELD_STUB,
 };
 
 /// A live-or-history entry with the read-time annotations [`MemoryBlock::annotate`] computes: whether

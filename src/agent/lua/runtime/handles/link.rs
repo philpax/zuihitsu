@@ -3,26 +3,25 @@
 //! handle or search hit carries, and resolving a `:link`/`:unlink` target, an `exclude` option, and a
 //! `memory.get` argument to memory ids.
 
+use std::collections::BTreeSet;
+
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::{
+    agent::lua::{
+        error::HandleError,
+        runtime::{
+            BlockApi, check_interpolated,
+            handles::{handle_id, make_handle},
+            route_error,
+        },
+    },
     ids::MemoryId,
     memory::{
         memory_block::{LinkDirection, LinkRef},
         search::SalientRelation,
     },
     time::format_occurrence,
-};
-
-use std::collections::BTreeSet;
-
-use crate::agent::lua::{
-    error::HandleError,
-    runtime::{
-        BlockApi, check_interpolated,
-        handles::{handle_id, make_handle},
-        route_error,
-    },
 };
 
 /// Build a link result `{ relation, memory, name, direction, source }` backed by the link metatable,

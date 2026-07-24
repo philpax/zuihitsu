@@ -4,5 +4,3 @@
 mod control;
 mod platform;
 mod stream;
-
-pub(super) use super::{loopback, test_state};

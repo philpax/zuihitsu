@@ -1,12 +1,12 @@
 //! The consolidation write methods: tier-1 synthesis (a fresh replacement inheriting the sources'
 //! posture) and tier-2 dedup (retiring sources into an existing, more-public entry).
 
-use super::{Authority, MemoryError, VisibilityChoice, block, told};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, Namespace},
+    memory::memory_block::tests::{Authority, MemoryError, VisibilityChoice, block, told},
     time::Timestamp,
 };
 

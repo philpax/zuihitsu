@@ -1,12 +1,12 @@
 //! Retraction: the reason is mandatory and auditable, the target must be a live entry of the memory,
 //! and a buffered retraction drops its entry from the live read at once while history keeps it.
 
-use super::{AppendOptions, Authority, MemoryError, block};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, Teller},
     graph::Graph,
     ids::{EntryId, Namespace},
+    memory::memory_block::tests::writes::{AppendOptions, Authority, MemoryError, block},
     time::Timestamp,
 };
 

@@ -7,11 +7,8 @@
 use crate::{
     event::{ConversationRef, EventPayload, ProducedBy, Teller, Visibility},
     ids::{EntryId, MemoryId},
+    memory::memory_block::{MemoryBlock, MemoryError, attest::posture_width, effects::LiveEntry},
     time::Timestamp,
-};
-
-use crate::memory::memory_block::{
-    MemoryBlock, MemoryError, attest::posture_width, effects::LiveEntry,
 };
 
 impl MemoryBlock {

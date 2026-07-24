@@ -5,9 +5,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value};
 
-use crate::mcp::{ContentBlock, McpError, McpOutput, McpTool};
-
-use crate::agent::mcp_api::McpSession;
+use crate::{
+    agent::mcp_api::McpSession,
+    mcp::{ContentBlock, McpError, McpOutput, McpTool},
+};
 
 /// Marshal a Lua argument table to JSON-RPC `arguments` (spec §Calling): a consecutive-integer-key
 /// table becomes a JSON array, otherwise an object; Lua integers serialize as JSON integers. The empty

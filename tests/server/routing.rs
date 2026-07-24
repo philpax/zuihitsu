@@ -1,4 +1,11 @@
-use super::*;
+use crate::{
+    Arc, AtomicUsize, Completion, ConcurrencySettings, ConversationLocator, Duration, Embedder,
+    EventPayload, GenerateRequest, GenerateResponse, GenerateStream, Graph, InMemoryVectorIndex,
+    MILLIS_PER_DAY, ManualClock, MemoryStore, ModelClient, ModelError, Ordering, PersonId,
+    ScriptedModel, Server, Store, TEST_PLATFORM, TurnOutcome, Usage, VectorIndex,
+    advance_past_idle_gap, born_agent, clock, common, run_lua_call, seed, stream_response,
+    test_now,
+};
 #[tokio::test]
 async fn the_indexer_catches_the_vector_index_up_to_the_log() {
     let embedder: std::sync::Arc<dyn Embedder> =

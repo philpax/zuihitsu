@@ -4,10 +4,8 @@ use rusqlite::params;
 
 use crate::{
     event::{Event, EventPayload, EventSource, Visibility},
-    graph::{GraphError, backend},
+    graph::{Graph, GraphError, backend},
 };
-
-use crate::graph::Graph;
 
 impl Graph {
     /// Materialize the memory-event arm of [`Graph::apply`](crate::graph::Graph::apply). Returns `Ok(true)`

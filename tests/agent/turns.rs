@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    Completion, Event, EventPayload, Harness, InstanceFeatures, Namespace, PromptTemplateName,
+    ScriptedModel, SynthesizeReply, TerminalCause, TurnOutcome, TurnReport, TurnRole,
+    count_agent_turns, genesis, run_lua_call, run_turn, seed, synthesize_call,
+};
 #[tokio::test]
 async fn tool_call_then_reply_commits_and_replies() {
     let mut h = Harness::new();

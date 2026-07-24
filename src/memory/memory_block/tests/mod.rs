@@ -9,7 +9,9 @@ mod free_merge;
 mod mutation_guards;
 mod writes;
 
-pub(super) use super::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice};
+pub(super) use crate::memory::memory_block::{
+    AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice,
+};
 use crate::{
     clock::ManualClock,
     engine::Engine,

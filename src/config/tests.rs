@@ -8,8 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::EnvConfig;
-use crate::ids::MemoryId;
+use crate::{config::EnvConfig, ids::MemoryId};
 
 /// A fixed stand-in for the config file's directory, against which relative storage paths resolve.
 /// It need not exist: resolution only joins onto it.

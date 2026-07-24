@@ -6,11 +6,12 @@ use mlua::Table;
 
 use std::collections::HashSet;
 
-use crate::ids::MemoryId;
-
-use crate::agent::lua::{
-    error::{SearchWriteError, TaintedWriteError},
-    runtime::{BlockApi, route_error},
+use crate::{
+    agent::lua::{
+        error::{SearchWriteError, TaintedWriteError},
+        runtime::{BlockApi, route_error},
+    },
+    ids::MemoryId,
 };
 
 /// The hidden field a `memory.search` result carries: the query it was minted from. Written with

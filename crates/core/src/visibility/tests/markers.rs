@@ -1,6 +1,6 @@
 //! Marker assembly: the register choices and the attestation chip lists.
 
-use super::*;
+use crate::visibility::tests::*;
 
 #[test]
 fn teller_private_marker_carries_room_and_confidentiality() {

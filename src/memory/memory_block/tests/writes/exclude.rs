@@ -4,13 +4,15 @@
 
 use std::collections::BTreeSet;
 
-use super::{AppendOptions, Authority, MemoryError, VisibilityChoice, block};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, EventSource, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, Namespace},
-    memory::memory_block::{LinkOptions, RelationSpec},
+    memory::memory_block::{
+        LinkOptions, RelationSpec,
+        tests::writes::{AppendOptions, Authority, MemoryError, VisibilityChoice, block},
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,

@@ -5,18 +5,17 @@ use smol_str::SmolStr;
 
 use crate::{
     brief::Brief,
+    event::{
+        ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
+        LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
+        PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause, TurnRole,
+        Visibility, Volatility,
+    },
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
     model::{Completion, Usage},
     settings::Settings,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
-};
-
-use crate::event::{
-    ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
-    LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
-    PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause, TurnRole,
-    Visibility, Volatility,
 };
 
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the

@@ -8,11 +8,10 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::{EntryView, GraphError, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
-};
-
-use crate::memory::memory_block::{
-    AppendOptions, AppendOutcome, Corroboration, EntrySelector, MemoryBlock, MemoryError,
-    reconcile_forced_visibility, writes::entry_teller,
+    memory::memory_block::{
+        AppendOptions, AppendOutcome, Corroboration, EntrySelector, MemoryBlock, MemoryError,
+        reconcile_forced_visibility, writes::entry_teller,
+    },
 };
 
 impl MemoryBlock {

@@ -3,9 +3,10 @@
 
 use zuihitsu::EventPayload;
 
-use crate::package::{EvalPackage, RunRecord};
-
-use crate::analyze::format::trunc;
+use crate::{
+    analyze::format::trunc,
+    package::{EvalPackage, RunRecord},
+};
 
 /// Every missed verdict across the (filtered) suite, rolled up by criterion — the cross-scenario view
 /// that tells you what to work on next. A criterion that slips in several scenarios is one behavioral

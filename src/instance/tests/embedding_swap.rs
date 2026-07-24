@@ -2,20 +2,20 @@ use std::sync::{Arc, atomic::AtomicI64};
 
 use async_trait::async_trait;
 
-use super::*;
 use crate::{
     Instance,
     clock::ManualClock,
     event::{EventPayload, EventSource, SessionEndCause},
     graph::Graph,
     ids::{ConversationId, MemoryId, Seq, SessionId},
+    instance::OpenSession,
     model::{
         ModelError,
         embed::{Embedder, Embedding},
     },
-    store::MemoryStore,
+    store::{MemoryStore, Store},
     time::Timestamp,
-    vector::{InMemoryVectorIndex, VectorId, VectorRecord},
+    vector::{InMemoryVectorIndex, VectorId, VectorIndex, VectorRecord},
 };
 
 /// An embedder whose `model_id` is configurable, so a test can stand for a model swap; its vectors

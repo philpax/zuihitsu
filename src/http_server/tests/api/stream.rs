@@ -1,8 +1,10 @@
 //! HTTP tests for the SSE event stream and the streamed message endpoint: the opening snapshot, the
 //! live tail, progress-then-outcome framing, overlapping-message supersession, and shutdown.
 
-use super::{loopback, test_state};
-use crate::http_server::{AppState, router};
+use crate::http_server::{
+    AppState, router,
+    tests::{loopback, test_state},
+};
 use axum::{
     body::Body,
     http::{Request, StatusCode},

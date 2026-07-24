@@ -1,8 +1,10 @@
 //! HTTP tests for the `/platform/*` surface: the reserved `self` id, participant turns, connector
 //! key scoping, roster resync, and the recorded model interactions.
 
-use super::{loopback, test_state};
-use crate::http_server::{AppState, router};
+use crate::http_server::{
+    AppState, router,
+    tests::{loopback, test_state},
+};
 use axum::{
     body::Body,
     http::{Request, StatusCode},

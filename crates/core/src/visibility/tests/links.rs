@@ -1,6 +1,6 @@
 //! Link-level visibility: edge postures, endpoint guards, defaults, and the link marker.
 
-use super::*;
+use crate::visibility::tests::*;
 
 #[test]
 fn link_public_is_always_visible() {

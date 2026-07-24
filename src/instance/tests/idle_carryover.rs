@@ -6,9 +6,8 @@
 //! assert the reopened session seeds from the prior session's tail; the restart-survival counterpart
 //! (a fresh instance over the same log) lives in `tests/server/routing.rs`.
 
-use super::*;
 use crate::{
-    ConversationLocator, PersonId, SeedSelf, TEST_PLATFORM,
+    ConversationLocator, Instance, PersonId, SeedSelf, TEST_PLATFORM,
     clock::ManualClock,
     event::EventPayload,
     ids::{ConversationId, Seq},

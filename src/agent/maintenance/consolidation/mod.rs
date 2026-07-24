@@ -41,7 +41,11 @@ use std::sync::Arc;
 
 use crate::{
     InstanceError,
-    agent::templates,
+    agent::{
+        maintenance::dedupe_by_class,
+        templates,
+        turn::{Recording, collect_written_memories},
+    },
     engine::Engine,
     event::{EventSource, ProducedBy, PromptTemplateName, Teller},
     graph::EntryView,
@@ -49,11 +53,6 @@ use crate::{
     memory::memory_block::{Authority, MemoryBlock},
     model::ModelClient,
     settings::{CaptureLevel, Settings},
-};
-
-use crate::agent::{
-    maintenance::dedupe_by_class,
-    turn::{Recording, collect_written_memories},
 };
 
 mod clustering;

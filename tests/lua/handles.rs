@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, MemoryName, Namespace, TerminalCause};
 
 #[tokio::test]
 async fn interpolation_renders_a_handle_list_element() {

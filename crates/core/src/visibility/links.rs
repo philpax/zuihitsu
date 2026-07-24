@@ -6,11 +6,10 @@ use crate::{
     event::{Teller, Visibility},
     graph::{GraphError, LinkVis},
     ids::MemoryId,
-};
-
-use crate::visibility::{
-    ClassOf, MarkerTurn, VisibilityDecision, attributed_marker, is_present, no_excludee_present,
-    subject_participant, teller_is, teller_present, teller_private_marker,
+    visibility::{
+        ClassOf, MarkerTurn, VisibilityDecision, attributed_marker, is_present,
+        no_excludee_present, subject_participant, teller_is, teller_present, teller_private_marker,
+    },
 };
 
 /// Whether `link` may surface to the participants in `present_set`, resolving identity through

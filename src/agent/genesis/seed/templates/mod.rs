@@ -8,11 +8,10 @@
 
 use crate::{
     InstanceFeatures,
+    agent::genesis::TemplateDef,
     event::PromptTemplateName,
     ids::{MemoryName, Namespace},
 };
-
-use crate::agent::genesis::TemplateDef;
 
 pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![

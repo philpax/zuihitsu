@@ -6,14 +6,15 @@ use crate::{
     event::{EventPayload, LinkPosture, LinkSource, MergeProposalSource, Teller, Visibility},
     graph::{Graph, RelationView},
     ids::MemoryId,
-    memory::visibility::link_visible,
+    memory::{
+        memory_block::{
+            Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock,
+            MemoryError, RelationSpec, parse_cardinality, reconcile_forced_visibility,
+        },
+        visibility::link_visible,
+    },
     time::TemporalRef,
     vocabulary::RelationName,
-};
-
-use crate::memory::memory_block::{
-    Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock, MemoryError,
-    RelationSpec, parse_cardinality, reconcile_forced_visibility,
 };
 
 impl MemoryBlock {

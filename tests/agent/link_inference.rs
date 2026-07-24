@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    BlockOutcome, Completion, EventPayload, Harness, InferredLink, InstanceFeatures,
+    LinkInferenceArgs, Namespace, NewRelationSpec, ScriptedModel, SynthesizeReply, TerminalCause,
+    genesis, run_lua_call, run_turn, seed, synthesize_call,
+};
 
 /// A `Completion::Reply` carrying a serialized [`LinkInferenceArgs`] reply.
 fn link_inference_call(args: LinkInferenceArgs) -> Completion {

@@ -1,8 +1,8 @@
 use rusqlite::params;
 
-use super::Graph;
 use crate::{
     event::{ArbitrationResolution, Event, EventPayload, EventSource, Teller, Visibility},
+    graph::Graph,
     ids::{EntryId, MemoryId, Namespace, Seq},
     time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, MILLIS_PER_DAY, Rrule, TemporalRef, Timestamp},
 };

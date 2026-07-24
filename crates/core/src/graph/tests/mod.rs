@@ -2,12 +2,12 @@
 //! expected queryable state. The materializer is the one subsystem replay can't self-heal (a buggy
 //! handler reproduces faithfully), so it is exercised against materialized state (spec §Storage).
 
-use super::Graph;
 use crate::{
     event::{
         Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility,
         Volatility,
     },
+    graph::Graph,
     ids::{EntryId, MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,

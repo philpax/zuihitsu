@@ -6,10 +6,9 @@ use crate::{
     event::{EventPayload, Volatility},
     graph::EntryView,
     ids::{EntryId, MemoryId, MemoryName},
-};
-
-use crate::memory::memory_block::{
-    EntryRef, MemoryBlock, MemoryDetails, MemoryError, resolve::AnnotatedEntry,
+    memory::memory_block::{
+        EntryRef, MemoryBlock, MemoryDetails, MemoryError, resolve::AnnotatedEntry,
+    },
 };
 
 impl MemoryBlock {

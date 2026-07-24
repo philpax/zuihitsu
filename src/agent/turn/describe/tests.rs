@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use super::{extract::ExtractedTime, synthesis::statements_prompt};
 use crate::{
+    agent::turn::describe::{extract::ExtractedTime, synthesis::statements_prompt},
     event::{Teller, Visibility, Volatility},
     graph::{AttestationView, EntryOrigin, EntryView, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},

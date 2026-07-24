@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    Authority, BlockContext, BlockOutcome, Cardinality, Clock, EventPayload, EventSource, Harness,
+    MemoryName, Namespace, RelationName, TEST_BLOCK_TIMEOUT, TEST_MAX_BLOCK_ATTEMPTS,
+    TEST_MAX_ENTRY_CHARS, Teller, TerminalCause, TurnId, common,
+};
 
 #[tokio::test]
 async fn link_with_an_unregistered_relation_is_a_teachable_error() {

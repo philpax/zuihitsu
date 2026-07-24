@@ -5,10 +5,8 @@ use rusqlite::params;
 
 use crate::{
     event::{Event, EventPayload},
-    graph::{GraphError, backend},
+    graph::{Graph, GraphError, backend},
 };
-
-use crate::graph::Graph;
 
 impl Graph {
     /// Materialize the session/conversation-event arm of

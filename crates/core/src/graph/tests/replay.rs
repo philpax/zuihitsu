@@ -1,9 +1,11 @@
-use super::{materialized, recovery_log};
 use crate::{
     event::{
         ConversationRef, EventPayload, EventSource, SessionEndCause, Teller, Visibility, Volatility,
     },
-    graph::Graph,
+    graph::{
+        Graph,
+        tests::{materialized, recovery_log},
+    },
     ids::{
         ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq,
         SessionId, TEST_PLATFORM, TurnId,

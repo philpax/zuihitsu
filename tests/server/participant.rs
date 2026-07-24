@@ -1,6 +1,9 @@
 use zuihitsu::LinkNode;
 
-use super::*;
+use crate::{
+    EventPayload, EventSource, MemoryId, ParticipantAttribute, PersonId, Server, TEST_PLATFORM,
+    born_agent,
+};
 
 /// Collect the live entry texts of a memory, for asserting what a projection left on the profile.
 fn entry_texts(server: &Server, name: &str) -> Vec<String> {

@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, MemoryName, Namespace};
 
 /// The `person/dave` handle string a script's `PERSON_DAVE` token resolves to, for asserting the
 /// rendered record names the memory.

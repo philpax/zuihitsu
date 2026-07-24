@@ -1,15 +1,17 @@
 //! The confidential-untag and foreign-confidence supersede guards (issue #16).
 
-use super::{
-    Authority, MemoryBlock, MemoryError, VisibilityChoice, block, block_without_conversation,
-    graph_with_merged_pair, told,
-};
 use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, EventSource, Teller},
     graph::Graph,
     ids::{MemoryId, Namespace},
-    memory::memory_block::LinkOptions,
+    memory::memory_block::{
+        LinkOptions,
+        tests::{
+            Authority, MemoryBlock, MemoryError, VisibilityChoice, block,
+            block_without_conversation, graph_with_merged_pair, told,
+        },
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::{RelationName, TagName},

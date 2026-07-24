@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, MemoryName, Namespace, TerminalCause};
 
 #[tokio::test]
 async fn rename_keeps_the_memory_and_an_old_name_resolves_to_it() {

@@ -3,9 +3,11 @@
 //! the present-set cap versus the exclude predicate, and the contextual brief's lean rendering.
 use std::collections::BTreeSet;
 
-use super::{appended, compose_at_epoch, created, linked, materialized, register_relation};
 use crate::{
-    brief,
+    brief::{
+        self,
+        tests::{appended, compose_at_epoch, created, linked, materialized, register_relation},
+    },
     event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
     ids::{EntryId, MemoryId},
     settings::Settings,

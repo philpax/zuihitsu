@@ -9,15 +9,14 @@ use crate::{
     event::{Event, EventPayload, EventSource},
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationLocator, MemoryId, MemoryName, Seq},
+    instance::{
+        InstanceError,
+        control::{
+            Arbitration, Control, MergeProposal, MergeProposalSource, ModelCall, canonical_pair,
+        },
+    },
     metrics::{set_graph_counts, set_head_seq, set_lag, set_mcp, set_sessions_active},
     settings::Settings,
-};
-
-use crate::instance::{
-    InstanceError,
-    control::{
-        Arbitration, Control, MergeProposal, MergeProposalSource, ModelCall, canonical_pair,
-    },
 };
 
 impl Control<'_> {

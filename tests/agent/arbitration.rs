@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    Completion, EventPayload, Harness, InstanceFeatures, Namespace, ScriptedModel,
+    SynthesizeArbitration, SynthesizeOccurrence, SynthesizeReply, arbitrate_call,
+    belief_arbitrations, day_noon, genesis, run_lua_call, run_turn, seed, synthesize_call,
+};
 #[tokio::test]
 async fn a_neutral_third_entry_does_not_dilute_the_contradiction() {
     // The conflicting-accounts shape the eval missed in 3 of 5 runs: two accounts of one fact stand

@@ -15,10 +15,9 @@ use crate::{
     db::query_map_into,
     event::{Event, EventPayload, EventSource},
     ids::Seq,
+    store::{Store, StoreError, Subscription, notify},
     time::Timestamp,
 };
-
-use crate::store::{Store, StoreError, Subscription, notify};
 
 pub struct SqliteStore {
     conn: Connection,

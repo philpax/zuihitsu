@@ -1,9 +1,8 @@
 //! The operator entry retraction control action: withdrawing a fact outright from any memory under
 //! operator authority (spec §Visibility → the operator withdraws a fact). Exercised over the
 //! in-memory backends, since the property is a pure function of the folded log.
-use super::*;
 use crate::{
-    RetractAttestationOutcome, RetractOutcome, SelfEditOutcome,
+    Instance, RetractAttestationOutcome, RetractOutcome, SelfEditOutcome,
     clock::ManualClock,
     event::{EventPayload, Teller},
     ids::{EntryId, MemoryId},

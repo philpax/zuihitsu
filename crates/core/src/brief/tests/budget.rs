@@ -2,8 +2,8 @@
 //! header rather than truncating mid-body, the `# You` block renders its authored entries without a
 //! summary, and a zero budget still renders self in full while the optional participant blocks
 //! collapse to name-only lines.
-use super::{appended, compose_at_epoch, created, materialized};
 use crate::{
+    brief::tests::{appended, compose_at_epoch, created, materialized},
     event::{EventPayload, EventSource, Teller, Visibility},
     graph::Graph,
     ids::MemoryId,

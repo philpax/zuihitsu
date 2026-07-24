@@ -1,6 +1,4 @@
-use super::*;
-
-use crate::time::MILLIS_PER_DAY;
+use crate::{memory::search::tests::*, time::MILLIS_PER_DAY};
 #[tokio::test]
 async fn the_matching_memory_ranks_first() {
     let mut corpus = Corpus::new();

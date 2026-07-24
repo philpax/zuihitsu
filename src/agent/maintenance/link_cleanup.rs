@@ -17,7 +17,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     InstanceError,
-    agent::{TurnError, templates},
+    agent::{
+        TurnError,
+        maintenance::dedupe_by_class,
+        templates,
+        turn::{Recording, collect_written_memories},
+    },
     engine::Engine,
     event::{EventSource, ModelPhase, ProducedBy, PromptTemplateName, Teller},
     graph::EntryView,
@@ -25,11 +30,6 @@ use crate::{
     memory::memory_block::{Authority, MemoryBlock},
     model::{GenerateRequest, ModelClient},
     settings::{CaptureLevel, Settings},
-};
-
-use crate::agent::{
-    maintenance::dedupe_by_class,
-    turn::{Recording, collect_written_memories},
 };
 
 /// Run one link-cleanup sweep. Returns `(new_cursor, memories_considered)`.

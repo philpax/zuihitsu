@@ -14,7 +14,7 @@ mod replay;
 mod retract;
 mod visibility;
 
-pub(super) use super::{
+pub(super) use crate::memory::memory_block::tests::{
     AppendOptions, Authority, MemoryError, VisibilityChoice, block, block_with_retrieval,
     graph_with_merged_pair,
 };

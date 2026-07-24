@@ -23,10 +23,9 @@ use crate::{
     ids::{MemoryId, MemoryName},
     settings::BriefSettings,
     time::{self, Timestamp},
+    visibility::{self},
     vocabulary::{RelationName, TagName},
 };
-
-use crate::visibility::{self};
 
 use helpers::{memory_brief, ranked_present, render_memory_body};
 

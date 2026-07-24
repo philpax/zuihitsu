@@ -1,8 +1,9 @@
 //! The summary view: per-scenario rates, bars, and deltas against a baseline.
 
-use crate::package::{EvalPackage, ScenarioReport};
-
-use crate::analyze::{bar_label, clears_bar, format::join_or_none};
+use crate::{
+    analyze::{bar_label, clears_bar, format::join_or_none},
+    package::{EvalPackage, ScenarioReport},
+};
 
 pub(crate) fn print_summary(pkg: &EvalPackage, base: Option<&EvalPackage>, scenario: Option<&str>) {
     let base_rate = |name: &str| {

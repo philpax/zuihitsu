@@ -1,9 +1,9 @@
-use super::{
-    EntryId, Event, EventPayload, EventSource, Initiation, LinkSource, MemoryId,
-    MergeProposalSource, ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
-};
 use crate::{
     brief::{Brief, BriefFact, BriefRelationship},
+    event::{
+        EntryId, Event, EventPayload, EventSource, Initiation, LinkSource, MemoryId,
+        MergeProposalSource, ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
+    },
     ids::{ConversationId, MemoryName, Seq, SessionId, TurnId},
     model::{Completion, Message, ToolChoice, Usage},
     prompt::{PromptSectionKind, PromptSectionSpan},

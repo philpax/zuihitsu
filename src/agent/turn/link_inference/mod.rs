@@ -22,6 +22,7 @@ mod relations;
 mod tests;
 
 use crate::{
+    agent::turn::{Recording, TurnError, collect_written_memories, templates},
     engine::Engine,
     event::{
         Cardinality, EventPayload, EventSource, InferredLinkSpec, InferredRelationSpec,
@@ -33,8 +34,6 @@ use crate::{
     settings::CaptureLevel,
     vocabulary::RelationName,
 };
-
-use crate::agent::turn::{Recording, TurnError, collect_written_memories, templates};
 
 use argument::link_inference_argument;
 pub use argument::{InferredLink, LinkInferenceArgs, NewRelationSpec};

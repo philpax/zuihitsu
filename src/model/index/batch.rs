@@ -6,12 +6,11 @@ use std::collections::BTreeMap;
 use crate::{
     event::{Event, EventPayload},
     ids::{MemoryId, MemoryName, Seq},
+    model::{
+        embed::Embedder,
+        index::{IndexError, VectorKey},
+    },
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
-};
-
-use crate::model::{
-    embed::Embedder,
-    index::{IndexError, VectorKey},
 };
 
 /// Resolves a memory id to its current name, for the contextual embedding prefix. The live

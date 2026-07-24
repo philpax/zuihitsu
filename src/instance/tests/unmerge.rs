@@ -2,9 +2,8 @@
 //! identities split back into their own visibility classes (spec §Cross-platform identity →
 //! operator-asserted merge). Exercised over the in-memory backends, since the property is a pure
 //! function of the folded log.
-use super::*;
 use crate::{
-    UnmergeOutcome,
+    Instance, UnmergeOutcome,
     clock::ManualClock,
     event::{EventPayload, LinkPosture, LinkSource, Visibility},
     ids::{MemoryId, Namespace},

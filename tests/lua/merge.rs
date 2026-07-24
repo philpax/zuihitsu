@@ -1,4 +1,4 @@
-use super::*;
+use crate::{EventPayload, Harness, Namespace};
 
 #[tokio::test]
 async fn propose_merge_records_a_pending_proposal_and_merges_nothing() {

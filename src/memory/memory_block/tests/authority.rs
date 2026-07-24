@@ -1,13 +1,13 @@
 //! The authority, anchor, and merge write gates.
 
-use super::{
-    AppendOptions, Authority, MemoryError, VisibilityChoice, block, graph_with_self, told,
-};
 use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, EventSource, LinkSource, MergeProposalSource, Teller},
     graph::Graph,
     ids::{MemoryId, Namespace, NamespacedMemoryName},
+    memory::memory_block::tests::{
+        AppendOptions, Authority, MemoryError, VisibilityChoice, block, graph_with_self, told,
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,

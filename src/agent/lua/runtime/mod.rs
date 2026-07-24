@@ -16,14 +16,13 @@ use parking_lot::Mutex;
 use tokio::sync::OwnedMutexGuard;
 
 use crate::{
+    agent::lua::error::MissingReturnError,
     engine::MemoryLocks,
     event::TerminalCause,
     graph::GraphError,
     ids::MemoryId,
     memory::memory_block::{MemoryBlock, MemoryError},
 };
-
-use crate::agent::lua::error::MissingReturnError;
 
 pub(crate) use args::arg;
 pub(crate) use handles::{

@@ -4,6 +4,14 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::{
+    agent::{
+        system_prompt, templates,
+        turn::{
+            BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
+            ambient::ambient_recall, buffer::TurnView, recording::run_steps,
+            tools::full_api_reference,
+        },
+    },
     engine::Engine,
     event::{
         EventPayload, EventSource, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole,
@@ -13,14 +21,6 @@ use crate::{
     metrics::{observe_turn_deferred, observe_turn_superseded},
     model::Message,
     time::{Timestamp, format_stamp},
-};
-
-use crate::agent::{
-    system_prompt, templates,
-    turn::{
-        BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
-        ambient::ambient_recall, buffer::TurnView, recording::run_steps, tools::full_api_reference,
-    },
 };
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.

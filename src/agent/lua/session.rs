@@ -3,12 +3,15 @@
 
 use std::sync::Arc;
 
-use crate::{InstanceFeatures, ids::ConversationId, web::WebClient};
-
-use crate::agent::{
-    api_doc::ApiEntry,
-    lua::{Session, sandboxed_lua},
-    mcp_api::{McpCatalogue, McpSession, install},
+use crate::{
+    InstanceFeatures,
+    agent::{
+        api_doc::ApiEntry,
+        lua::{Session, sandboxed_lua},
+        mcp_api::{McpCatalogue, McpSession, install},
+    },
+    ids::ConversationId,
+    web::WebClient,
 };
 
 impl Session {

@@ -3,9 +3,8 @@
 //! (`set_default_local_recorder`) keeps each test isolated — no global recorder, no cross-test
 //! pollution. The per-turn span's step/block counts are exercised by the `TurnReport` counting
 //! test in `tests/agent.rs`; the span itself is surfaced by `init_tracing`'s `FmtSpan::CLOSE`.
-use super::*;
 use crate::{
-    ConversationLocator, PersonId, TEST_PLATFORM,
+    ConversationLocator, Instance, PersonId, TEST_PLATFORM,
     clock::ManualClock,
     metrics::{LATENCY_BUCKETS, describe},
     model::{Completion, ScriptedModel},

@@ -4,10 +4,12 @@
 //! windows, so they run in real time without flakiness margins worth worrying about.
 use std::sync::Arc;
 
-use super::{CircuitState, RetryingModel, jittered};
 use crate::{
     config::ResilienceConfig,
-    model::{Completion, FlakyModel, GenerateRequest, ModelClient, ModelError},
+    model::{
+        Completion, FlakyModel, GenerateRequest, ModelClient, ModelError,
+        retry::{CircuitState, RetryingModel, jittered},
+    },
 };
 use std::time::Duration;
 

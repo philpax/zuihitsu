@@ -1,8 +1,8 @@
-use super::*;
 use crate::{
     TEST_PLATFORM,
     event::TurnRole,
     ids::{Seq, TurnId},
+    instance::platform::*,
     time::Timestamp,
 };
 

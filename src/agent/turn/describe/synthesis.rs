@@ -4,14 +4,13 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    agent::turn::describe::{SynthesisCall, SynthesizeArgs, extract::synthesize_argument},
     event::{ModelPhase, Teller, Visibility},
     graph::{EntryView, MemoryView},
     ids::MemoryId,
     model::{Completion, GenerateRequest, GenerateResponse, ModelError},
     time::{self, Timestamp},
 };
-
-use crate::agent::turn::describe::{SynthesisCall, SynthesizeArgs, extract::synthesize_argument};
 
 /// The synthesis call's system prompt: the description-regeneration instructions, plus the
 /// temporal-extraction instructions when that template exists, joined for the single combined call

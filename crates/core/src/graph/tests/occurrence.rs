@@ -1,10 +1,9 @@
 //! Bi-temporal `occurred_at` (Stage 9): the materializer denormalizes each entry's typed occurrence
 //! into the sortable `occurred_sort` column read-side views expose.
 
-use super::materialized;
 use crate::{
     event::{EventPayload, Teller, Visibility},
-    graph::Graph,
+    graph::{Graph, tests::materialized},
     ids::{EntryId, MemoryId, MemoryName, Namespace},
     time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, MILLIS_PER_DAY, Rrule, TemporalRef, Timestamp},
 };

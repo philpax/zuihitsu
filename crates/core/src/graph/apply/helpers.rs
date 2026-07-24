@@ -4,13 +4,11 @@ use rusqlite::params;
 
 use crate::{
     db::{query_map_into, query_opt_into},
-    graph::{GraphError, backend},
+    graph::{Graph, GraphError, apply::OccurrenceColumns, backend},
     ids::{MemoryId, MemoryName},
     time::{BEFORE_AFTER_EPSILON_MILLIS, OccurrenceBounds, TemporalRef, Timestamp},
     vocabulary::RelationName,
 };
-
-use crate::graph::{Graph, apply::OccurrenceColumns};
 
 impl Graph {
     /// Denormalize an `occurred_at` reference into the values the `content_entries` occurrence

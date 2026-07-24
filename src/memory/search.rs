@@ -20,15 +20,13 @@ use crate::{
     event::Volatility,
     graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, MemoryName, Namespace},
-    memory::memory_block::LinkDirection,
+    memory::{memory_block::LinkDirection, visibility},
     model::index::VectorKey,
     settings::SearchSettings,
     time::{self, TemporalRef, Timestamp},
     vector::{VectorError, VectorIndex},
     vocabulary::{RelationName, TagName},
 };
-
-use crate::memory::visibility;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
 /// a private entry, and `None` otherwise. `snippet` is the fragment of matched content that produced

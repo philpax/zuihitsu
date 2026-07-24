@@ -1,8 +1,10 @@
 //! HTTP tests for the `/control/*` surface: agent creation and inspection, merge retraction and
 //! primary designation, snapshotting, and self-edit.
 
-use super::{loopback, test_state};
-use crate::http_server::{AppState, router};
+use crate::http_server::{
+    AppState, router,
+    tests::{loopback, test_state},
+};
 use axum::{
     body::Body,
     http::{Request, StatusCode},

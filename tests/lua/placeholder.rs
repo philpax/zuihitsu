@@ -5,7 +5,7 @@
 //! names, search queries, tag purposes) and confirm that backtick interpolation still commits the
 //! rendered value while benign braces pass untouched.
 
-use super::*;
+use crate::{BlockOutcome, Harness, TerminalCause};
 
 #[tokio::test]
 async fn append_with_a_literal_placeholder_is_a_teachable_error() {

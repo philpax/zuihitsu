@@ -1,6 +1,6 @@
 //! The entry predicate: postures, presence, subject guards, class awareness, and defaults.
 
-use super::*;
+use crate::visibility::tests::*;
 
 #[test]
 fn attributed_is_visible_regardless_of_who_is_present() {

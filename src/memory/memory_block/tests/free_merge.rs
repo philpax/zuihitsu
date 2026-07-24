@@ -1,12 +1,12 @@
 //! The agent free-merge rule: an `Authority::Agent` `same_as` asserts directly only when it binds a
 //! freshly-minted empty profile, and otherwise routes to the merge-proposal machinery.
 
-use super::{Authority, block};
 use crate::{
     clock::ManualClock,
     event::{Cardinality, EventPayload, EventSource, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, Namespace},
+    memory::memory_block::tests::{Authority, block},
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,

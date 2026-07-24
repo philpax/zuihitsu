@@ -11,12 +11,11 @@ use crate::{
     },
     event::{Initiation, PromptTemplateName, TurnRole},
     ids::MemoryId,
+    instance::{Instance, InstanceError, session::RoutedTurn},
     metrics::{observe_turn, observe_turn_error},
     model::ModelClient,
     settings::Settings,
 };
-
-use crate::instance::{Instance, InstanceError, session::RoutedTurn};
 
 impl Instance {
     /// Open or continue the session for `conversation`, then run one turn of `inbound` from

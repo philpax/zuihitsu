@@ -6,9 +6,9 @@
 
 use std::collections::BTreeSet;
 
-use super::materialized;
 use crate::{
     event::{EventPayload, Teller, Visibility},
+    graph::tests::materialized,
     ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     visibility::{visible, visible_attestations},

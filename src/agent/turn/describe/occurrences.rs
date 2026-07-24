@@ -4,13 +4,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
+    agent::turn::describe::ExtractedOccurrence,
     event::{EventPayload, ProducedBy},
     graph::{EntryView, MemoryView},
     ids::{EntryId, MemoryId},
     time::{MILLIS_PER_DAY, TemporalRef, Timestamp},
 };
-
-use crate::agent::turn::describe::ExtractedOccurrence;
 
 /// The per-memory read context a resolution pass reasons over: the entries shown to the model
 /// (1-based statement numbers key into `list`), the new untimed entries it may resolve, the memory

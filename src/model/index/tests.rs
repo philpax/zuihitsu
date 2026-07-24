@@ -2,13 +2,12 @@
 //! driven from a full-log rebuild, a subscription drain, or a raw event batch. Uses the
 //! deterministic fake embedder, so the same text embeds identically and a query of a memory's own
 //! description retrieves it.
-use super::{Indexer, ResolvedOp, VectorKey};
 use crate::{
     event::{Event, EventPayload, EventSource, Teller, Visibility},
     ids::{EntryId, MemoryId, MemoryName, Namespace},
     model::{
         embed::{CpuEmbedder, Embedder},
-        index::{apply_batch, embed_batch},
+        index::{Indexer, ResolvedOp, VectorKey, apply_batch, embed_batch},
     },
     store::{MemoryStore, Store},
     time::Timestamp,

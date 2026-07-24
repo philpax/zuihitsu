@@ -4,14 +4,16 @@
 //! entry. The guard clears for any speaker who stands among an entry's attesters, not only its
 //! founding teller.
 
-use super::{TEST_MAX_ENTRY_CHARS, told};
 use crate::{
     clock::ManualClock,
     engine::Engine,
     event::{Cardinality, EventPayload, EventSource, Teller, Visibility},
     graph::Graph,
     ids::{ConversationId, EntryId, MemoryId, Namespace},
-    memory::memory_block::{Authority, MemoryBlock, MemoryError, Retraction, VisibilityChoice},
+    memory::memory_block::{
+        Authority, MemoryBlock, MemoryError, Retraction, VisibilityChoice,
+        tests::{TEST_MAX_ENTRY_CHARS, told},
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,

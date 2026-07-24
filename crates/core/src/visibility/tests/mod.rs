@@ -3,15 +3,15 @@
 //! sets, and a `class_of` resolver — deterministic and model-free.
 use std::collections::{BTreeSet, HashMap};
 
-use super::{
-    MarkerRoom, MarkerTurn, default_link_visibility, default_visibility, link_explain, link_marker,
-    link_visible, room_display, teller_private_marker, visible,
-};
 use crate::{
     event::{Teller, Visibility, Volatility},
     graph::{EntryOrigin, EntryView, GraphError, LinkVis, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
     time::Timestamp,
+    visibility::{
+        MarkerRoom, MarkerTurn, default_link_visibility, default_visibility, link_explain,
+        link_marker, link_visible, room_display, teller_private_marker, visible,
+    },
 };
 
 mod links;
