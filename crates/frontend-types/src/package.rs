@@ -84,15 +84,16 @@ pub struct ScenarioMeta {
 
 /// The scenario families. Descriptive groupings for the viewer; the set grows over time. Each
 /// variant is a top-level scenario module (`crates/eval/src/scenarios/`), and the declaration order
-/// here is the console's display order (`console/src/lib/model/scenarioGroups.ts`), so keep the two
-/// aligned.
+/// here is both the console's display order (`console/src/lib/model/scenarioGroups.ts`) and, via
+/// the derived `Ord`, the harness's execution order (`crates/eval/src/scenarios/`), so keep the
+/// console list aligned.
 ///
 /// The serde aliases keep archived packages loading after a rename or retirement: a legacy
 /// `scheduling` string reads back as [`Category::Time`], `description` as [`Category::Synthesis`],
 /// and the two retired categories map onto their new homes — `compaction` onto [`Category::Sessions`]
 /// (which absorbed the compaction, cold-open, and checkpoint scenarios) and `arbitration` onto
 /// [`Category::Synthesis`] (which absorbed the arbitration scenarios).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
