@@ -87,49 +87,52 @@ fn summarize_text(text: &StepText) -> String {
 }
 
 /// A duration as a compact humane string — the two most significant units, e.g. `5d`, `3d 4h`,
-/// `4h 30m`, `2m10s`, `10s`. Used for a clock advance and, offset-prefixed, for an event's time from
-/// the run's first event.
+/// `4h 30m`, `2m 10s`, `10s`. Used for a clock advance and, offset-prefixed, for an event's time
+/// from the run's first event. jiff owns the unit arithmetic: the span balances up to (invariant
+/// 24-hour) days, truncates below the second significant unit, and prints in jiff's compact
+/// friendly form.
 pub(crate) fn humane_duration(millis: i64) -> String {
-    let negative = millis < 0;
-    const SECS_PER_DAY: u64 =
-        (zuihitsu::time::MILLIS_PER_DAY / zuihitsu::time::MILLIS_PER_SECOND) as u64;
-    const SECS_PER_HOUR: u64 =
-        (zuihitsu::time::MILLIS_PER_HOUR / zuihitsu::time::MILLIS_PER_SECOND) as u64;
-    const SECS_PER_MINUTE: u64 = zuihitsu::time::SECONDS_PER_MINUTE as u64;
-    let total_secs = millis.unsigned_abs() / zuihitsu::time::MILLIS_PER_SECOND as u64;
-    let days = total_secs / SECS_PER_DAY;
-    let hours = (total_secs % SECS_PER_DAY) / SECS_PER_HOUR;
-    let minutes = (total_secs % SECS_PER_HOUR) / SECS_PER_MINUTE;
-    let seconds = total_secs % SECS_PER_MINUTE;
+    use jiff::{RoundMode, Span, SpanRound, Unit, fmt::friendly};
 
-    let magnitude = if days > 0 {
-        two_units(days, "d", hours, "h", " ")
-    } else if hours > 0 {
-        two_units(hours, "h", minutes, "m", " ")
-    } else if minutes > 0 {
-        two_units(minutes, "m", seconds, "s", "")
+    let relative = jiff::SpanRelativeTo::days_are_24_hours();
+    let span = Span::new().milliseconds(millis);
+    let balanced = span
+        .round(
+            SpanRound::new()
+                .largest(Unit::Day)
+                .smallest(Unit::Second)
+                .mode(RoundMode::Trunc)
+                .relative(relative),
+        )
+        .expect("a replay duration balances into day units");
+    // Truncate to the two most significant units: the smallest kept unit is one below the largest
+    // non-zero one.
+    let smallest = if balanced.get_days() != 0 {
+        Unit::Hour
+    } else if balanced.get_hours() != 0 {
+        Unit::Minute
     } else {
-        format!("{seconds}s")
+        Unit::Second
     };
-    if negative {
-        format!("-{magnitude}")
-    } else {
-        magnitude
-    }
+    let trimmed = balanced
+        .round(
+            SpanRound::new()
+                .largest(Unit::Day)
+                .smallest(smallest)
+                .mode(RoundMode::Trunc)
+                .relative(relative),
+        )
+        .expect("a balanced span truncates to two units");
+    friendly::SpanPrinter::new()
+        .designator(friendly::Designator::Compact)
+        .spacing(friendly::Spacing::BetweenUnits)
+        .direction(friendly::Direction::Sign)
+        .span_to_string(&trimmed)
 }
 
 /// An event's offset from the run's first event, as `+<humane>` (e.g. `+0s`, `+2m10s`, `+3d 4h`).
 pub(crate) fn humane_offset(millis: i64) -> String {
     format!("+{}", humane_duration(millis))
-}
-
-/// The larger unit always, the smaller only when non-zero — `3d 4h` but `5d`, joined by `sep`.
-fn two_units(major: u64, major_unit: &str, minor: u64, minor_unit: &str, sep: &str) -> String {
-    if minor == 0 {
-        format!("{major}{major_unit}")
-    } else {
-        format!("{major}{major_unit}{sep}{minor}{minor_unit}")
-    }
 }
 
 /// A map from a memory id to its handle, built from a run's `MemoryCreated`/`MemoryRenamed` events, so
