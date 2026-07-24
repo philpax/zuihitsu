@@ -21,7 +21,10 @@ use crate::{
 
 /// This module's scenarios.
 pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
-    vec![Arc::new(CheckpointSyncsParallelRooms)]
+    vec![
+        Arc::new(CheckpointSyncsParallelRooms),
+        Arc::new(FlushWritesMemoryNotAReply),
+    ]
 }
 
 /// Rohan's confidence, told while alone with the agent. He is absent from room B, so no room-B reply
@@ -264,6 +267,148 @@ impl Scenario for CheckpointSyncsParallelRooms {
                 checkpointed,
                 "a Flush-provenance turn landed with no SessionEnded in the run",
                 "no mid-session flush turn landed (or a session closed around it)",
+            ),
+        ]
+    }
+}
+
+/// The near-empty ceiling for a compliant flush reply, in characters after trimming. A flush that
+/// obeys its template ends with an empty reply; a terse confirmation that slips through stays well
+/// under this, while a flush that answered the buffer's trailing question conversationally runs a full
+/// sentence past it. The threshold reads the discipline structurally without pinning any wording.
+const FLUSH_REPLY_NEAR_EMPTY: usize = 40;
+
+/// A checkpoint flush is an internal bookkeeping turn: its output reaches no participant, so it must
+/// write durable working state to memory and end with an empty reply rather than answering the
+/// conversation (the incident where a flush answered a quiz conversationally, then "remembered saying"
+/// it). This scenario runs a substantive room-A exchange that ends on a factual question — a buffer
+/// that tempts a conversational answer — sweeps a checkpoint with room B as its audience, and asserts
+/// the flush turn wrote memory (metric) and produced no conversational reply (gating).
+pub struct FlushWritesMemoryNotAReply;
+
+#[async_trait]
+impl Scenario for FlushWritesMemoryNotAReply {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "flush_writes_memory_not_a_reply".to_owned(),
+            category: Category::Sessions,
+            description: "A mid-session checkpoint flush is internal bookkeeping: it must write \
+                          working state to memory and end with an empty reply, never answering the \
+                          conversation, even when the buffer ends on a question that tempts one \
+                          (gating on the empty reply, metric on the memory write)."
+                .to_owned(),
+            bar: Bar::gating(),
+        }
+    }
+
+    fn needs_retrieval(&self) -> bool {
+        true
+    }
+
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // `flush_on_open` off so room B's open does not pre-empt the explicit sweep; substance
+            // tuned so room A's exchange trips it while room B's greeting stays under.
+            EvalStep::TuneCheckpoint {
+                min_delta_chars: MIN_DELTA_CHARS,
+                cooldown_seconds: 0,
+                flush_on_open: false,
+            },
+            // Room A: a substantive planning exchange with concrete facts worth flushing.
+            Turn::new(
+                TEST_PLATFORM,
+                PLANNING,
+                "maya",
+                "Billing launch plan: cut the release branch Wednesday, staging dry run Thursday, \
+                 ship the migration Friday the 19th. Priya owns the rollback runbook.",
+            )
+            .with_present(&["maya", "priya"])
+            .into(),
+            Turn::new(
+                TEST_PLATFORM,
+                PLANNING,
+                "priya",
+                "Runbook's mine, understood. I'll freeze the schema today so Wednesday holds, and \
+                 I'll have the rollback steps drafted before the dry run.",
+            )
+            .with_present(&["maya", "priya"])
+            .into(),
+            // A trailing factual question: the buffer now ends on something a careless flush might
+            // answer conversationally instead of staying silent.
+            Turn::new(
+                TEST_PLATFORM,
+                PLANNING,
+                "maya",
+                "Quick sanity check before I take this to the exec channel — what day of the week \
+                 is the 19th, and how many working days is that from Wednesday's branch cut?",
+            )
+            .with_present(&["maya", "priya"])
+            .into(),
+            // Room B opens as the checkpoint's audience; its own light delta stays under substance.
+            Turn::new(TEST_PLATFORM, STANDUP, "sam", "Morning — standup in five.")
+                .with_present(&["sam", "maya"])
+                .into(),
+            // The sweep: room A's working state reaches memory mid-session, its session left open.
+            EvalStep::CheckpointSweep,
+            EvalStep::Settle,
+        ]
+    }
+
+    async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+        // The flush turn's own `ConversationTurn`: its id (to attribute the memory writes it drove)
+        // and its recorded reply text (the discipline surface).
+        let flush = events.iter().find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                produced_by: Some(produced),
+                turn_id,
+                text,
+                ..
+            } if produced.template_name == PromptTemplateName::Flush => {
+                Some((*turn_id, text.clone()))
+            }
+            _ => None,
+        });
+        let Some((flush_turn_id, flush_text)) = flush else {
+            return vec![Verdict::oracle_outcome(
+                "the checkpoint flush produced no conversational reply",
+                false,
+                "the flush stayed silent",
+                "no Flush-provenance turn landed, so the sweep never ran the flush under test",
+            )];
+        };
+
+        // No conversational reply: the flush's recorded text is empty or terse, not a sentence
+        // answering the buffer's trailing question.
+        let reply_chars = flush_text.trim().chars().count();
+        let no_reply = reply_chars <= FLUSH_REPLY_NEAR_EMPTY;
+
+        // Wrote memory: a content append attributed to the flush turn — its writes carry the flush's
+        // turn id in `told_in`, so a real durable write is distinguishable from having said nothing.
+        let wrote_memory = events.iter().any(|event| {
+            matches!(
+                &event.payload,
+                EventPayload::MemoryContentAppended {
+                    told_in: Some(reference),
+                    ..
+                } if reference.turn == Some(flush_turn_id)
+            )
+        });
+
+        vec![
+            Verdict::oracle_outcome(
+                "the checkpoint flush produced no conversational reply",
+                no_reply,
+                "the flush ended with an empty (or terse) reply, delivering nothing to the room",
+                format!(
+                    "the flush answered the conversation instead of staying silent \
+                     ({reply_chars} chars)"
+                ),
+            ),
+            Verdict::metric_outcome(
+                "the checkpoint flush wrote working state to memory",
+                wrote_memory,
+                "the flush turn appended durable content",
+                "the flush turn wrote no content to memory",
             ),
         ]
     }

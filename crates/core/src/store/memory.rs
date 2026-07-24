@@ -6,10 +6,9 @@ use std::sync::mpsc::{Sender, channel};
 use crate::{
     event::{Event, EventPayload, EventSource},
     ids::Seq,
+    store::{Store, StoreError, Subscription, notify},
     time::Timestamp,
 };
-
-use crate::store::{Store, StoreError, Subscription, notify};
 
 #[derive(Default)]
 pub struct MemoryStore {

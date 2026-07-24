@@ -5,14 +5,18 @@ use std::collections::BTreeMap;
 
 use crate::{
     event::{Event, EventPayload},
-    ids::Seq,
+    ids::{MemoryId, MemoryName, Seq},
+    model::{
+        embed::Embedder,
+        index::{IndexError, VectorKey},
+    },
     vector::{VectorError, VectorId, VectorIndex, VectorRecord},
 };
 
-use crate::model::{
-    embed::Embedder,
-    index::{IndexError, VectorKey},
-};
+/// Resolves a memory id to its current name, for the contextual embedding prefix. The live
+/// indexer resolves names from the graph before calling [`embed_batch`], so the slow embed
+/// holds no graph lock. `None` in tests or when the caller doesn't need contextual embeddings.
+pub type NameResolver<'a> = &'a (dyn Fn(MemoryId) -> Option<MemoryName> + Sync);
 
 /// Embed the content recorded in `events` into a [`Batch`] of pending index changes — **without
 /// touching the vector index**. Coalesces to one operation per vector (last event wins), so a
@@ -20,15 +24,37 @@ use crate::model::{
 /// Async because it calls the embedder. The caller applies the result with [`apply_batch`] under the
 /// index lock — separating the slow embedding from the brief index write is what lets a search proceed
 /// without waiting behind a batch's embedding (spec §Concurrency, §Storage → vector store).
-pub async fn embed_batch(embedder: &dyn Embedder, events: &[Event]) -> Result<Batch, IndexError> {
+///
+/// `name_resolver` resolves a memory id to its current name so the contextual embedding
+/// (`"{handle}: {text}"`) can be produced alongside the raw-text embedding. Pass `None` to produce
+/// only `Entry` vectors (backward-compatible with the pre-contextual behavior).
+pub async fn embed_batch(
+    embedder: &dyn Embedder,
+    events: &[Event],
+    name_resolver: Option<NameResolver<'_>>,
+) -> Result<Batch, IndexError> {
     let mut ops: BTreeMap<VectorId, Pending> = BTreeMap::new();
     for event in events {
         match &event.payload {
-            EventPayload::MemoryContentAppended { entry_id, text, .. } => {
+            EventPayload::MemoryContentAppended {
+                id, entry_id, text, ..
+            } => {
+                // The raw-text embedding serves search.
                 ops.insert(
                     VectorKey::Entry(*entry_id).to_vector_id(),
                     Pending::Embed(text.clone()),
                 );
+                // The contextual embedding serves the dedup check and consolidation pass. The
+                // handle prefix normalizes name-bearing and name-less entries so the same fact
+                // scores similarly regardless of how it was phrased.
+                if let Some(resolver) = name_resolver
+                    && let Some(name) = resolver(*id)
+                {
+                    ops.insert(
+                        VectorKey::EntryContextual(*entry_id).to_vector_id(),
+                        Pending::Embed(crate::model::embed::contextual_text(name.as_str(), text)),
+                    );
+                }
             }
             EventPayload::MemoryDescriptionRegenerated { id, new_text, .. } => {
                 ops.insert(
@@ -38,6 +64,33 @@ pub async fn embed_batch(embedder: &dyn Embedder, events: &[Event]) -> Result<Ba
             }
             EventPayload::MemoryDeleted { id } => {
                 ops.insert(VectorKey::Description(*id).to_vector_id(), Pending::Remove);
+            }
+            // A superseded entry is no longer live, so both its raw and contextual vectors are
+            // dropped from the index.
+            EventPayload::MemorySuperseded { entry, .. } => {
+                ops.insert(VectorKey::Entry(*entry).to_vector_id(), Pending::Remove);
+                ops.insert(
+                    VectorKey::EntryContextual(*entry).to_vector_id(),
+                    Pending::Remove,
+                );
+            }
+            // A retracted entry is tombstoned, so both vectors are dropped.
+            EventPayload::EntryRetracted { entry, .. } => {
+                ops.insert(VectorKey::Entry(*entry).to_vector_id(), Pending::Remove);
+                ops.insert(
+                    VectorKey::EntryContextual(*entry).to_vector_id(),
+                    Pending::Remove,
+                );
+            }
+            // Each consolidated source entry is tombstoned by the replacement; drop both vectors.
+            EventPayload::EntriesConsolidated { sources, .. } => {
+                for source in sources {
+                    ops.insert(VectorKey::Entry(*source).to_vector_id(), Pending::Remove);
+                    ops.insert(
+                        VectorKey::EntryContextual(*source).to_vector_id(),
+                        Pending::Remove,
+                    );
+                }
             }
             _ => {}
         }

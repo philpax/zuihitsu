@@ -3,7 +3,8 @@
 use crate::{
     db::query_map_into,
     graph::{
-        EntryView, Graph, GraphError, MemoryColumns, MemoryView, entries::entry_from_row,
+        EntryView, Graph, GraphError, MemoryColumns, MemoryView,
+        entries::{AttestationScope, entry_from_row},
         parse_ulid, timestamp_column,
     },
     ids::{EntryId, MemoryId},
@@ -27,17 +28,19 @@ impl Graph {
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
                     e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.occurred_authored,
                     e.text, e.told_by, e.told_in,
-                    e.visibility, e.superseded_by, e.retracted_reason
+                    e.visibility, e.superseded_by, e.retracted_reason, e.origin_platform
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL AND e.occurred_sort IS NOT NULL
                AND e.occurred_sort BETWEEN ?1 AND ?2
              ORDER BY e.occurred_sort, e.seq",
         )?;
-        query_map_into(
+        let mut rows = query_map_into(
             stmt,
             params![from.as_millisecond(), to.as_millisecond()],
             |row| self.occurrence_row(row),
-        )
+        )?;
+        self.attach_occurrence_attestations(&mut rows)?;
+        Ok(rows)
     }
 
     /// Live entries whose scheduled occurrence has come due but not yet fired — the scheduler's input
@@ -117,13 +120,29 @@ impl Graph {
             "SELECT m.id, m.name, m.description, m.volatility, m.created_at,
                     e.entry_id, e.asserted_at, e.occurred_sort, e.occurred_at, e.occurred_authored,
                     e.text, e.told_by, e.told_in,
-                    e.visibility, e.superseded_by, e.retracted_reason
+                    e.visibility, e.superseded_by, e.retracted_reason, e.origin_platform
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL
                AND e.fired_at IS NOT NULL AND e.surfaced_at IS NULL
              ORDER BY e.occurred_sort, e.seq",
         )?;
-        query_map_into(stmt, [], |row| self.occurrence_row(row))
+        let mut rows = query_map_into(stmt, [], |row| self.occurrence_row(row))?;
+        self.attach_occurrence_attestations(&mut rows)?;
+        Ok(rows)
+    }
+
+    /// Fill in each entry's live attestation set for the `(memory, entry)` occurrence reads, batched
+    /// over the whole result — the tuple-shaped analogue of [`Graph::attach_attestations`].
+    fn attach_occurrence_attestations(
+        &self,
+        rows: &mut [(MemoryView, EntryView)],
+    ) -> Result<(), GraphError> {
+        let ids: Vec<EntryId> = rows.iter().map(|(_, entry)| entry.entry_id).collect();
+        let mut by_entry = self.attestations_for(&ids, AttestationScope::Live)?;
+        for (_, entry) in rows.iter_mut() {
+            entry.attestations = by_entry.remove(&entry.entry_id).unwrap_or_default();
+        }
+        Ok(())
     }
 
     /// Live memories that carry a `Recurring` occurrence — the `calendar.recurring()` listing. These

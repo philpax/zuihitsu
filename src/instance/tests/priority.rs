@@ -4,8 +4,8 @@
 //! horizon, the next sweep escalates to conversation priority (spec §Write path → freshness before a
 //! brief). These tests drive the escape *decision* (`describe_should_escalate`) against a manual
 //! clock; the priority mechanism the decision selects is covered in `model::priority`.
-use super::*;
 use crate::{
+    Instance,
     clock::ManualClock,
     event::{EventPayload, EventSource},
     ids::{MemoryId, MemoryName},

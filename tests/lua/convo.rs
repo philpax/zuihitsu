@@ -1,6 +1,12 @@
 use zuihitsu::ids::DIRECT_PLATFORM;
 
-use super::*;
+use crate::{
+    Arc, Authority, BlockContext, BlockOutcome, Clock, ConversationId, ConversationLocator,
+    ConversationRef, Engine, EventPayload, EventSource, Graph, Initiation, InstanceFeatures,
+    ManualClock, MemoryId, MemoryStore, Namespace, Session, SessionId, Store, TEST_BLOCK_TIMEOUT,
+    TEST_MAX_BLOCK_ATTEMPTS, TEST_MAX_ENTRY_CHARS, TEST_PLATFORM, Teller, TerminalCause, Timestamp,
+    TurnId, TurnRole, common, message_refs, resolve_or_mint_conversation,
+};
 
 /// A person stub, materialized so the resolver can render the speaker's conversational handle.
 pub(crate) fn person(store: &mut MemoryStore, clock: &ManualClock, handle: &str) -> MemoryId {

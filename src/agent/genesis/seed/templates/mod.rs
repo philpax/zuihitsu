@@ -8,22 +8,21 @@
 
 use crate::{
     InstanceFeatures,
+    agent::genesis::TemplateDef,
     event::PromptTemplateName,
     ids::{MemoryName, Namespace},
 };
-
-use crate::agent::genesis::TemplateDef;
 
 pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef> {
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 23,
+            version: 27,
             body: scaffold_body(features),
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
-            version: 1,
+            version: 2,
             body: body_of(include_str!("synthesis/description_regen.md")),
         },
         // The body leads with the omit-default because over-resolution is the dangerous direction: a
@@ -31,12 +30,12 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         // one merely sends the reader to the entry.
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            version: 5,
+            version: 6,
             body: body_of(include_str!("synthesis/temporal_extraction.md")),
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            version: 3,
+            version: 5,
             body: flush_template_body(),
         },
         TemplateDef {
@@ -51,6 +50,21 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             name: PromptTemplateName::LinkInference,
             version: 5,
             body: body_of(include_str!("synthesis/link_inference.md")),
+        },
+        TemplateDef {
+            name: PromptTemplateName::EntryConsolidation,
+            version: 4,
+            body: body_of(include_str!("synthesis/entry_consolidation.md")),
+        },
+        TemplateDef {
+            name: PromptTemplateName::NameIdentification,
+            version: 1,
+            body: body_of(include_str!("synthesis/name_identification.md")),
+        },
+        TemplateDef {
+            name: PromptTemplateName::LinkCleanup,
+            version: 1,
+            body: body_of(include_str!("synthesis/link_cleanup.md")),
         },
     ]
 }

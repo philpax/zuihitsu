@@ -1,0 +1,100 @@
+# Maintenance passes
+
+Maintenance passes are autonomous data-hygiene machinery that runs off the hot path. They run on a timer, gated on activity — a pass that finds nothing to do is cheap, and a pass that runs too soon after the last one wastes a model call. They can also be invoked on demand via the CLI or the control API.
+
+## Scheduling
+
+Each maintenance pass gates on "how much has changed since the last run" rather than ticking blindly. A pass tracks events since its last cursor advance, and below a threshold the tick is a no-op without even a graph read. The threshold is a per-pass settings knob (`consolidation_min_activity`, `canonicalize_min_activity`, `link_cleanup_min_activity`).
+
+The maintenance driver ticks every `tick_seconds` (default 60). Each tick checks each pass's activity gate and runs the pass if the gate fires. The passes are cursor-resumed and idempotent, so an idle tick is cheap.
+
+## Born-instance caveat
+
+Each pass drives a prompt template — consolidation the `EntryConsolidation` template, canonicalize the `NameIdentification` template, and link cleanup the `LinkCleanup` template — and returns early as a silent no-op (advancing its cursor) when that template is absent from the log. An agent born before these template names existed lacks them at genesis, but acquires them without operator action: `genesis::reconcile_templates` runs at every boot and registers any build-default template whose name has never appeared on the log (see [Prompt templates](lifecycle.md#prompt-templates)). So a born agent picks up a newly-shipped template name at its next boot, and the maintenance passes become active from then on. A pass only no-ops when the running binary itself predates the template — a boot on an old binary from before the reconcile logic existed.
+
+The same reconcile also keeps an unchanged default's *body* current: a template whose latest registration is still `Bootstrap`-sourced auto-tracks the build, so a reworded synthesis prompt reaches an unedited agent at its next boot. An operator-edited template is held sovereign instead, badged as upgradeable in the console and adopted only through `debug upgrade-prompts --force`.
+
+## The passes
+
+### Consolidation
+
+Consolidation runs in two tiers per identity class, each committed as its own block through the ordinary `MemoryBlock` write path under `Authority::Agent`.
+
+**Tier 1 — within-level synthesis.** Live entries are grouped by visibility posture before clustering: `Public` and `Attributed` entries each merge across tellers — both surface to everyone, so synthesizing two relayed accounts leaks nothing, and grouping `Attributed` across tellers is safe precisely because each source teller survives as an attestation on the replacement rather than being collapsed away — while `PrivateToTeller` and `Exclude` entries group per teller, and, for `Exclude`, per exact withheld set, since below the all-audience tier the teller determines who may see the fact.
+
+Within a group, tier 1 is a two-stage decision: **geometry proposes, the model disposes.** Cosine clustering first gathers a *candidate* cluster at the loose `consolidation_candidate_threshold` (0.60 by default), and the synthesis model call then selects which candidates actually belong together and synthesizes one richer entry over exactly that subset. The loose bar is deliberate. Geometry cannot reliably rank a genuine thematic fusion above a related-but-distinct pair: under the live embedder, four phrasings of one bot's literary basis sit at cosine 0.60–0.69, while a genuinely-distinct pair (a person's job versus their lead role) sits at ~0.70 — *inside* that same band. A single cosine threshold cannot separate them, so tier 1 gathers candidates loosely and lets the model judge membership, which it can. The model is instructed to select only the entries that state the same fact (or aspects of one fact): a related-but-distinct candidate stays out, an earlier speculation later confirmed folds into the confirmed form, and when fewer than two candidates belong together the model declines and nothing is consolidated. The selection is validated against the candidate cluster — an id the model names that resolves to no cluster member is dropped, and a validated selection below two members is a decline. Only the selected subset is consolidated; the unselected candidates stay live and are not re-clustered that sweep.
+
+The synthesized replacement inherits the group's visibility verbatim, and its teller is the group's teller when uniform or `Teller::Agent` for a cross-teller merge (permitted at the `Public` or `Attributed` level). Because the whole candidate cluster shares one posture group, so does any selected subset, so the write-path guards hold as before. Each distinct source teller then survives as an `EntryAttested` on the replacement: the replacement founds under `Teller::Agent`, and the real tellers ride as its attestations, so who the accounts came from is preserved rather than laundered into the agent (see [Attestation](data-model.md#attestation)). Because synthesis never crosses a level, a private confidence's text is never folded into a copy visible to a wider audience, and the per-teller confidence copies tier 1 leaves unmerged are a deliberate residual — identical confidences from two tellers gate two audiences, so collapsing them would lose one teller's standing.
+
+**Tier 2 — cross-level dedup, never synthesis.** After tier 1 commits, a narrower live entry whose fact is already attested by a wider one — measured at the stricter `dedup_similarity_threshold`, not the looser consolidation bar — is retired into that wider entry by *absorb-and-attest*. No new text is written: the `EntriesConsolidated` names the existing wider entry as the replacement, and the narrower text enters no prompt; instead the retired source's teller, posture, and exact phrasing are absorbed onto the replacement as an `EntryAttested`, so the fact is corroborated rather than merely dropped. The absorbed attestation keeps the source's *own* narrower posture, so a private teller's endorsement of a now-`Public` fact persists as a hidden attestation — a deliberate residual the operator sees and the agent-facing surfaces do not (see [Visibility → hidden attestations](visibility.md#attestation-and-the-audience-widening-invariant)). A fact already attested at least as widely is redundant in its narrower copy, and the stricter threshold is where "same fact" is credible enough to act on. Only a genuinely narrower source (`PrivateToTeller`, `Exclude`, or an `Attributed` copy against a `Public` one) is eligible, and only an all-audience entry (`Public` or `Attributed`) is a valid replacement, so the replacement's audience is always a superset of the retired entry's — never an intersected or rotated one. This is the one place consolidation crosses tellers and postures, `Attributed → Public` included.
+
+In both tiers the source entries are tombstoned (stamped `superseded_by` = the replacement entry id), dropping them from live surfaces while preserving them in history, and each `EntriesConsolidated` event carries the full many-to-one relationship.
+
+A connector-maintained entry is excluded from consolidation entirely. Each content entry carries an `EntryOrigin` derived from its recording event's source: an entry recorded by a platform connector (`EntryOrigin::PlatformConnector`) is never grouped, so it can be neither a source nor a replacement in either tier. The connector holds that entry's id and supersedes or retracts it as the platform-side account changes; folding it into a synthesized replacement, or retiring another entry into it, would strand that maintenance.
+
+#### Two embedding spaces
+
+Each entry has two embedding vectors, maintained in lockstep by the indexer:
+
+- **`Entry`** — the raw entry text. Serves search, where the query has no subject-name prefix.
+- **`EntryContextual`** — `"{handle}: {text}"`. Serves the dedup check and consolidation pass, where entries within the same memory are compared. The handle prefix normalises entries that include the subject name with those that don't — without it, "Rowan is a senior developer" and "is a senior developer" score ~0.52 cosine despite being the same fact, because the name token dominates the embedding.
+
+The split is deliberate: the two spaces serve opposite needs, so neither can serve both. The handle prefix that normalises entries for dedup measurably degrades search ranking — a query carries no subject-name prefix, so prefixing the indexed text pulls it away from the query — which is why the raw `Entry` space serves search while the `EntryContextual` space serves dedup and consolidation.
+
+Both spaces are GC'd on supersession, retraction, and consolidation. The `Entry` space is unaffected by renames; the `EntryContextual` space becomes stale after a rename (the prefix changes) until the entry is next re-embedded — an accepted floor, since the stale embedding still works (it just has the old prefix).
+
+After upgrading an existing agent, the `EntryContextual` space starts empty. Run `zuihitsu debug reindex` (followed by a restart) to rebuild the full vector index from the log. The indexer's normal catch-up handles new entries; old entries get their contextual vectors when they're next re-embedded (on content change or consolidation).
+
+`zuihitsu debug embed <a> <b>` is the distinct similarity-tuning tool: it embeds two strings through the configured endpoint and prints their cosine similarity, so the dedup and consolidation thresholds can be re-validated against real phrasings when the embedding model or the thresholds change.
+
+### Canonical profiles
+
+Gives platform stubs (`person/<id>@<platform>`) readable named identities. The pass reads a stub's entries, calls the model to identify the most name-like text, and mints a bare `person/<name>` canonical profile. If the name already exists for a different person, a disambiguated profile (`person/<name>-2`, etc.) is created.
+
+The canonical profile is bound to the stub via a `same_as` link (asserted under `Authority::Agent`, which permits direct assertion without operator confirmation) and designated as the class primary. This is the "free merge" case — the canonical profile is empty, so there is no visibility risk.
+
+### Link-redundant entry cleanup
+
+Retracts entries whose content is purely a description of a link that exists. For example, an entry "knows Dave" that spawned a `knows → person/dave` link is redundant once the link exists. The pass runs after consolidation, so it sees the consolidated entry set. An entry that carries detail beyond the link (e.g. "met Dave at the climbing gym last Tuesday") is preserved.
+
+A connector-maintained entry (`EntryOrigin::PlatformConnector`) is dropped from the candidate set, so this pass never retracts a connector-owned entry: the connector holds its id and supersedes or retracts it as the platform-side account changes.
+
+## Authority::Agent
+
+Maintenance passes run under a new `Authority::Agent` authority tier, which is narrower than full self-evolution. All three passes drive their writes through the ordinary `MemoryBlock` write path under this authority — each buffering its events in a block and committing them under `EventSource::Orchestration` — so every consolidation, mint, `same_as`, designation, and retraction clears the same guards a turn's writes do rather than bypassing them as raw appends. The tier's distinguishing powers:
+
+- **Clears the foreign-confidence supersede guard**: the guard blocks a platform turn from retiring another participant's confidence, but tier-2 dedup is the deliberate exception — it retires a private copy only when the same fact is already attested by an all-audience entry at the stricter dedup threshold, so nothing is suppressed that was not already visible at least as widely. `Authority::Agent` clears the guard for this case; the pass's superset-audience check is what makes clearing it sound.
+- **Permits free `same_as` assertion**: the canonical-profile pass asserts `same_as` directly without routing to a merge proposal (the `same_as`-routes-to-proposal gate fires only under Platform authority).
+- **Blocks `self`-model writes**: `guard_self` blocks all non-Operator authority from writing `self`'s content — an append, supersede, retract, attest, or rename — so no maintenance pass can rewrite the self model. Links touching `self` are ordinary relationships, not self-model content, and are permitted; the sole identity-touching exception is a `same_as` naming `self`, refused under every authority (the agent is not a person, so merging it into an identity class is a category error).
+
+## Settings
+
+```toml
+[maintenance]
+enabled = true                    # whether passes fire on the timer
+tick_seconds = 60                 # how often the driver ticks
+consolidation_min_activity = 20   # min events since last consolidation run
+canonicalize_min_activity = 5     # min events since last canonicalize run
+link_cleanup_min_activity = 20    # min events since last link-cleanup run
+consolidation_candidate_threshold = 0.60   # loose cosine bar for tier-1 candidate clustering (the model decides membership)
+consolidation_similarity_threshold = 0.85  # cosine threshold for the append-time cross-subject advisory band
+dedup_similarity_threshold = 0.95          # cosine threshold for append-time dedup
+```
+
+## CLI invocation
+
+```
+zuihitsu maintenance consolidate     # run the consolidation pass
+zuihitsu maintenance canonicalize     # run the canonical-profile pass
+zuihitsu maintenance link-cleanup     # run the link-redundant entry cleanup
+```
+
+## Control API
+
+- `POST /control/maintenance/consolidate` — drive the consolidation pass.
+- `POST /control/maintenance/canonicalize` — drive the canonical-profile pass.
+- `POST /control/maintenance/link-cleanup` — drive the link-redundant entry cleanup.
+
+## Relationship to existing background passes
+
+The existing background passes — describe (description regeneration) and link inference — are also cursor-resumed and run on timers. The maintenance passes share the same `BackgroundPasses` infrastructure (cursors, guards, catch-up methods) but are heavier (they call the model for synthesis) and so tick at a longer interval by default.

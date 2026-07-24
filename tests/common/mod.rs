@@ -11,6 +11,51 @@ pub use harness::Harness;
 
 use zuihitsu::{MemoryName, Namespace};
 
+/// A real CPU-only embedding model for integration tests, wrapping `fastembed`'s
+/// `all-MiniLM-L6-v2` (384 dimensions). This lives in the integration-test common module because
+/// `fastembed` is a dev-dependency — unit tests in `src/` have their own `CpuEmbedder` under
+/// `#[cfg(test)]`, but integration tests compile the library without `cfg(test)`, so they need
+/// their own copy here where the dev-dependency is visible.
+pub struct CpuEmbedder {
+    model: parking_lot::Mutex<fastembed::TextEmbedding>,
+}
+
+impl CpuEmbedder {
+    pub fn try_new() -> Result<CpuEmbedder, fastembed::Error> {
+        use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+        let model = TextEmbedding::try_new(InitOptions::new(EmbeddingModel::AllMiniLML6V2))?;
+        Ok(CpuEmbedder {
+            model: parking_lot::Mutex::new(model),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl zuihitsu::Embedder for CpuEmbedder {
+    fn dimensions(&self) -> usize {
+        384
+    }
+
+    fn model_id(&self) -> &str {
+        "all-MiniLM-L6-v2-cpu"
+    }
+
+    async fn embed(
+        &self,
+        inputs: &[String],
+    ) -> Result<Vec<zuihitsu::Embedding>, zuihitsu::ModelError> {
+        let docs: Vec<&str> = inputs.iter().map(String::as_str).collect();
+        self.model
+            .lock()
+            .embed(docs, None)
+            .map_err(|e| zuihitsu::ModelError::Backend {
+                model: "all-MiniLM-L6-v2-cpu".to_owned(),
+                message: e.to_string(),
+                transient: false,
+            })
+    }
+}
+
 /// Resolve the namespace-token placeholders in a test Lua script to real handles. A script names a
 /// standard persona or thing by token — `PERSON_DAVE`, `EVENT_DENTIST` — and this swaps each for the
 /// quoted handle (`"person/dave"`), sourcing the prefix from [`Namespace`] so no test script spells a
@@ -84,10 +129,10 @@ mod harness {
 
     use zuihitsu::{
         AmbientSettings, Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId,
-        Embedder, Engine, Event, EventPayload, EventSource, FakeEmbedder, Graph,
-        InMemoryVectorIndex, InboundMessage, Initiation, InstanceFeatures, ManualClock, MemoryId,
-        MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId,
-        TurnRecord, TurnRole, TurnView, VectorIndex, append_turn,
+        Embedder, Engine, Event, EventPayload, EventSource, Graph, InMemoryVectorIndex,
+        InboundMessage, Initiation, InstanceFeatures, ManualClock, MemoryId, MemoryStore,
+        ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnRecord, TurnRole,
+        TurnView, VectorIndex, append_turn,
         model::index::{apply_batch, embed_batch},
         run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -149,20 +194,20 @@ mod harness {
         }
     }
 
-    /// The embedding dimensionality the retrieval-backed harness uses (the fake embedder's size).
-    const TEST_EMBED_DIMS: usize = 16;
+    /// The embedding dimensionality the retrieval-backed harness uses (the CPU embedder's size).
+    const TEST_EMBED_DIMS: usize = 384;
 
     impl Harness {
         pub fn new() -> Harness {
             Harness::default()
         }
 
-        /// A harness whose engine has semantic retrieval attached (a fake embedder and in-memory
+        /// A harness whose engine has semantic retrieval attached (a CPU embedder and in-memory
         /// vector index), for exercising `memory.search`. Drive [`Harness::index`] after a write to
         /// embed it before searching.
         pub fn with_retrieval() -> Harness {
             let clock = ManualClock::new(test_now());
-            let embedder: Arc<dyn Embedder> = Arc::new(FakeEmbedder::new(TEST_EMBED_DIMS));
+            let embedder: Arc<dyn Embedder> = Arc::new(super::CpuEmbedder::try_new().unwrap());
             let vectors: Box<dyn VectorIndex> = Box::new(InMemoryVectorIndex::new());
             Harness {
                 engine: Engine::with_retrieval(
@@ -212,7 +257,7 @@ mod harness {
             let retrieval = self.engine.retrieval.as_ref().expect("retrieval attached");
             let from = retrieval.vectors.lock().cursor().unwrap().next();
             let events = self.engine.store.lock().read_from(from).unwrap();
-            let batch = embed_batch(retrieval.embedder.as_ref(), &events)
+            let batch = embed_batch(retrieval.embedder.as_ref(), &events, None)
                 .await
                 .unwrap();
             apply_batch(&mut **retrieval.vectors.lock(), batch).unwrap();

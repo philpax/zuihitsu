@@ -13,10 +13,16 @@ use futures_util::StreamExt;
 use zuihitsu_core::progress::{ProgressKind, TurnProgress};
 
 use crate::{
+    agent::turn::{
+        Steps, Supersession, TurnError, TurnOutcome,
+        record::{TurnRecord, append_turn},
+        run::tool_call_id,
+        tools::{ToolCallResult, run_lua_tool, run_tool_call},
+    },
     clock::Clock,
     engine::Engine,
     event::{EventPayload, EventSource, ModelPhase, RequestRecord, SUPERSEDED_CAUSE, TurnRole},
-    ids::{MemoryId, Seq, TurnId},
+    ids::{ConversationId, MemoryId, Seq, TurnId},
     metrics::observe_model_call,
     model::{
         Completion, GenerateDelta, GenerateRequest, GenerateResponse, Message, ModelClient,
@@ -25,16 +31,6 @@ use crate::{
     prompt::PromptSectionSpan,
     settings::CaptureLevel,
     store::Store,
-};
-
-use crate::{
-    agent::turn::{
-        Steps, Supersession, TurnError, TurnOutcome,
-        record::{TurnRecord, append_turn},
-        run::tool_call_id,
-        tools::{ToolCallResult, run_lua_tool, run_tool_call},
-    },
-    ids::ConversationId,
 };
 
 /// The outcome of a recorded model call: the completed response, or a cooperative cancellation

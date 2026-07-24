@@ -3,18 +3,17 @@
 use mlua::{Lua, LuaSerdeExt, Table, Value};
 
 use crate::{
+    agent::lua::{
+        error::{HandleError, TemporalArgError},
+        runtime::{
+            BlockApi,
+            handles::{entry_selector, handle_id, resolve_exclude},
+            route_error,
+        },
+    },
     event::Teller,
     memory::memory_block::AppendOptions,
     time::{CivilDate, MILLIS_PER_DAY, TemporalRef, civil_date_to_millis},
-};
-
-use crate::agent::lua::{
-    error::{HandleError, TemporalArgError},
-    runtime::{
-        BlockApi,
-        handles::{handle_id, resolve_exclude},
-        route_error,
-    },
 };
 
 /// Build a date handle `{ day = "YYYY-MM-DD" }` backed by the date metatable, so it renders as its ISO
@@ -63,24 +62,28 @@ pub(crate) fn append_options_from_lua(
         // A non-nil, non-table opts is a shape slip the agent should see named; serde surfaces it.
         return Ok(Some(lua.from_value(opts)?));
     };
-    // Resolve the three options serde cannot decode from a raw Lua value: `occurred_at` may be a bare
-    // date string or a date handle, `told_by` is a handle or name naming a teller, and `exclude` is a
-    // list of handles or names to withhold the entry from. The rest deserializes from a copy with those
-    // three keys dropped — the agent's own opts table is never mutated, so a table reused across appends
-    // keeps its fields.
+    // Resolve the four options serde cannot decode from a raw Lua value: `occurred_at` may be a bare
+    // date string or a date handle, `told_by` is a handle or name naming a teller, `exclude` is a list
+    // of handles or names to withhold the entry from, and `distinct_from` is an entry handle, id, or
+    // prefix the dedup scan skips. The rest deserializes from a copy with those four keys dropped — the
+    // agent's own opts table is never mutated, so a table reused across appends keeps its fields.
     let occurred_at = occurred_at_from_lua(lua, table)?;
     let told_by = match table.get::<Value>("told_by")? {
         Value::Nil => None,
         other => Some(resolve_teller(api, other)?),
     };
     let exclude = resolve_exclude(api, table.get::<Value>("exclude")?)?;
+    let distinct_from = match table.get::<Value>("distinct_from")? {
+        Value::Nil => None,
+        other => Some(entry_selector(&other)?),
+    };
     let rest = lua.create_table()?;
     for pair in table.pairs::<Value, Value>() {
         let (key, value) = pair?;
         if let Value::String(name) = &key
             && matches!(
                 name.to_string_lossy().as_str(),
-                "occurred_at" | "told_by" | "exclude"
+                "occurred_at" | "told_by" | "exclude" | "distinct_from"
             )
         {
             continue;
@@ -91,6 +94,7 @@ pub(crate) fn append_options_from_lua(
     options.occurred_at = occurred_at;
     options.told_by = told_by;
     options.exclude = exclude;
+    options.distinct_from = distinct_from;
     Ok(Some(options))
 }
 

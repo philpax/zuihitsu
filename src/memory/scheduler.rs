@@ -15,12 +15,11 @@ use crate::{
     event::{EventPayload, EventSource},
     graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{EntryId, MemoryId},
+    memory::visibility,
     settings::SchedulerSettings,
     store::{Store, StoreError},
     time::{self, Timestamp},
 };
-
-use crate::memory::visibility;
 
 /// A scheduled-work failure, delegating to the store or graph beneath it.
 #[derive(Debug)]

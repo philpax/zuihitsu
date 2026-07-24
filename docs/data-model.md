@@ -53,11 +53,12 @@ ContentEntry {
   asserted_at:   timestamp           -- when the agent recorded it
   occurred_at:   Option<TemporalRef> -- what real-world time it's about
   text:          string
-  told_by:       Teller               -- Participant(MemoryId) | Agent | Bootstrap; who told the agent this
+  told_by:       Teller               -- Participant(MemoryId) | Agent | Bootstrap; the founding teller — with visibility/told_in/asserted_at, the founding attestation denormalised (see Attestation)
   told_in:       Option<ConversationRef> -- provenance: the conversation + turn it was said in (not a visibility gate)
   visibility:    Visibility
   superseded_by: Option<EntryId>     -- the newer entry that replaced this one, once superseded; a retraction stamps the entry's own id here as a tombstone (no successor)
   retracted_reason: Option<string>   -- why the entry was retracted, once withdrawn; None for a live or plainly-superseded entry
+  origin:        EntryOrigin          -- Recorded, or PlatformConnector(platform) when a connector owns the entry; derived from the recording event's source. A connector-owned entry is excluded from the maintenance passes (see below)
 }
 
 Visibility =
@@ -91,6 +92,18 @@ Supersession is append-only: `MemorySuperseded` stamps the original entry's `sup
 leaves the original `MemoryContentAppended` immutable. Live surfaces then exclude the superseded
 entry, while history surfaces (`<memory>:history()`, the console) still show it.
 
+Consolidation is the many-to-one counterpart: `EntriesConsolidated` tombstones a cluster of
+source entries (stamping each one's `superseded_by` = the replacement entry id, exactly as
+supersession does) and records the full source list and the replacement. A maintenance pass running
+under `Authority::Agent` (the maintenance-pass authority tier — clears the foreign-confidence
+supersede guard and permits free `same_as` assertion, while blocking `self` writes) drives it through
+the ordinary block write path. The replacement is either a freshly synthesized entry inheriting its
+same-level cluster's visibility (and teller, or `Teller::Agent` founding the replacement for a
+cross-teller public merge, with each source teller re-attested onto it so who the accounts came from
+survives — see [Attestation](#attestation)), or — for the cross-level dedup of a more-private copy
+against a more-public one — an existing all-audience entry, with no new text written but the retired
+source's teller absorbed as an attestation. See [Maintenance passes](maintenance-passes.md).
+
 Retraction is the tombstone counterpart, for when a fact has no in-place replacement — most often because it was filed on the wrong memory. `EntryRetracted` (via `<memory>:retract(entry, reason)`) records why the fact was withdrawn and drops the entry from every live surface exactly as supersession does: the projection stamps `superseded_by` with the entry's *own* id — a self-referential tombstone, so every `superseded_by IS NULL` live filter hides it with no successor to point at — and records the reason in `retracted_reason`, which is what tells a retraction apart from a supersession. The original `MemoryContentAppended` stays immutable, and history surfaces show the tombstone with its reason. A reason is required (an unexplained retraction is unauditable). There is deliberately no move affordance: because visibility resolves per memory (see [Visibility](visibility.md)), relocating an entry in place would silently rewrite its meaning, so the honest correction is to retract it here and re-assert it on the right memory with a fresh append (carrying the original `told_by`, and `occurred_at` when the date is known).
 
 The visibility enum is deliberately small. `Public` is the default, so an entry recorded without a visibility replays as public. The enum has no explicit-allowlist lock-down variant; private group chats do not require one, and omitting it keeps the predicate small. The write-time *default* posture is computed,
@@ -100,6 +113,51 @@ content *about a person* has no default at all — it must classify itself befor
 re-recorded confidence can never silently default to public. The read-time predicate that interprets
 these against the present set, and the provenance markers surviving non-public entries carry, are
 described under [Visibility](visibility.md).
+
+## Attestation
+
+An entry is not one teller's assertion but a fact some set of tellers stand behind. Each
+**Attestation** is one teller's endorsement:
+
+```
+Attestation {
+  teller:           Teller                  -- who stands behind the fact
+  told_in:          Option<ConversationRef> -- the conversation or turn this endorsement was asserted in
+  asserted_at:      timestamp               -- when the teller recorded the endorsement
+  posture:          Visibility              -- the attester's own audience posture, at or narrower than the entry's founding posture
+  phrasing:         Option<string>          -- the attester's own wording when it differed from the entry text; kept for history and the console
+  source_entry:     Option<EntryId>         -- the retired entry a consolidation carried this attestation from; None for a direct endorsement
+  retracted_reason: Option<string>          -- why this attestation was withdrawn, on a history read; None for a live attestation
+}
+```
+
+Identity is the composite `(entry, teller)` pair: a teller has at most one attestation on a given
+entry, and a re-attestation by the same teller is last-writer-wins on that row — it updates the
+posture, phrasing, and instant rather than adding a second endorsement.
+
+The **founding attestation is derived, not stored twice**. Every entry carries at least the one its own
+`MemoryContentAppended` records, and that founding attestation is materialised from the entry's own
+`told_by`/`told_in`/`asserted_at`/`visibility` — denormalised onto the entry rather than written as a
+separate row. So a plain single-teller entry has exactly this one attestation, and the visibility
+predicate reasoning over its attestation set is bit-identical to reasoning over the entry's own fields;
+every existing log replays with a singleton set. A further teller's `EntryAttested` (via
+`<memory>:attest(entry)`) adds a second, a third, and so on, each governed by the audience-widening
+invariant (see [Visibility](visibility.md#attestation-and-the-audience-widening-invariant)).
+
+**Per-attester retraction, with last-attestation death.** `AttestationRetracted { entry, teller,
+reason }` withdraws one teller's endorsement and records why, stamping that attestation's
+`retracted_reason` in place. A corroborated fact survives its founding teller's withdrawal: the other
+tellers still stand behind it, so the entry stays live. Only when the *last* live attestation is
+withdrawn does the entry itself die — it is then tombstoned exactly as `EntryRetracted` tombstones one
+(its `superseded_by` stamped with its own id, the reason recorded), so a fact no teller still stands
+behind drops from every live surface. The operator drives a single-attester withdrawal through `POST
+/control/retract-attestation`.
+
+Supersession deliberately does **not** carry attesters forward. A `MemorySuperseded` replaces one entry
+with a fresh assertion that founds its own attestation and inherits none of the retired entry's other
+tellers — a correction is a new claim, not the old fact re-endorsed. Consolidation is the studied
+exception: it re-attests the surviving tellers onto its replacement (see
+[Maintenance passes](maintenance-passes.md)).
 
 ## Tag
 
@@ -262,11 +320,11 @@ Pending proposals surface in the console, not only in the log: the operator sees
 
 Agent-facing reads — `memory.get`, search, and the traversal methods — surface content and links from the entire `same_as` class of the queried memory (every class-traversing read keys on the shared `class_id`), so the agent treats you-on-Discord and you-on-direct-interface as one continuous identity without chasing the relation by hand. Each entry lives on exactly one member, so a class read gathers each fact once; links internal to the class (the `same_as` plumbing and any within-identity edge) are dropped, since a relationship the agent reasons about points out of the identity.
 
-Per-stub provenance is preserved: each entry's `told_by` and each link's endpoints retain their original stub references, so the agent can still distinguish "said on Discord" from "said on the direct interface" when it matters.
+Per-stub provenance is preserved in storage: each entry's `told_by` and each stored link's endpoints keep their original member references, so the agent can still distinguish "said on Discord" from "said on the direct interface" when it matters. The link readers (`outgoing`/`incoming`/`links`, `mem:details`) and search's salient relations render on top of that member-level storage: an edge's far endpoint is resolved to its own class primary, so a relationship recorded against a raw platform stub reads under the neighbour's canonical readable identity (and its `told_by` teller resolves the same way), and edges that then coincide (the same relationship carried by more than one stub of either identity) collapse to a single deduplicated entry. The canonicalisation and dedup are a read-time projection; storage stays member-level for provenance. The write path mirrors the read: re-asserting a relationship already recorded against another member of the two identities, with the same posture, is recognised as redundant and folds away rather than minting a parallel edge, so a class does not accrue one copy of an edge per member it is re-asserted against.
 
 ### Writes target a stub; reads traverse the class
 
-Writes are never fanned across the class: an append lands on exactly one stub, and `memory.get` looks a handle up by name and returns that one memory, never a synthetic class object. Which stub the write lands on turns on the handle. A **platform-qualified** handle names one binding — `dave@discord:append(...)` writes the Discord stub — so a fact deliberately scoped to a platform stays there. A **platform-agnostic** handle (`person/dave`) addresses the merged identity as a whole, so a class-level fact recorded through it is redirected to the class's **primary stub** rather than attaching to whichever member the unqualified name happens to resolve to. The redirect keys on the addressed stub's own name: a handle carrying no `@<platform>` suffix is class-spanning and widens to the primary; a qualified one writes its exact stub.
+Writes are never fanned across the class: an append lands on exactly one stub, and `memory.get` looks a handle up by name and returns that one memory, never a synthetic class object. A class-level fact recorded through **any** member's handle — a platform-agnostic `person/dave` or a platform-qualified stub `person/dave@discord` alike — is redirected to the class's **primary stub** rather than attaching to whichever member the handle happens to resolve to. Stub handles are the default operand the agent holds: the present set, the brief, and search all hand it the platform stub keyed by its opaque platform id, and a fact about a person belongs on the person, not funnelled onto one binding. The one write that stays on its exact stub is the connector's own — a connector maintaining a participant's platform attributes (username, display name) writes them under connector provenance (`EventSource::PlatformConnector`), a path exempt from the redirect — so those binding-scoped entries stay on the stub the connector holds the ids against. The redirect keys on the block's provenance, not the handle's shape.
 
 The class's distinguished member, the **primary stub**, is what that redirect resolves to: the denormalised `class_id` the union-find recompute stamps on every member is the class's **earliest member by ULID** (ULIDs sort chronologically, so the primary is the oldest stub) — unless the operator has designated one. The primary is also what class membership, presence checks, and lock acquisition reduce to — an indexed equality on `class_id` — and it is the anchor the whole-class reads and synthesis fold over. The choice of primary is deterministic and merge-order-independent (a merge of two classes takes the earliest ULID across the union), which keeps `class_id`-keyed reads and the write redirect stable regardless of how the class was assembled. The redirect reads the committed `class_id`, so it is a pure function of the log and replays identically; a stub created in the same block has not yet joined a class, so a write to it is never redirected.
 
@@ -274,7 +332,7 @@ The earliest-ULID default loses to a throwaway stub the agent minted before it l
 
 So a class-level human-fact — a third-party aside about the person that belongs to no particular platform, like Erin telling the agent something about Marcus in a DM — lands on the primary *by design*. Recording it under `memory.get("person/marcus")` widens to the primary even after the operator designates a stub other than the one the unqualified name resolves to. This is the case the redirect exists for: without it, the fact would land on the name's exact stub and quietly diverge from the primary the class is meant to cohere around. The one exception is the operator's own anchor: `person/operator` is the earliest-ULID primary of the operator's class yet holds no content of its own (see [Self-merge and the operator's continuity](#self-merge-and-the-operators-continuity)), so a write on the operator's real `person/<name>` profile is *not* redirected onto the anchor — it stays on the profile where operator facts belong.
 
-Because synthesis traverses the whole class (see [Visibility](visibility.md)), the fact surfaces for the entire class regardless of which member holds it — so the redirect is about *where a fact is anchored*, not whether it is found. The disambiguation the qualified handle affords is reserved for the genuinely stub-specific case: attributing to one platform ("Dave said *on Slack*…"), which the agent expresses by naming the exact stub with `memory.get("person/dave@slack")`. Only content writes redirect — an append, a supersede or revise, and a memory's volatility classification; a rename acts on the handle itself and a tag or a link names its exact endpoints, so none of those is widened.
+Because synthesis traverses the whole class (see [Visibility](visibility.md)), the fact surfaces for the entire class regardless of which member holds it — so the redirect is about *where a fact is anchored*, not whether it is found. Naming a specific stub still disambiguates a *reference* — attributing "Dave said *on Slack*…" reads through `memory.get("person/dave@slack")` — but it no longer scopes a *write*: a genuinely binding-scoped entry is the connector's, recorded under its own provenance. Only content writes redirect — an append, a supersede or revise, and a memory's volatility classification; a rename acts on the handle itself and a tag or a link names its exact endpoints, so none of those is widened.
 
 ### Self-merge and the operator's continuity
 

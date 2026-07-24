@@ -3,8 +3,14 @@
 
 use std::collections::HashSet;
 
-use super::{corpus, merged_rowan, person, topic};
-use crate::{agent::turn::ambient::ambient_recall, ids::MemoryId, settings::AmbientSettings};
+use crate::{
+    agent::turn::ambient::{
+        ambient_recall,
+        tests::{corpus, merged_rowan, person, topic},
+    },
+    ids::MemoryId,
+    settings::AmbientSettings,
+};
 
 #[test]
 fn a_salient_content_hit_surfaces() {

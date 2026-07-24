@@ -110,7 +110,10 @@ impl Graph {
             | EventPayload::MemoryDeleted { .. }
             | EventPayload::MemoryContentAppended { .. }
             | EventPayload::MemorySuperseded { .. }
+            | EventPayload::EntriesConsolidated { .. }
             | EventPayload::EntryRetracted { .. }
+            | EventPayload::EntryAttested { .. }
+            | EventPayload::AttestationRetracted { .. }
             | EventPayload::EntryDescriptionMirrored { .. }
             | EventPayload::EntryTemporalResolved { .. }
             | EventPayload::ScheduledJobFired { .. }

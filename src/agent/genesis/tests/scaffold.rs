@@ -1,8 +1,6 @@
 //! Scaffold body tests — feature gating, dotpoint content, and template version checks.
 
-use crate::{InstanceFeatures, event::PromptTemplateName};
-
-use super::scaffold_body;
+use crate::{InstanceFeatures, agent::genesis::tests::scaffold_body, event::PromptTemplateName};
 
 #[test]
 fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
@@ -23,10 +21,6 @@ fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
     assert!(!scaffold.body.contains("emitting Lua through"));
 
     let flush = template(PromptTemplateName::Flush);
-    assert_eq!(
-        flush.version, 3,
-        "the Luau-naming flush is registered at v3"
-    );
     assert!(
         flush
             .body

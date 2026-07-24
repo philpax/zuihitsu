@@ -97,6 +97,7 @@ impl Client {
         self.json(
             self.http
                 .post(self.url("/control/imprint"))
+                .timeout(std::time::Duration::from_secs(60 * 60))
                 .json(&ImprintBody { text }),
         )
     }
@@ -116,7 +117,16 @@ impl Client {
             messages: vec![WireMessage { sender, text }],
             present: present.iter().map(String::as_str).collect(),
         };
-        self.json(self.http.post(self.url("/platform/messages")).json(&body))
+        // An agent turn routinely outlives the default request timeout; a client that gives up
+        // early would once have cancelled the turn mid-step (the handler now detaches the turn,
+        // but the reply would still be lost to this client). The same generous ceiling the
+        // maintenance posts carry.
+        self.json(
+            self.http
+                .post(self.url("/platform/messages"))
+                .timeout(std::time::Duration::from_secs(60 * 60))
+                .json(&body),
+        )
     }
 
     /// `POST /platform/join` — note a participant arriving mid-session, under the `direct` scope.
@@ -139,6 +149,19 @@ impl Client {
     /// Send and decode a JSON response, mapping a non-2xx to the server's error message.
     fn json<T: DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, ClientError> {
         self.checked(request)?.json().map_err(ClientError::Decode)
+    }
+
+    /// `POST` to `path` with no body and deserialize the JSON response, waiting out an operation
+    /// the server may take minutes over — a maintenance backfill drives a model call per class,
+    /// which outlives the default request timeout, and a client that gives up early reports a
+    /// phantom failure while the pass completes server-side. The generous ceiling still bounds a
+    /// genuinely hung request.
+    pub fn post_no_body_slow<T: DeserializeOwned>(&self, path: &str) -> Result<T, ClientError> {
+        self.json(
+            self.http
+                .post(self.url(path))
+                .timeout(std::time::Duration::from_secs(60 * 60)),
+        )
     }
 
     /// Like [`Client::json`], but a `404` is `None` rather than an error (a not-found lookup).

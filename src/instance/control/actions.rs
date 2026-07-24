@@ -18,8 +18,8 @@ use crate::{
     instance::{
         InstanceError,
         control::{
-            Control, DesignateOutcome, LuaConsoleOutcome, RetractOutcome, SelfEditOutcome,
-            UnmergeOutcome,
+            Control, DesignateOutcome, LuaConsoleOutcome, RetractAttestationOutcome,
+            RetractOutcome, SelfEditOutcome, UnmergeOutcome,
         },
         session::RoutedTurn,
     },
@@ -398,8 +398,8 @@ impl Control<'_> {
             Vec::new(),
             max_entry_chars,
         )?;
-        match block.retract(memory_id, entry, reason) {
-            Ok(()) => {}
+        match block.retract(memory_id, entry, reason, None) {
+            Ok(_) => {}
             Err(MemoryError::UnknownEntry(_)) => return Ok(RetractOutcome::UnknownEntry(entry)),
             Err(MemoryError::RetractionReasonRequired) => return Ok(RetractOutcome::EmptyReason),
             Err(error) => return Err(InstanceError::Memory(error)),
@@ -414,6 +414,71 @@ impl Control<'_> {
         let mut graph = self.server.engine.graph.lock();
         graph.materialize_from(self.server.engine.store.lock().as_ref())?;
         Ok(RetractOutcome::Retracted)
+    }
+
+    /// Withdraw one teller's attestation from a live entry on any memory under operator authority (spec
+    /// §Visibility → attestations) — the console's per-attester counterpart to
+    /// [`Control::retract_entry`]. The named teller's account leaves the entry; if it was the last live
+    /// attestation, the entry is tombstoned exactly as a whole-entry retraction would tombstone it. The
+    /// operator supplies the reason; an empty one is rejected. Like `retract_entry`, the write carries
+    /// `EventSource::Operator` provenance and re-materializes the graph so the next read reflects it.
+    pub fn retract_attestation(
+        &self,
+        memory: &str,
+        entry: EntryId,
+        teller: Teller,
+        reason: &str,
+    ) -> Result<RetractAttestationOutcome, InstanceError> {
+        if reason.trim().is_empty() {
+            return Ok(RetractAttestationOutcome::EmptyReason);
+        }
+        let memory_id = {
+            let graph = self.server.engine.graph.lock();
+            match graph
+                .memory_by_name(MemoryName::new(memory))?
+                .map(|memory| memory.id)
+            {
+                Some(id) => id,
+                None => return Ok(RetractAttestationOutcome::UnknownMemory),
+            }
+        };
+
+        let max_entry_chars = Settings::from_store(self.server.engine.store.lock().as_ref())?
+            .memory
+            .max_entry_chars
+            .max(1) as usize;
+        let mut block = MemoryBlock::new(
+            self.server.engine.clone(),
+            Teller::Agent,
+            Authority::Operator,
+            None,
+            None,
+            Vec::new(),
+            max_entry_chars,
+        )?;
+        match block.retract_attestation(memory_id, entry, teller, reason, None) {
+            Ok(()) => {}
+            Err(MemoryError::UnknownEntry(_)) => {
+                return Ok(RetractAttestationOutcome::UnknownEntry(entry));
+            }
+            Err(MemoryError::UnknownAttestation) => {
+                return Ok(RetractAttestationOutcome::UnknownAttestation);
+            }
+            Err(MemoryError::RetractionReasonRequired) => {
+                return Ok(RetractAttestationOutcome::EmptyReason);
+            }
+            Err(error) => return Err(InstanceError::Memory(error)),
+        }
+
+        let now = self.server.engine.clock.now();
+        self.server.engine.store.lock().append(
+            now,
+            EventSource::Operator,
+            block.into_effects().events,
+        )?;
+        let mut graph = self.server.engine.graph.lock();
+        graph.materialize_from(self.server.engine.store.lock().as_ref())?;
+        Ok(RetractAttestationOutcome::Retracted)
     }
 
     /// Create the agent — or resume an interrupted genesis — then project the new events so reads
@@ -436,6 +501,7 @@ impl Control<'_> {
         // handler already marked the seeded `self` described in the graph materialization above, so the
         // first describe pass over it regenerates nothing.
         self.server.baseline_link_inference_cursor()?;
+        self.server.baseline_maintenance_cursors()?;
         Ok(outcome)
     }
 

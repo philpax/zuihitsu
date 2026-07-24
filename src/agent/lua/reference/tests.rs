@@ -1,5 +1,7 @@
-use super::api_reference;
-use crate::{InstanceFeatures, agent::api_doc::ApiGate};
+use crate::{
+    InstanceFeatures,
+    agent::{api_doc::ApiGate, lua::reference::api_reference},
+};
 
 /// The call names of a feature's entries, in order, for a readable diff on failure.
 fn names(features: &InstanceFeatures) -> Vec<String> {

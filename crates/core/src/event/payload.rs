@@ -5,18 +5,17 @@ use smol_str::SmolStr;
 
 use crate::{
     brief::Brief,
+    event::{
+        ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
+        LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
+        PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause, TurnRole,
+        Visibility, Volatility,
+    },
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
     model::{Completion, Usage},
     settings::Settings,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
-};
-
-use crate::event::{
-    ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
-    LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
-    PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause, TurnRole,
-    Visibility, Volatility,
 };
 
 /// The data carried by an event, tagged by `type` on the wire. `Seq` and `recorded_at` live on the
@@ -71,6 +70,28 @@ pub enum EventPayload {
         entry: EntryId,
         superseded_by: EntryId,
     },
+    /// Consolidates multiple entries into one synthesized replacement: a maintenance pass
+    /// clustered semantically-overlapping live entries and synthesized a single richer entry
+    /// that preserves their interrelated clauses. Each source entry is tombstoned (stamped
+    /// `superseded_by` = the replacement entry id, like a supersession), dropping it from
+    /// live surfaces while preserving it in history. Unlike [`EventPayload::MemorySuperseded`]
+    /// (one-to-one: "this entry was wrong, here's the replacement"), this event carries the
+    /// full many-to-one relationship — the list of source entry ids and the synthesized
+    /// replacement — so a reader can trace exactly which entries were consolidated.
+    ///
+    /// `produced_by` carries the consolidation model's provenance. The replacement entry is
+    /// appended as a normal [`EventPayload::MemoryContentAppended`] (with `Teller::Agent` and
+    /// the appropriate visibility), then this event tombstones the sources and records the
+    /// relationship.
+    EntriesConsolidated {
+        id: MemoryId,
+        /// The source entries consolidated into the replacement, tombstoned by this event.
+        sources: Vec<EntryId>,
+        /// The synthesized replacement entry, already appended via `MemoryContentAppended`.
+        replacement: EntryId,
+        /// The consolidation model's provenance.
+        produced_by: Option<ProducedBy>,
+    },
     /// Retracts an entry to a tombstone: the agent withdraws a fact outright rather than replacing it
     /// with a correction in place, recording why (spec §Visibility → superseded entries are not live).
     /// Unlike [`EventPayload::MemorySuperseded`], there is no successor — a retraction is the honest
@@ -88,14 +109,60 @@ pub enum EventPayload {
         reason: String,
         produced_by: Option<ProducedBy>,
     },
-    /// Resolves an entry's `occurred_at` after the fact: the turn-end extraction pass read the
-    /// entry's natural language ("last Tuesday") and produced a structured [`TemporalRef`]. The
-    /// original `MemoryContentAppended` stays immutable; applying this recomputes the entry's
-    /// denormalized occurrence columns. `produced_by` records the extracting inference.
+    /// A further teller's endorsement of an existing entry's fact — one entry, a set of (teller,
+    /// posture) attestations rather than a single `told_by`/`visibility` pair. The founding
+    /// attestation is derived at materialization from the entry's own `MemoryContentAppended`
+    /// (`told_by`/`told_in`/`asserted_at`/`visibility`), so every existing log replays with a
+    /// singleton attestation set; this event adds a second, third, and so on. Identity is the
+    /// `(entry, teller)` pair — a re-attestation by the same teller is last-writer-wins on that row.
+    ///
+    /// `asserted_at` is explicit because replay never reads envelope time. `posture` is the
+    /// attester's own audience posture, which the audience-widening invariant (enforced by the write
+    /// path, not the fold) keeps at or narrower than the entry's founding posture. `phrasing`
+    /// preserves the attester's own wording when it differed from the entry text, kept for history
+    /// and the console only. `source_entry` names the retired entry a consolidation carried this
+    /// attestation from, when the attestation arrived by absorbing another entry rather than by a
+    /// direct endorsement. `produced_by` records the inference behind an inference-driven attestation,
+    /// and is `None` for the agent's own mechanical write.
+    EntryAttested {
+        memory: MemoryId,
+        entry: EntryId,
+        teller: Teller,
+        told_in: Option<ConversationRef>,
+        asserted_at: Timestamp,
+        posture: Visibility,
+        phrasing: Option<String>,
+        source_entry: Option<EntryId>,
+        produced_by: Option<ProducedBy>,
+    },
+    /// Withdraws one teller's attestation from an entry, recording why. Applying it stamps that
+    /// attestation's `retracted_reason` in place; the attestation row is otherwise immutable. When no
+    /// live attestation remains on the entry afterwards, the entry is tombstoned exactly as
+    /// [`EventPayload::EntryRetracted`] tombstones one (its `superseded_by` is stamped with its own id
+    /// and this event's `reason` recorded), so an entry no teller still stands behind drops from every
+    /// live surface. `produced_by` is `None` for the agent's own mechanical withdrawal and carries
+    /// provenance only for an inference-driven one.
+    AttestationRetracted {
+        memory: MemoryId,
+        entry: EntryId,
+        teller: Teller,
+        reason: String,
+        produced_by: Option<ProducedBy>,
+    },
+    /// Resolves an entry's `occurred_at` after the fact, or withdraws one already resolved. `Some`
+    /// carries a structured [`TemporalRef`] the turn-end extraction pass produced from the entry's
+    /// natural language ("last Tuesday"), resolved as of today; applying it recomputes the entry's
+    /// denormalized occurrence columns. `None` **withdraws** the occurrence — the entry returns to
+    /// untimed (its occurrence columns are cleared and `occurred_authored` reset to 0), and any wake-up
+    /// armed off the old occurrence is disarmed. The operator's `clear-occurrence` correction is the one
+    /// producer of the `None` shape; the extraction pass only ever writes `Some`. The original
+    /// `MemoryContentAppended` stays immutable. `produced_by` records the extracting inference (`None`
+    /// for the operator's mechanical withdrawal). Every event written before withdrawal existed carries
+    /// a temporal reference, which deserializes as `Some`, so old logs replay identically.
     EntryTemporalResolved {
         id: MemoryId,
         entry_id: EntryId,
-        occurred_at: TemporalRef,
+        occurred_at: Option<TemporalRef>,
         produced_by: Option<ProducedBy>,
     },
     /// Records that the turn-end extraction pass declined an extracted occurrence for this entry —

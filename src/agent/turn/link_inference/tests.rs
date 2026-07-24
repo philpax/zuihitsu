@@ -1,4 +1,4 @@
-use super::*;
+use crate::agent::turn::link_inference::link_inference_argument;
 
 #[test]
 fn a_well_formed_reply_parses_into_relations_and_links() {

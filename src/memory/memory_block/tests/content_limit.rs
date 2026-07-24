@@ -1,8 +1,12 @@
 //! The entry-length limit enforcement.
 
-use super::{AppendOptions, MemoryError, block_with_limit};
 use crate::{
-    clock::ManualClock, event::EventPayload, graph::Graph, ids::Namespace, time::Timestamp,
+    clock::ManualClock,
+    event::EventPayload,
+    graph::Graph,
+    ids::Namespace,
+    memory::memory_block::tests::{AppendOptions, MemoryError, block_with_limit},
+    time::Timestamp,
 };
 
 #[test]

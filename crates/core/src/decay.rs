@@ -51,10 +51,10 @@ pub const STALE_HIGH_DAYS: f64 = 30.0;
 #[cfg(test)]
 mod tests {
     use super::{STALE_HIGH_DAYS, is_stale};
-    use crate::{event::Volatility, time::Timestamp};
+    use crate::{event::Volatility, time, time::Timestamp};
 
     fn days(n: f64) -> Timestamp {
-        Timestamp::from_millis((n * 86_400_000.0) as i64)
+        Timestamp::from_millis((n * time::MILLIS_PER_DAY as f64) as i64)
     }
 
     #[test]

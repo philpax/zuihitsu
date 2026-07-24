@@ -2,9 +2,9 @@
 //! genesis marker baselines everything that exists at genesis, and the temporal-extraction window is
 //! bounded by the memory's `last_described_seq`.
 
-use super::materialized;
 use crate::{
     event::{EventPayload, EventSource, Teller, Visibility},
+    graph::tests::materialized,
     ids::{EntryId, MemoryId, Namespace, Seq},
     store::{MemoryStore, Store},
     time::Timestamp,

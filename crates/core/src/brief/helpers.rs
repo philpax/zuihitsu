@@ -119,7 +119,7 @@ fn visible_recent_facts(
         if !visibility::visible(&entry, memory, present_set, class_of)? {
             continue;
         }
-        facts.push(entry_fact(graph, memory, &entry, now)?);
+        facts.push(entry_fact(graph, memory, &entry, present_set, now)?);
     }
     let start = facts.len().saturating_sub(recent);
     Ok(facts.split_off(start))
@@ -133,17 +133,12 @@ fn entry_fact(
     graph: &Graph,
     memory: &MemoryView,
     entry: &EntryView,
+    present_set: &[MemoryId],
     now: Timestamp,
 ) -> Result<BriefFact, BriefError> {
     let mut markers = Vec::new();
-    if entry.visibility != Visibility::Public {
-        let teller = graph.teller_display(&entry.told_by)?;
-        let marker = graph.marker_ref(entry.told_in.as_ref())?;
-        if let Some(marker_text) =
-            visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
-        {
-            markers.push(marker_text);
-        }
+    if let Some(marker_text) = graph.entry_provenance_marker(entry, memory, present_set)? {
+        markers.push(marker_text);
     }
     let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
     if decay::is_stale(memory.volatility, effective, now) {
@@ -202,16 +197,17 @@ fn relationships(
     let mut ranked: Vec<RankedRelationship> = Vec::new();
     let mut seen: HashSet<(RelationName, MemoryId)> = HashSet::new();
     for link in graph.class_neighbor_links(id)? {
-        // One relationship per (relation, neighbour): a class can carry the same external edge from
-        // more than one of its stubs, and the collapsed block shows it once.
-        if !seen.insert((link.relation.clone(), link.other)) {
-            continue;
-        }
         let symmetric = graph
             .relation(link.relation.as_str())?
             .map(|r| r.symmetric)
             .unwrap_or(false);
         if !visibility::link_visible(&link.link_vis(), symmetric, present_set, class_of)? {
+            continue;
+        }
+        // One relationship per (relation, neighbour): a class can carry the same external edge from
+        // more than one of its stubs, and the collapsed block shows it once. Collapsed only after the
+        // visibility filter, so a hidden parallel edge never claims the slot a visible one would fill.
+        if !seen.insert((link.relation.clone(), link.other)) {
             continue;
         }
         let Some(memory) = graph.memory_by_id(link.other)? else {

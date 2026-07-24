@@ -51,7 +51,18 @@ pub(crate) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
                 this.get::<Option<String>>("visibility")?,
                 this.get::<Option<String>>("told_by")?,
             ) {
-                segments.push(format!("{visibility} · from {teller}"));
+                // The visible attesters name every teller standing behind the fact (a consolidation
+                // replacement its real sources, a multiply-attested fact each corroborator); a lone
+                // agent-authored entry has none, so it falls back to `told_by`.
+                let attesters: Vec<String> = this
+                    .get::<Option<Vec<String>>>("attested_by")?
+                    .unwrap_or_default();
+                let from = if attesters.is_empty() {
+                    teller
+                } else {
+                    attesters.join(", ")
+                };
+                segments.push(format!("{visibility} · from {from}"));
             }
             Ok(if segments.is_empty() {
                 text

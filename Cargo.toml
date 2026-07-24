@@ -96,6 +96,7 @@ dom_smoothie = "0.18"
 fs2 = "0.4.3"
 htmd = "0.5"
 jiff = { workspace = true }
+kodama = "0.3"
 mlua = { version = "0.11.6", features = ["luau", "serde", "async", "send"] }
 parking_lot = { workspace = true }
 metrics = "0.24.1"
@@ -144,6 +145,15 @@ wasm-opt = { workspace = true, optional = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+# A real CPU-only embedding model (all-MiniLM-L6-v2 via ONNX Runtime) for tests that need
+# semantic similarity the FakeEmbedder cannot provide. The model weights (~22MB) download to a
+# cache dir on first use. Default features are disabled to avoid pulling in native-tls/openssl
+# — we use the rustls variants instead, matching the project's TLS backend.
+fastembed = { version = "5", default-features = false, features = [
+    "hf-hub-rustls-tls",
+    "ort-download-binaries-rustls-tls",
+    "image-models",
+] }
 futures-util = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "test-util"] }
 tower = { version = "0.5", features = ["util"] }

@@ -22,35 +22,45 @@ mod tests;
 use crate::{
     event::Event,
     ids::{EntryId, MemoryId},
+    model::{ModelError, embed::Embedder},
     store::{Store, StoreError, Subscription},
     vector::{VectorError, VectorId, VectorIndex},
 };
 
-use crate::model::{ModelError, embed::Embedder};
-
-pub use batch::{Batch, apply_batch, embed_batch};
+pub use batch::{Batch, NameResolver, ResolvedOp, apply_batch, embed_batch};
 
 use ulid::Ulid;
 
 /// What a vector represents, encoded in its [`VectorId`] prefix so a search hit can be mapped back to
 /// the memory or entry it came from.
+#[derive(Clone, Debug, PartialEq)]
 pub enum VectorKey {
     /// A memory's description vector, `mem:<memory-ulid>`.
     Description(MemoryId),
     /// A content entry's vector, `entry:<entry-ulid>`.
     Entry(EntryId),
+    /// A contextual entry embedding, `entryctx:<entry-ulid>`. Used by the dedup check and
+    /// consolidation pass, where entries within the same memory are compared. The handle prefix
+    /// normalizes entries that include the subject name with those that don't — without it,
+    /// "Rowan is a senior developer" and "is a senior developer" score ~0.52 cosine despite
+    /// being the same fact, because the name token dominates the embedding.
+    EntryContextual(EntryId),
 }
 
 /// The `VectorId` prefixes, named once so the write (`to_vector_id`) and read (`parse`) directions
 /// cannot drift.
 const DESCRIPTION_PREFIX: &str = "mem:";
 const ENTRY_PREFIX: &str = "entry:";
+const ENTRY_CONTEXTUAL_PREFIX: &str = "entryctx:";
 
 impl VectorKey {
     pub fn to_vector_id(&self) -> VectorId {
         match self {
             VectorKey::Description(id) => VectorId::new(format!("{DESCRIPTION_PREFIX}{}", id.0)),
             VectorKey::Entry(id) => VectorId::new(format!("{ENTRY_PREFIX}{}", id.0)),
+            VectorKey::EntryContextual(id) => {
+                VectorId::new(format!("{ENTRY_CONTEXTUAL_PREFIX}{}", id.0))
+            }
         }
     }
 
@@ -66,6 +76,11 @@ impl VectorKey {
             return Ulid::from_string(ulid)
                 .ok()
                 .map(|ulid| VectorKey::Entry(EntryId(ulid)));
+        }
+        if let Some(ulid) = raw.strip_prefix(ENTRY_CONTEXTUAL_PREFIX) {
+            return Ulid::from_string(ulid)
+                .ok()
+                .map(|ulid| VectorKey::EntryContextual(EntryId(ulid)));
         }
         None
     }
@@ -107,7 +122,7 @@ impl<'a> Indexer<'a> {
     /// that hold the embedder and index together (the tests, the rebuild). The live server instead uses
     /// [`embed_batch`] then [`apply_batch`] separately, so the slow embedding holds no index lock.
     pub async fn index_batch(&mut self, events: &[Event]) -> Result<(), IndexError> {
-        let batch = embed_batch(self.embedder, events).await?;
+        let batch = embed_batch(self.embedder, events, None).await?;
         apply_batch(self.vectors, batch)?;
         Ok(())
     }

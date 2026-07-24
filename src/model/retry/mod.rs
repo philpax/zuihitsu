@@ -16,14 +16,13 @@ use std::{
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
+use futures_util::StreamExt;
+
 use crate::{
     config::ResilienceConfig,
     metrics::{observe_model_circuit_fast_fail, observe_model_retry, set_model_circuit_state},
+    model::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError},
 };
-
-use futures_util::StreamExt;
-
-use crate::model::{GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError};
 
 /// A [`ModelClient`] that retries transient failures (bounded attempts, exponential backoff with
 /// jitter) and holds the circuit breaker: after `breaker_failure_threshold` consecutive transient

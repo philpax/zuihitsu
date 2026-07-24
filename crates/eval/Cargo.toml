@@ -8,6 +8,7 @@ name = "eval"
 path = "src/main.rs"
 
 [dependencies]
+jiff = { workspace = true }
 zuihitsu = { workspace = true }
 zuihitsu-frontend-types = { workspace = true, features = ["ts"] }
 anstream = { workspace = true }

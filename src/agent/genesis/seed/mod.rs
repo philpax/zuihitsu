@@ -5,9 +5,11 @@ mod templates;
 
 use sha2::{Digest, Sha256};
 
-use crate::{event::Cardinality, vocabulary::RelationName};
-
-use crate::agent::genesis::{RelationDef, SeedSelf, TagDef, TemplateDef};
+use crate::{
+    agent::genesis::{RelationDef, SeedSelf, TagDef, TemplateDef},
+    event::Cardinality,
+    vocabulary::RelationName,
+};
 
 pub(super) use templates::default_templates;
 

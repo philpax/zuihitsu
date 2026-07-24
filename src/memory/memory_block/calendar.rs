@@ -4,11 +4,8 @@ use std::collections::BTreeSet;
 
 use crate::{
     ids::MemoryId,
+    memory::memory_block::{DEFAULT_OVERDUE_DAYS, DEFAULT_UPCOMING_DAYS, MemoryBlock, MemoryError},
     time::{self, TemporalRef, Timestamp},
-};
-
-use crate::memory::memory_block::{
-    DEFAULT_OVERDUE_DAYS, DEFAULT_UPCOMING_DAYS, MemoryBlock, MemoryError,
 };
 
 impl MemoryBlock {

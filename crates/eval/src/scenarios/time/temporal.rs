@@ -14,6 +14,11 @@
 //!   date that describes a *different* referent than the subject (a nickname's namesake). The subject's
 //!   own facts are timeless, so the honest outcome is no occurrence at all; the regression this guards
 //!   is the namesake's date stamped onto the subject as if the subject's fact happened then.
+//! - [`AThirdPartyRoutineStaysUnscheduled`] — a participant describes another system's own cadence (a
+//!   bot whose context is re-seeded daily by its operator's cron). That recurrence dates the mechanism,
+//!   not the agent's own calendar, so the honest outcome is no recurring occurrence on the bot's memory
+//!   and no wake-up firing for it; the regression this guards is the agent adopting a third party's cron
+//!   as a standing reminder it wakes for.
 
 use std::sync::Arc;
 
@@ -35,6 +40,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(AnchorsARelativePlanHonestly),
         Arc::new(AnAuthoredDateSurvivesExtraction),
         Arc::new(AnInspirationsDateStaysOffTheSubject),
+        Arc::new(AThirdPartyRoutineStaysUnscheduled),
     ]
 }
 
@@ -578,6 +584,130 @@ impl Scenario for AnInspirationsDateStaysOffTheSubject {
                 "relayed the origin story without dating the subject's own facts to it",
                 VerdictKind::Metric,
                 relayed_without_misdating,
+            ),
+        ]
+    }
+}
+
+pub struct AThirdPartyRoutineStaysUnscheduled;
+
+/// Enough days to cross several instances of a daily recurrence: were the bot's cadence wrongly recorded
+/// as a `recurring` occurrence, advancing this far and opening a fresh session would have fired it, so a
+/// clean run's silence is meaningful rather than merely un-triggered. Four days.
+const FOUR_DAYS_MS: i64 = 4 * MILLIS_PER_DAY;
+
+#[async_trait]
+impl Scenario for AThirdPartyRoutineStaysUnscheduled {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "a_third_party_routine_stays_unscheduled".to_owned(),
+            category: Category::Time,
+            description: "A participant describes another team's ops bot whose context is wiped and \
+                          re-seeded every morning by their operator's cron. That daily cadence is the \
+                          bot's own routine, not the agent's, so the gating property is that no entry \
+                          about the bot acquires a recurring occurrence and no wake-up ever fires for \
+                          it — the agent must not adopt a third party's cron as a standing reminder it \
+                          wakes for."
+                .to_owned(),
+            bar: Bar::gating(),
+        }
+    }
+
+    fn steps(&self) -> Vec<EvalStep> {
+        vec![
+            // Session 1: Rowan describes Otto — another team's bot — and its operator-run daily re-seed.
+            // The "every morning" cadence belongs to that cron, not to anything the agent should track.
+            Turn::new(
+                TEST_PLATFORM,
+                "ops-room",
+                "rowan",
+                "For the record, so the team knows how it works: the platform crew runs a bot called \
+                 Otto in their channel. Its whole context gets wiped and re-seeded every morning by a \
+                 cron job their operator set up — something like 10k tokens of fresh state pushed in at \
+                 the start of each day. It's their setup, not ours; I just want it noted so nobody's \
+                 surprised by it.",
+            )
+            .with_present(&["rowan", "mabel"])
+            .into(),
+            // Unrelated chatter — a real room, not a probe harness.
+            Turn::new(
+                TEST_PLATFORM,
+                "ops-room",
+                "mabel",
+                "Ha, makes sense. Also the coffee machine on 3 is out of beans again if anyone's \
+                 heading down.",
+            )
+            .with_present(&["rowan", "mabel"])
+            .into(),
+            // A second timeless fact about Otto, so its memory has more than one entry the extractor
+            // could mis-stamp with the cadence.
+            Turn::new(
+                TEST_PLATFORM,
+                "ops-room",
+                "rowan",
+                "One more note on Otto: it only answers in their #platform channel — it won't see \
+                 anything posted elsewhere.",
+            )
+            .with_present(&["rowan", "mabel"])
+            .into(),
+            // Temporal extraction runs off the hot path — drive it so any (mis)resolution of the daily
+            // cadence into a recurring occurrence is recorded before assessment.
+            EvalStep::DescribeCatchUp,
+            // Advance past several daily instances: a wrongly-scheduled daily recurrence would come due
+            // here, so the fresh session that follows would fire and surface it.
+            EvalStep::Advance {
+                millis: FOUR_DAYS_MS,
+            },
+            // A few minutes more than the idle gap, so the next turn opens a fresh session — the drain
+            // point where a pending wake-up would surface.
+            EvalStep::AdvancePastIdleGap,
+            // Session 2: an ordinary morning check-in. A wrongly-armed wake-up for Otto's cron would
+            // surface into this session; a clean run has nothing to raise.
+            Turn::new(
+                TEST_PLATFORM,
+                "ops-room",
+                "mabel",
+                "Morning — anything on my plate I should know about today?",
+            )
+            .with_present(&["rowan", "mabel"])
+            .into(),
+        ]
+    }
+
+    async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+        // Gating: no entry on Otto's memory acquired a recurring occurrence — the daily cadence is the
+        // bot's own routine, so scheduling it as the agent's is the misappropriation this guards.
+        let recurring = analysis::recurring_occurrence_on(events, "otto");
+        // Gating: and no wake-up ever fired for Otto — the end-to-end harm, checked after the clock
+        // crossed several daily instances and a fresh session opened.
+        let fired = analysis::scheduled_job_fired_on(events, "otto");
+
+        // Metric: the bot's facts were recorded at all, so a degenerate run that wrote nothing does not
+        // pass the gates vacuously.
+        let recorded = analysis::live_entry_on(events, "otto", "seed")
+            || analysis::live_entry_on(events, "otto", "context")
+            || analysis::live_entry_on(events, "otto", "cron")
+            || analysis::live_entry_on(events, "otto", "platform");
+
+        vec![
+            Verdict::oracle_outcome(
+                "no recurring occurrence landed on the third party's bot",
+                !recurring,
+                "no entry about Otto carries a recurring occurrence",
+                "MISAPPROPRIATION: an entry about Otto acquired a recurring occurrence, adopting the \
+                 bot's cron as the agent's own schedule",
+            ),
+            Verdict::oracle_outcome(
+                "no wake-up fired for the third party's routine",
+                !fired,
+                "no ScheduledJobFired targeted Otto after the clock advanced",
+                "MISAPPROPRIATION: a wake-up fired for Otto's cron after the clock advanced",
+            ),
+            Verdict::metric_outcome(
+                "recorded the bot's setup on its memory",
+                recorded,
+                "a live entry about Otto's re-seed or channel sits on its memory",
+                "no live entry about Otto was recorded — the gates would pass vacuously",
             ),
         ]
     }

@@ -2,6 +2,14 @@
 //! they take no write lock), plus the belief-arbitration and model-interaction records and the MCP
 //! catalogue. These read either the running server (arbitrations, interactions) or the config-selected
 //! store and servers (events, brief, revert, mcp), so the dispatch takes both a client and a config.
+//!
+//! Most commands are read-only, but seven write: `revert` and `delete-memory` (documented on their own
+//! variants), the two operator corrections `retract` and `clear-occurrence`, the two identity commands
+//! `designate-primary` and `merge` (see [`identity`]), and `upgrade-prompts`. The corrections append one
+//! forward, operator-sourced event each — a retraction, or an occurrence withdrawal — the identity
+//! commands append one operator-sourced batch each — a designation, or a `same_as` link — and
+//! `upgrade-prompts` re-registers stale build-default templates (see [`upgrade_prompts`]); each needs
+//! the single-writer log lock, so the agent must be stopped first (see [`correction`]).
 
 use clap::Subcommand;
 use zuihitsu::config::EnvConfig;
@@ -9,11 +17,16 @@ use zuihitsu::config::EnvConfig;
 use crate::cli::{client::Client, error::CliError, print_json};
 
 mod brief;
+mod correction;
 mod delete_memory;
+mod embed;
 mod events;
+mod identity;
 mod markdown_fetch;
 mod mcp;
+mod reindex;
 mod revert;
+mod upgrade_prompts;
 
 use brief::{BriefSelector, brief};
 use events::{EventQuery, events};
@@ -80,6 +93,54 @@ pub(crate) enum DebugCommand {
         #[arg(long)]
         yes: bool,
     },
+    /// Retract a content entry to a tombstone, recording why: append an operator-sourced
+    /// `EntryRetracted` so it drops from every live surface on the next fold, while its content stays in
+    /// the log for audit. Appends forward rather than rewriting history — the fix is itself revertible.
+    /// It opens the log read-write, so the agent must be stopped first.
+    Retract {
+        /// The entry to retract: its full id or a unique prefix of one.
+        #[arg(long)]
+        entry: String,
+        /// Why the entry is being withdrawn. Required — an unaudited retraction is unauditable.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Clear a content entry's resolved occurrence: append an operator-sourced `EntryTemporalResolved`
+    /// carrying no occurrence, so the entry returns to untimed and any wake-up its occurrence armed is
+    /// disarmed on the next fold. Appends forward rather than rewriting history. It opens the log
+    /// read-write, so the agent must be stopped first.
+    ClearOccurrence {
+        /// The entry whose occurrence to clear: its full id or a unique prefix of one.
+        #[arg(long)]
+        entry: String,
+    },
+    /// Designate a memory the primary of its `same_as` identity class, so its relationships render
+    /// under that handle. Releases any incumbent designation in the same operator-sourced batch — the
+    /// recompute breaks a tie by earliest ULID, so a bare designation without the release would
+    /// silently keep an earlier incumbent. Designating a lone memory is legal and reported as such.
+    /// Appends forward rather than rewriting history. It opens the log read-write, so the agent must
+    /// be stopped first.
+    DesignatePrimary {
+        /// The memory to designate: its exact name (e.g. `person/rowan`) or a unique id prefix.
+        #[arg(long)]
+        memory: String,
+        /// Only release this memory's own designation, designating nothing new.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Merge two memories into one identity: append one operator-asserted `same_as` link binding them
+    /// (public, no teller). Refuses a cross-namespace merge and reports a no-op when the two already
+    /// share a class. This is an operator assertion, always within the operator's authority, so it
+    /// bypasses the block layer's merge-proposal guards deliberately. Appends forward rather than
+    /// rewriting history. It opens the log read-write, so the agent must be stopped first.
+    Merge {
+        /// The first memory: its exact name or a unique id prefix.
+        #[arg(long)]
+        a: String,
+        /// The second memory: its exact name or a unique id prefix.
+        #[arg(long)]
+        b: String,
+    },
     /// List the recorded model interactions (per-call request, deliberation, tokens, and latency).
     Interactions,
     /// List the recorded belief arbitrations.
@@ -97,6 +158,33 @@ pub(crate) enum DebugCommand {
         /// page) can be fetched without changing the stored settings.
         #[arg(long)]
         allow_private: bool,
+    },
+    /// Embed two strings and report their cosine similarity — a debug utility for tuning the dedup
+    /// and consolidation similarity thresholds.
+    Embed {
+        /// The first text to compare.
+        a: String,
+        /// The second text to compare.
+        b: String,
+    },
+    /// Delete the vector index so the next boot rebuilds it from the event log. Used as a
+    /// post-upgrade step when the vector schema changes (e.g. the addition of the contextual
+    /// embedding space). The agent must be stopped first. Requires `--yes`.
+    Reindex {
+        /// Confirm the deletion. Without it, the command only reports what it would do.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Re-register stale build-default prompt templates against the running binary's defaults, so an
+    /// operator adopts a changed default body without re-running the agent. Default-tracking names
+    /// (an unchanged default, Bootstrap-sourced) are upgraded to a newer build default; operator-edited
+    /// surfaces are reported as held and overwritten only under `--force`. It opens the log read-write,
+    /// so the agent must be stopped first.
+    UpgradePrompts {
+        /// Overwrite operator-edited (curated) templates too, registering the build default under a
+        /// fresh operator registration. Without it, curated names are reported as held and left alone.
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -142,11 +230,20 @@ pub(crate) fn dispatch(
         DebugCommand::DeleteMemory { memory, yes } => {
             delete_memory::delete_memory(config, memory, *yes)
         }
+        DebugCommand::Retract { entry, reason } => correction::retract(config, entry, reason),
+        DebugCommand::ClearOccurrence { entry } => correction::clear_occurrence(config, entry),
+        DebugCommand::DesignatePrimary { memory, release } => {
+            identity::designate_primary(config, memory, *release)
+        }
+        DebugCommand::Merge { a, b } => identity::merge(config, a, b),
         DebugCommand::Interactions => print_json(&client.interactions()?),
         DebugCommand::Arbitrations => print_json(&client.arbitrations()?),
         DebugCommand::Mcp => mcp::mcp(config),
         DebugCommand::MarkdownFetch { url, allow_private } => {
             markdown_fetch::markdown_fetch(config, url, *allow_private)
         }
+        DebugCommand::Embed { a, b } => embed::embed(config, a, b),
+        DebugCommand::Reindex { yes } => reindex::reindex(config, *yes),
+        DebugCommand::UpgradePrompts { force } => upgrade_prompts::upgrade_prompts(config, *force),
     }
 }

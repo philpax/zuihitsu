@@ -4,9 +4,11 @@
 
 use std::collections::HashSet;
 
-use super::{corpus, merged_rowan, person};
 use crate::{
-    agent::turn::ambient::{MAX_MEM_TOKENS, ambient_recall},
+    agent::turn::ambient::{
+        MAX_MEM_TOKENS, ambient_recall,
+        tests::{corpus, merged_rowan, person},
+    },
     ids::{MemoryId, TurnId},
     mem_ref,
     settings::AmbientSettings,

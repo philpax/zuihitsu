@@ -13,22 +13,20 @@
 //! surviving private entry attaches the inline teller-private marker. The real sqlite-vec backend
 //! follows.
 
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map::Entry};
 
 use crate::{
     decay,
-    event::{Visibility, Volatility},
+    event::Volatility,
     graph::{Graph, GraphError, MemoryView},
     ids::{MemoryId, MemoryName, Namespace},
-    memory::memory_block::LinkDirection,
+    memory::{memory_block::LinkDirection, visibility},
     model::index::VectorKey,
     settings::SearchSettings,
     time::{self, TemporalRef, Timestamp},
     vector::{VectorError, VectorIndex},
     vocabulary::{RelationName, TagName},
 };
-
-use crate::memory::visibility;
 
 /// A ranked search result. `marker` is the inline teller-private marker when the memory surfaced via
 /// a private entry, and `None` otherwise. `snippet` is the fragment of matched content that produced
@@ -170,14 +168,10 @@ pub fn search(
                 // staleness), via the vacant entry so the work and its `?` compose cleanly.
                 if let Entry::Vacant(slot) = markers.entry(primary) {
                     let mut parts = Vec::new();
-                    if entry.visibility != Visibility::Public {
-                        let teller = graph.teller_display(&entry.told_by)?;
-                        let marker = graph.marker_ref(entry.told_in.as_ref())?;
-                        if let Some(marker_text) =
-                            visibility::entry_marker(&entry.visibility, &teller, Some(&marker))
-                        {
-                            parts.push(marker_text);
-                        }
+                    if let Some(marker_text) =
+                        graph.entry_provenance_marker(&entry, &memory, query.present_set)?
+                    {
+                        parts.push(marker_text);
                     }
                     let effective = entry.occurred_sort.unwrap_or(entry.asserted_at);
                     if decay::is_stale(memory.volatility, effective, now) {
@@ -188,6 +182,8 @@ pub fn search(
                     }
                 }
             }
+            // Contextual vectors are for dedup/consolidation, not search.
+            Some(VectorKey::EntryContextual(_)) => {}
             None => {}
         }
     }
@@ -349,6 +345,13 @@ fn salient_relations(
                 .unwrap_or(false)
         });
     }
+    // Collapse parallel edges that reach one far identity through different raw members — after the
+    // visibility filter, so a hidden parallel edge never claims the slot a visible one would fill. The
+    // read is ordered most-recently-created first, so the surviving edge is the most recent visible one.
+    let mut seen: HashSet<(RelationName, bool, MemoryId)> = HashSet::new();
+    neighbors.retain(|neighbor| {
+        seen.insert((neighbor.relation.clone(), neighbor.incoming, neighbor.other))
+    });
     // `class_neighbor_links` already orders most-recently-created first; a *stable* sort then floats
     // person far ends ahead without disturbing that recency order within each group.
     neighbors.sort_by_key(|neighbor| !neighbor.other_name.as_str().starts_with(person));

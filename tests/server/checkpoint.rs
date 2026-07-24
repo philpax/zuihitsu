@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    CheckpointTrigger, Completion, ConversationLocator, EventPayload, MILLIS_PER_MINUTE,
+    MILLIS_PER_SECOND, PersonId, PromptTemplateName, ScriptedModel, Server, TEST_PLATFORM,
+    born_agent, describe_call, run_lua_call,
+};
 #[tokio::test]
 async fn each_turn_carries_its_own_recorded_time() {
     let (server, clock) = born_agent();
@@ -45,9 +49,9 @@ async fn each_turn_carries_its_own_recorded_time() {
     assert_eq!(
         turn2,
         vec![
-            "[Mon 2026-06-08 00:00 UTC] dave: first message",
+            "[Mon 2026-06-08 00:00 UTC] person/dave@chat: first message",
             "morning",
-            "[Mon 2026-06-08 00:10 UTC] dave: second message",
+            "[Mon 2026-06-08 00:10 UTC] person/dave@chat: second message",
         ]
     );
 }

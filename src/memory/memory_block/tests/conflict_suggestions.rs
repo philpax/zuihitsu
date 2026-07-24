@@ -1,13 +1,15 @@
 //! Name- and tag-collision suggestions: a `create` that collides surfaces the near-matching existing
 //! handles (or tags) so the agent picks a distinguishing name rather than colliding blind.
 
-use super::{Authority, MemoryError, block};
 use crate::{
     clock::ManualClock,
     event::{EventPayload, EventSource, Teller},
     graph::Graph,
     ids::{MemoryId, MemoryName, Namespace},
-    memory::memory_block::suggest::most_similar,
+    memory::memory_block::{
+        suggest::most_similar,
+        tests::{Authority, MemoryError, block},
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::TagName,

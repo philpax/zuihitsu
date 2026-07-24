@@ -242,6 +242,9 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         } => format!("renamed {} → {}", old_name.as_str(), new_name.as_str()),
         EventPayload::MemoryDeleted { id } => format!("deleted {}", name(id)),
         EventPayload::MemorySuperseded { id, .. } => format!("{}: superseded an entry", name(id)),
+        EventPayload::EntriesConsolidated { id, sources, .. } => {
+            format!("{}: consolidated {} entries", name(id), sources.len())
+        }
         EventPayload::EntryRetracted { memory, reason, .. } => {
             format!("{}: retracted an entry ({reason})", name(memory))
         }
@@ -284,7 +287,12 @@ fn describe_event(payload: &EventPayload, names: &BTreeMap<String, String>) -> S
         EventPayload::ScheduledItemSurfaced { memory, .. } => {
             format!("wake-up surfaced ({})", name(memory))
         }
-        EventPayload::EntryTemporalResolved { id, .. } => format!("{}: resolved a date", name(id)),
+        EventPayload::EntryTemporalResolved {
+            id, occurred_at, ..
+        } => match occurred_at {
+            Some(_) => format!("{}: resolved a date", name(id)),
+            None => format!("{}: withdrew an occurrence", name(id)),
+        },
         EventPayload::EntryTemporalResolveFailed { id, .. } => {
             format!("{}: failed to resolve a date", name(id))
         }
@@ -387,7 +395,10 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         | EventPayload::MemoryRenamed { .. }
         | EventPayload::MemoryDeleted { .. }
         | EventPayload::MemorySuperseded { .. }
+        | EventPayload::EntriesConsolidated { .. }
         | EventPayload::EntryRetracted { .. }
+        | EventPayload::EntryAttested { .. }
+        | EventPayload::AttestationRetracted { .. }
         | EventPayload::MemoryDescriptionRegenerated { .. }
         | EventPayload::MemoryVolatilitySet { .. }
         | EventPayload::EntryTemporalResolved { .. }

@@ -4,6 +4,14 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::{
+    agent::{
+        system_prompt, templates,
+        turn::{
+            BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
+            ambient::ambient_recall, buffer::TurnView, recording::run_steps,
+            tools::full_api_reference,
+        },
+    },
     engine::Engine,
     event::{
         EventPayload, EventSource, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole,
@@ -13,14 +21,6 @@ use crate::{
     metrics::{observe_turn_deferred, observe_turn_superseded},
     model::Message,
     time::{Timestamp, format_stamp},
-};
-
-use crate::agent::{
-    system_prompt, templates,
-    turn::{
-        BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
-        ambient::ambient_recall, buffer::TurnView, recording::run_steps, tools::full_api_reference,
-    },
 };
 
 /// Run one turn: record the inbound participant message, then loop model steps until a terminal.
@@ -415,12 +415,16 @@ pub(crate) fn buffer_messages(
     messages
 }
 
-/// The display name (memory handle, e.g. `person/erin`) of every participant in `buffer` and any
-/// `extra` ids, resolved against the graph. Without these, every participant turn renders as an
-/// anonymous `user` message, so in a multi-party room the model cannot tell who said what — it reads
-/// two speakers as one interlocutor and attributes one's words to the other (the source of the
-/// fixture-18 leak). The handle matches `teller_display`, so a brief's "told by person/erin" and a
-/// buffer turn's "person/erin:" name the same person.
+/// The speaker label (the full canonical memory handle, e.g. `person/philpax`) of every participant
+/// in `buffer` and any `extra` ids, resolved against the graph. Without these, every participant turn
+/// renders as an anonymous `user` message, so in a multi-party room the model cannot tell who said
+/// what — it reads two speakers as one interlocutor and attributes one's words to the other (the
+/// source of the fixture-18 leak). Each id is canonicalized through its `same_as` class to the class
+/// primary and rendered as that primary's complete handle, so the label is a directly usable operand
+/// for `memory.get`, and matches `teller_display` — a brief's "told by person/philpax" and a buffer
+/// turn's "person/philpax:" name the same person the same way. A stub with no canonical primary (a
+/// classless memory) renders its own full handle (`person/201689218030895104@discord`), still a valid
+/// operand.
 pub(crate) fn participant_names(
     engine: &Engine,
     buffer: &[TurnView],
@@ -434,25 +438,16 @@ pub(crate) fn participant_names(
         .chain(extra.iter().copied())
     {
         names.entry(id).or_insert_with(|| {
+            let primary = graph.class_id(id).ok().flatten().unwrap_or(id);
             graph
-                .memory_by_id(id)
+                .memory_by_id(primary)
                 .ok()
                 .flatten()
-                .map(|memory| speaker_display(memory.name.as_str()))
+                .map(|memory| memory.name.as_str().to_owned())
                 .unwrap_or_else(|| "someone".to_owned())
         });
     }
     names
-}
-
-/// A participant's conversational display name: the [`Namespace::Person`] prefix and any `@platform`
-/// stub suffix stripped, so a turn reads `dave:`, not `person/dave@discord:`. The platform suffix is
-/// operational noise irrelevant to who is speaking.
-pub(super) fn speaker_display(memory_name: &str) -> String {
-    let handle = memory_name
-        .strip_prefix(crate::ids::Namespace::Person.prefix())
-        .unwrap_or(memory_name);
-    handle.split('@').next().unwrap_or(handle).to_owned()
 }
 
 /// Prefix a message the agent reads with the compact wall-clock time it was recorded (spec §Time →

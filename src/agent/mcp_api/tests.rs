@@ -2,8 +2,12 @@ use std::collections::BTreeMap;
 
 use mlua::Lua;
 
-use super::{ApiType, InputSchema, McpCatalogue, escape_tool_name, filter_tools, lua_args_to_json};
-use crate::mcp::{FakeMcpHost, FakeServer, McpServerConfig, McpTool};
+use crate::{
+    agent::mcp_api::{
+        ApiType, InputSchema, McpCatalogue, escape_tool_name, filter_tools, lua_args_to_json,
+    },
+    mcp::{FakeMcpHost, FakeServer, McpServerConfig, McpTool},
+};
 
 /// Build a Lua table from a snippet returning one, for marshalling tests.
 fn table_from(lua: &Lua, expr: &str) -> mlua::Table {

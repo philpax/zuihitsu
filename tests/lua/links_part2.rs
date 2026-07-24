@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, Namespace, TerminalCause};
 #[tokio::test]
 async fn outgoing_under_an_unregistered_relation_is_a_teachable_error() {
     let h = Harness::new();

@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 use crate::{
+    agent::lua::error::MemorySearchError,
     engine::Engine,
     ids::MemoryId,
     memory::search::{SalientRelation, SearchQuery, search},
@@ -10,8 +11,6 @@ use crate::{
     time::TemporalRef,
     vocabulary::TagName,
 };
-
-use crate::agent::lua::error::MemorySearchError;
 
 /// The default number of `memory.search` results when the caller gives no `limit`.
 pub(crate) const DEFAULT_SEARCH_LIMIT: usize = 8;

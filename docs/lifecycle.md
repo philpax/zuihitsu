@@ -74,13 +74,20 @@ Which model or template produced an inference is already captured per-event in `
 
 ## Build-default changes do not silently apply
 
-The settings snapshot is pinned in the agent's own log, so when a zuihitsu build ships a new default for a tunable, existing agents keep theirs, exactly as with prompt templates: a new default reaches only agents born after it. Because genesis copies the build's current defaults into the agent's own log, the agent is thereafter independent of the build it was born from.
+The settings snapshot is pinned in the agent's own log, so when a zuihitsu build ships a new default for a tunable, existing agents keep theirs: a new default reaches only agents born after it. Because genesis copies the build's current defaults into the agent's own log, the agent is thereafter independent of the build it was born from. Prompt templates once worked the same way, but they now track the build automatically while unedited — see [Prompt templates](#prompt-templates) for that doctrine.
 
 A genuinely new knob is the one exception, and it adopts its build default silently by construction: absent from every snapshot written before it existed, it deserialises to that default — the only value it could take, since a setting that didn't yet exist can't have been pinned. The operator changes settings by replacing the whole snapshot (`POST /control/settings` writes a fresh `ConfigSet` under operator source); `GET /control/settings` reads the current one.
 
 ## Prompt templates
 
-The orchestration prompt templates live in the stream as `PromptTemplateRegistered { name, version, body, source }`, materialised into a `prompt_templates` table and read back as the highest version per name. The name is a closed, build-defined enum (`PromptTemplateName`): the current set is the system-prompt scaffold, description-regen, temporal-extraction, flush, imprint, and link-inference. They are orchestration config, not agent-editable: `source: Orchestration` at genesis (an operator edit registers under `source: Operator`), never `Agent`, so the agent cannot rewrite its own regen prompt via Lua. Updating a template is a new registration with a bumped version, and old `produced_by` references keep pointing at the old version. Templates follow the same build-independence as settings (see [Build-default changes do not silently apply](#build-default-changes-do-not-silently-apply)): genesis copies the build's templates into the agent's own log, so a new default reaches only agents born after it.
+The orchestration prompt templates live in the stream as `PromptTemplateRegistered { name, version, body }`, materialised into a `prompt_templates` table and read back as the highest version per name. The name is a closed, build-defined enum (`PromptTemplateName`): the current set is the system-prompt scaffold, description-regen, temporal-extraction, flush, imprint, link-inference, entry-consolidation, name-identification, and link-cleanup. They are orchestration config, not agent-editable: genesis and the boot reconcile register under `source: Bootstrap`, and an operator edit (the console's prompt editor, `POST /control/prompt`) registers under `source: Operator`, never `Agent`, so the agent cannot rewrite its own regen prompt via Lua. Updating a template is a new registration with a bumped version, and old `produced_by` references keep pointing at the old version.
+
+The registration's envelope source is the changed-by-operator signal, and `genesis::reconcile_templates` acts on it at every boot of a born agent:
+
+- **An unchanged default** — a name whose latest registration is `Bootstrap`-sourced — auto-tracks the build. A name the agent's genesis predates entirely is backfilled at the build default (so a subsystem reading a newly-shipped template, a maintenance pass say, becomes active without operator action), and a name whose build default is newer than the log's latest is registered up to it. Every such registration carries `source: Bootstrap`, keeping the name default-tracking. The reconcile only moves *forward*: a version at or below the log's latest is left alone, so a re-register is a no-op and a log born under a newer build is never downgraded.
+- **A curated surface** — a name whose latest registration is `Operator`-sourced — is sovereign and never auto-touched, regardless of content. When the build ships a newer default the console badges the template as upgradeable (via `GET /control/prompt-status`), but adoption stays the operator's explicit choice: `debug upgrade-prompts --force` overwrites the curated body with the build default, registered under `source: Operator` so the surface stays marked curated (the operator chose it). Without `--force`, that command reports the curated name as held and upgrades only the default-tracking ones.
+
+So a changed default body now reaches an unedited agent automatically at its next boot, while an operator-edited surface never moves underneath the agent (see [Born-instance caveat](maintenance-passes.md#born-instance-caveat)).
 
 Prompt *content* is supplied by the build, not fixed by this document. Genesis ships build-authored templates whose wording is iterated over time, consistent with the API description being a function of the build rather than this document. The one fixed point: the entire judgement layer — sensitivity inference, "ask before writing," belief arbitration, and the third-party residual — is carried by the template wording, not by code.
 
@@ -97,6 +104,9 @@ PromptTemplateRegistered (temporal-extraction, vN)
 PromptTemplateRegistered (flush, vN)
 PromptTemplateRegistered (imprint, vN)
 PromptTemplateRegistered (link-inference, vN)
+PromptTemplateRegistered (entry-consolidation, vN)
+PromptTemplateRegistered (name-identification, vN)
+PromptTemplateRegistered (link-cleanup, vN)
 LinkTypeRegistered       (created_by / created)              -- historical origin (who made it)
 LinkTypeRegistered       (operator_of / operated_by)         -- current operatorship (whose instance this is); distinct from created_by, so operatorship can transfer without rewriting origin
 LinkTypeRegistered       (knows / known_by)

@@ -33,6 +33,8 @@ pub enum EvalStep {
     DescribeCatchUp,
     /// Infer links from the content written so far.
     LinkInferenceCatchUp,
+    /// Run the maintenance passes: consolidation, canonicalize, and link cleanup.
+    MaintenanceCatchUp,
     /// Run one checkpoint sweep over the live sessions.
     CheckpointSweep,
     /// Append raw events to the store and materialize the graph.

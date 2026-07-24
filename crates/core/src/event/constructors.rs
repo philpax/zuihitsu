@@ -3,16 +3,15 @@ use std::collections::BTreeMap;
 use smol_str::SmolStr;
 
 use crate::{
+    event::{
+        AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
+        LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause, Teller,
+        TerminalCause, TurnRole, Volatility,
+    },
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
     settings::Settings,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
-};
-
-use crate::event::{
-    AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
-    LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause,
-    TerminalCause, TurnRole, Volatility,
 };
 
 impl EventPayload {
@@ -62,6 +61,20 @@ impl EventPayload {
         }
     }
 
+    pub fn entries_consolidated(
+        id: MemoryId,
+        sources: Vec<EntryId>,
+        replacement: EntryId,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::EntriesConsolidated {
+            id,
+            sources,
+            replacement,
+            produced_by,
+        }
+    }
+
     pub fn entry_retracted(
         memory: MemoryId,
         entry: EntryId,
@@ -76,10 +89,26 @@ impl EventPayload {
         }
     }
 
+    pub fn attestation_retracted(
+        memory: MemoryId,
+        entry: EntryId,
+        teller: Teller,
+        reason: impl Into<String>,
+        produced_by: Option<ProducedBy>,
+    ) -> EventPayload {
+        EventPayload::AttestationRetracted {
+            memory,
+            entry,
+            teller,
+            reason: reason.into(),
+            produced_by,
+        }
+    }
+
     pub fn entry_temporal_resolved(
         id: MemoryId,
         entry_id: EntryId,
-        occurred_at: TemporalRef,
+        occurred_at: Option<TemporalRef>,
         produced_by: Option<ProducedBy>,
     ) -> EventPayload {
         EventPayload::EntryTemporalResolved {

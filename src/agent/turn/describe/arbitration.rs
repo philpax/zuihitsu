@@ -4,17 +4,16 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    agent::turn::describe::{
+        ExtractedArbitration, SynthesisCall,
+        extract::arbitrate_argument,
+        synthesis::{ask_structured, statements_prompt},
+    },
     event::{ArbitrationResolution, EventPayload, ProducedBy, PromptTemplateName},
     graph::{EntryView, MemoryView},
     ids::{EntryId, MemoryId},
     model::{GenerateRequest, ModelError},
     time::Timestamp,
-};
-
-use crate::agent::turn::describe::{
-    ExtractedArbitration, SynthesisCall,
-    extract::arbitrate_argument,
-    synthesis::{ask_structured, statements_prompt},
 };
 
 /// The self-contained system prompt for the focused [`arbitrate`] call. It carries the whole
@@ -28,8 +27,10 @@ const ARBITRATION_SYSTEM: &str = "You audit a numbered set of statements about o
     (leave `credited` empty when neither is yet known to be right), and a one-line reconciling note in \
     `statement`. Two accounts of the same fact attributed to different people still contradict; do not \
     treat them as compatible merely because each holds as someone's account. Only genuine \
-    contradictions count — not a fact being added, refined, or updated over time. When no two \
-    statements collide, return an empty `competing`.";
+    contradictions count — not a fact being added, refined, or updated over time. When you must judge \
+    which of two contradicting accounts to credit, other things being equal prefer the one \
+    independently attested by more people (the `attested by` clause in a statement's bracket) over a \
+    single-source account. When no two statements collide, return an empty `competing`.";
 
 /// Ask the model, in its own focused schema-constrained reply, which of the numbered statements assert
 /// incompatible values for the same fact (spec §Write path → arbitration). This is deliberately a

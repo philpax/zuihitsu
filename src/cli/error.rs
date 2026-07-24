@@ -32,8 +32,22 @@ pub(crate) enum CliError {
     Revert(String),
     /// The `delete-memory` command could not resolve the memory or append the tombstone.
     DeleteMemory(String),
+    /// The `retract` command could not resolve the entry or append the retraction.
+    Retract(String),
+    /// The `clear-occurrence` command could not resolve the entry or append the withdrawal.
+    ClearOccurrence(String),
+    /// The `designate-primary` command could not resolve the memory or append the designation.
+    DesignatePrimary(String),
+    /// The `merge` command could not resolve a memory or append the `same_as` link.
+    Merge(String),
     /// The `markdown-fetch` command could not fetch the page or extract its content.
     MarkdownFetch(String),
+    /// The `embed` command could not embed the inputs or compute the similarity.
+    Embed(String),
+    /// The `reindex` command could not delete the vector index.
+    Reindex(String),
+    /// The `upgrade-prompts` command could not read the templates or append the registrations.
+    UpgradePrompts(String),
 }
 
 impl From<ClientError> for CliError {
@@ -68,7 +82,14 @@ impl std::fmt::Display for CliError {
             CliError::Brief(message) => write!(f, "brief: {message}"),
             CliError::Revert(message) => write!(f, "revert: {message}"),
             CliError::DeleteMemory(message) => write!(f, "delete-memory: {message}"),
+            CliError::Retract(message) => write!(f, "retract: {message}"),
+            CliError::ClearOccurrence(message) => write!(f, "clear-occurrence: {message}"),
+            CliError::DesignatePrimary(message) => write!(f, "designate-primary: {message}"),
+            CliError::Merge(message) => write!(f, "merge: {message}"),
             CliError::MarkdownFetch(message) => write!(f, "markdown-fetch: {message}"),
+            CliError::Embed(message) => write!(f, "embed: {message}"),
+            CliError::Reindex(message) => write!(f, "reindex: {message}"),
+            CliError::UpgradePrompts(message) => write!(f, "upgrade-prompts: {message}"),
         }
     }
 }
@@ -87,7 +108,14 @@ impl std::error::Error for CliError {
             | CliError::Brief(_)
             | CliError::Revert(_)
             | CliError::DeleteMemory(_)
-            | CliError::MarkdownFetch(_) => None,
+            | CliError::Retract(_)
+            | CliError::ClearOccurrence(_)
+            | CliError::DesignatePrimary(_)
+            | CliError::Merge(_)
+            | CliError::MarkdownFetch(_)
+            | CliError::Embed(_)
+            | CliError::Reindex(_)
+            | CliError::UpgradePrompts(_) => None,
         }
     }
 }

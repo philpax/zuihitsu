@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use zuihitsu::{
     ApiEntry, Arbitration, BackendHealth, ConversationLocator, DesignateOutcome, EntryId,
     EntryView, EnvConfig, Event, LuaConsoleOutcome, MemoryId, MemoryView, MergeProposal, ModelCall,
-    PromptTemplateName, RetractOutcome, Rollout, SeedSelf, SelfEditOutcome, Seq, SessionView,
-    Settings, UnmergeOutcome, genesis::GenesisStatus,
+    PromptTemplateName, RetractAttestationOutcome, RetractOutcome, Rollout, SeedSelf,
+    SelfEditOutcome, Seq, SessionView, Settings, Teller, TemplateStatus, UnmergeOutcome,
+    genesis::GenesisStatus,
 };
 use zuihitsu_platform_connector_types::PlatformResponse;
 
@@ -423,6 +424,49 @@ pub(super) async fn retract_entry(
     }
 }
 
+/// The body of a `POST /control/retract-attestation` — withdraw one teller's attestation from a live
+/// entry under operator authority. The named teller's account leaves the entry; if it was the last
+/// live attestation, the entry is tombstoned. `teller` is the wire [`Teller`] the console renders from
+/// an entry's attestation set.
+#[derive(Deserialize)]
+pub(super) struct RetractAttestationRequest {
+    memory: String,
+    entry: EntryId,
+    teller: Teller,
+    reason: String,
+}
+
+/// `POST /control/retract-attestation` — withdraw one teller's attestation from a live entry under
+/// operator authority (the console's per-attester lever). `404` when the memory, entry, or attestation
+/// is unknown; `400` on an empty reason. Operator authority (the whole `/control` surface is key-gated).
+pub(super) async fn retract_attestation(
+    State(state): State<AppState>,
+    Json(request): Json<RetractAttestationRequest>,
+) -> Result<Json<()>, ApiError> {
+    match state.server.control().retract_attestation(
+        &request.memory,
+        request.entry,
+        request.teller,
+        &request.reason,
+    )? {
+        RetractAttestationOutcome::Retracted => Ok(Json(())),
+        RetractAttestationOutcome::UnknownMemory => Err(ApiError::NotFound(format!(
+            "no live memory named {}",
+            request.memory
+        ))),
+        RetractAttestationOutcome::UnknownEntry(entry) => Err(ApiError::NotFound(format!(
+            "no live entry with id {} on {}",
+            entry.0, request.memory
+        ))),
+        RetractAttestationOutcome::UnknownAttestation => Err(ApiError::NotFound(
+            "the named teller does not attest this entry".to_owned(),
+        )),
+        RetractAttestationOutcome::EmptyReason => Err(ApiError::BadRequest(
+            "a retraction must have a reason".to_owned(),
+        )),
+    }
+}
+
 /// `POST /control/lua` — run an ad-hoc operator Lua block in a no-commit sandbox and return its
 /// rendered result (or error). Outward reach is off by default: `allow_mcp` opts into MCP calls and
 /// `allow_web` into `web.markdown`. Needs no model (a block only embeds if it calls `memory.search`,
@@ -455,6 +499,16 @@ pub(super) async fn lua_api(
     Ok(Json(state.server.control().lua_api()))
 }
 
+/// `GET /control/prompt-status` — each prompt template name's status against this build's defaults:
+/// its latest registered version, whether it is a curated (operator-edited) surface, the build's
+/// newest default version, and whether a newer default is available for a curated surface to adopt.
+/// The console badges the curated surfaces carrying a pending upgrade.
+pub(super) async fn prompt_status(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<TemplateStatus>>, ApiError> {
+    Ok(Json(state.server.control().template_statuses()?))
+}
+
 /// `POST /control/prompt` — register a new version of a prompt template (the operator edit path); the
 /// body replaces the template from the next read on, logged as an operator `PromptTemplateRegistered`.
 #[derive(Deserialize)]
@@ -472,4 +526,49 @@ pub(super) async fn register_prompt(
         .control()
         .register_prompt(request.name, &request.body)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Drive the consolidation pass on demand. Returns how many memories were considered.
+pub(super) async fn maintenance_consolidate(
+    State(state): State<AppState>,
+) -> Result<Json<usize>, ApiError> {
+    let Some(model) = &state.model else {
+        return Err(ApiError::NoModel);
+    };
+    let count = state
+        .server
+        .consolidation_catch_up(model.as_ref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(count))
+}
+
+/// Drive the canonical-profile pass on demand. Returns how many stubs were considered.
+pub(super) async fn maintenance_canonicalize(
+    State(state): State<AppState>,
+) -> Result<Json<usize>, ApiError> {
+    let Some(model) = &state.model else {
+        return Err(ApiError::NoModel);
+    };
+    let count = state
+        .server
+        .canonicalize_catch_up(model.as_ref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(count))
+}
+
+/// Drive the link-redundant entry cleanup pass on demand. Returns how many memories were considered.
+pub(super) async fn maintenance_link_cleanup(
+    State(state): State<AppState>,
+) -> Result<Json<usize>, ApiError> {
+    let Some(model) = &state.model else {
+        return Err(ApiError::NoModel);
+    };
+    let count = state
+        .server
+        .link_cleanup_catch_up(model.as_ref())
+        .await
+        .map_err(ApiError::from)?;
+    Ok(Json(count))
 }

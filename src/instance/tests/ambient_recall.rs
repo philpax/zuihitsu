@@ -3,9 +3,8 @@
 //! These tests drive the real `route_message` path so the pass runs where it does in production, and
 //! check both the live prompt the model saw and the recorded event.
 
-use super::*;
 use crate::{
-    ConversationLocator, InstanceFeatures, PersonId, SeedSelf, TEST_PLATFORM,
+    ConversationLocator, Instance, InstanceFeatures, PersonId, SeedSelf, TEST_PLATFORM,
     clock::ManualClock,
     event::{EventPayload, EventSource, Teller, Visibility},
     graph::Graph,

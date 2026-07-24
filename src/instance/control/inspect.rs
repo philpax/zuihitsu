@@ -4,19 +4,19 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    TemplateStatus,
     agent::genesis::{self, GenesisStatus},
     event::{Event, EventPayload, EventSource},
     graph::{EntryView, MemoryView, SessionView},
     ids::{ConversationLocator, MemoryId, MemoryName, Seq},
+    instance::{
+        InstanceError,
+        control::{
+            Arbitration, Control, MergeProposal, MergeProposalSource, ModelCall, canonical_pair,
+        },
+    },
     metrics::{set_graph_counts, set_head_seq, set_lag, set_mcp, set_sessions_active},
     settings::Settings,
-};
-
-use crate::instance::{
-    InstanceError,
-    control::{
-        Arbitration, Control, MergeProposal, MergeProposalSource, ModelCall, canonical_pair,
-    },
 };
 
 impl Control<'_> {
@@ -193,6 +193,18 @@ impl Control<'_> {
     pub fn settings(&self) -> Result<Settings, InstanceError> {
         Ok(Settings::from_store(
             self.server.engine.store.lock().as_ref(),
+        )?)
+    }
+
+    /// Each prompt template name's status against this build's defaults (spec §Initialization → prompt
+    /// templates): its latest registered version, whether it is a curated (operator-edited) surface,
+    /// the build's newest default version, and whether a newer default is available for a curated
+    /// surface to adopt. The console badges the curated surfaces with a pending upgrade; a
+    /// default-tracking name never reports one, since the boot reconcile has already advanced it.
+    pub fn template_statuses(&self) -> Result<Vec<TemplateStatus>, InstanceError> {
+        Ok(genesis::template_statuses(
+            self.server.engine.store.lock().as_ref(),
+            &self.server.features,
         )?)
     }
 

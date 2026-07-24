@@ -4,9 +4,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::Mutex;
 
-use crate::ids::{ConversationId, SessionId};
-
-use crate::instance::session::OpenSession;
+use crate::{
+    ids::{ConversationId, SessionId},
+    instance::session::OpenSession,
+};
 
 /// The live session map and its lifecycle state — pure runtime state, never logged. Each session map
 /// entry is an `Arc` so a turn holds its session across the turn `.await` without keeping the map

@@ -10,9 +10,10 @@ use async_openai::types::chat::{
 };
 use serde::Serialize;
 
-use crate::model::{GenerateRequest, ModelError, Role, ToolCall};
-
-use crate::model::openai::{ChatTemplateKwargs, backend};
+use crate::model::{
+    GenerateRequest, ModelError, Role, ToolCall,
+    openai::{ChatTemplateKwargs, backend},
+};
 
 /// The one custom type: the standard chat request plus the serving layer's sampling extensions,
 /// which the standard schema does not model. Sent through `create_byot`.

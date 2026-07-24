@@ -4,9 +4,9 @@
 //! already exists as a memory (an agent-authored hearsay stub) and binds the platform identity
 //! to it, or creates a fresh memory.
 
-use super::materialized;
 use crate::{
     event::EventPayload,
+    graph::tests::materialized,
     ids::{MemoryId, Namespace, TEST_PLATFORM, TEST_PLATFORM_ALT},
 };
 

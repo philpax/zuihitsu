@@ -4,10 +4,9 @@
 use crate::{
     graph::GraphError,
     ids::{EntryId, MemoryName},
+    memory::memory_block::MIN_ENTRY_PREFIX,
     vocabulary::{RelationName, TagName},
 };
-
-use crate::memory::memory_block::MIN_ENTRY_PREFIX;
 
 /// How many characters of an entry's text an ambiguous-prefix candidate line shows, so the agent can
 /// tell the matches apart without the message running long.
@@ -45,8 +44,10 @@ pub enum MemoryError {
     UnknownTag(TagName),
     /// A `links.register` gave a cardinality that is neither "one" nor "many".
     BadCardinality(String),
-    /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
-    /// Only the console (operator authority) may edit `self`.
+    /// A non-operator write tried to record content on `self` — an append, supersede, retract,
+    /// attest, or rename of the self model. Only the console (operator authority) may edit `self`'s
+    /// content. Links touching `self` are not gated here: a relationship the agent has (`self knows
+    /// person/rowan`, `self operator_of …`) is an ordinary link, not a self-model content write.
     SelfWriteForbidden,
     /// A write tried to record content on `person/operator`, the operator's provisional identity
     /// anchor. It holds no content of its own — facts about the operator belong on their real
@@ -56,6 +57,13 @@ pub enum MemoryError {
     /// never authors a `same_as` from a turn — it `propose_merge`s, and the operator confirms; a
     /// retraction is operator-only.
     MergeForbidden,
+    /// A `same_as` (or a `propose_merge`) named `self` on either side. A `same_as` binds two
+    /// references to one identity, but `self` is the agent, not a person — folding it into a person's
+    /// identity class is a category error, not a permissions question, so it is refused under every
+    /// authority, the operator included. Left unbarred it would corrupt class resolution everywhere a
+    /// read traverses the class. A relationship the agent has to a person rides an ordinary relation,
+    /// never an identity merge.
+    SelfMergeForbidden,
     /// A merge proposal named the same memory twice — there is nothing to merge.
     MergeProposalInvalid,
     /// An agent-authored entry about a person was written with no explicit visibility. Such a write
@@ -130,10 +138,35 @@ pub enum MemoryError {
     /// tombstone in history, so it must state why it was withdrawn — an unexplained retraction is
     /// unauditable, a teachable error rather than a silent tombstone.
     RetractionReasonRequired,
+    /// An operator per-attestation retraction named a teller who does not attest the entry. The
+    /// console withdraws a specific teller's account, so a teller standing behind nothing is a
+    /// misuse — surfaced like an unknown entry, never reaching the agent (this path is operator-only).
+    UnknownAttestation,
     /// A content entry exceeded the maximum length. Memory entries record distilled facts, not source
     /// content — the agent should summarize what it learned in under the limit rather than pasting a
     /// fetched page or raw transcript.
     ContentTooLong { length: usize, limit: usize },
+    /// An append whose meaning is already held as a live entry on the same identity class. The dedup
+    /// check embedded the candidate and found a near-identical entry (cosine above the threshold). The
+    /// error names the existing entry's id and a snippet, so the agent can supersede it if the fact
+    /// genuinely changed or skip the write. Mirrors [`MemoryError::NameExists`]'s teachable-error
+    /// pattern.
+    DuplicateEntry {
+        existing_entry_id: EntryId,
+        snippet: String,
+    },
+    /// A `mem:attest` (or an auto-corroboration) resolved to a posture wider than the entry's own
+    /// founding posture — the audience-widening invariant. A fact is held at a chosen audience; a
+    /// further teller may stand behind it at that audience or narrower, never wider. If the fact is now
+    /// openly stated where it was a confidence, the honest move is to append it afresh at the open
+    /// posture, and the private copy is folded in by the consolidation pass.
+    AttestationWiderThanEntry,
+    /// A consolidation write violated one of the pass's own invariants — no sources, sources that do
+    /// not share a visibility level, or a cross-teller merge at a non-public level. The maintenance
+    /// pass is the only caller and it groups its sources to satisfy these before calling, so this is
+    /// an internal guard against a grouping bug rather than an agent-facing teachable error; it
+    /// carries the invariant it caught for the operator's log.
+    ConsolidationInvariant(&'static str),
     /// A graph read failed — infrastructure, not the agent's doing.
     Graph(GraphError),
 }
@@ -190,6 +223,13 @@ impl std::fmt::Display for MemoryError {
             MemoryError::MergeForbidden => {
                 write!(f, "same_as merges can only be asserted from the console")
             }
+            MemoryError::SelfMergeForbidden => write!(
+                f,
+                "self is you, not a person, so it cannot be merged into an identity — a same_as \
+                 would fold the agent into someone's identity class and corrupt every read that \
+                 traverses it. Record a relationship you have with an ordinary relation like knows \
+                 or operator_of instead, never an identity merge"
+            ),
             MemoryError::VisibilityRequired => write!(
                 f,
                 "set this entry's visibility explicitly — pass {{ visibility = \"public\" }} or \
@@ -286,12 +326,40 @@ impl std::fmt::Display for MemoryError {
                  mem:retract(entry, \"filed on the wrong person\"); a retraction with no reason is \
                  unauditable"
             ),
+            MemoryError::UnknownAttestation => write!(
+                f,
+                "no attestation by that teller on this entry to withdraw; the teller stands behind \
+                 nothing here"
+            ),
             MemoryError::ContentTooLong { length, limit } => write!(
                 f,
                 "this entry is {length} characters; memory entries record distilled facts, not source \
                  content — summarize what you learned in under {limit} characters, drawing on the \
                  content you fetched or read in your tool results rather than pasting it verbatim"
             ),
+            MemoryError::DuplicateEntry {
+                existing_entry_id,
+                snippet,
+            } => {
+                let preview = snippet_for(snippet);
+                write!(
+                    f,
+                    "you already attest this fact — it is held as entry {:?} — {preview}. Supersede \
+                     it with mem:supersede(entry, text) if the fact genuinely changed, or skip the \
+                     write if it has not",
+                    existing_entry_id.0
+                )
+            }
+            MemoryError::AttestationWiderThanEntry => write!(
+                f,
+                "this fact is held at a narrower audience than you are attesting it to — an \
+                 attestation may stand at the entry's own posture or narrower, never wider. If it is \
+                 now openly stated where it was private, append it afresh at the open posture and the \
+                 private copy will be folded in"
+            ),
+            MemoryError::ConsolidationInvariant(reason) => {
+                write!(f, "consolidation: {reason}")
+            }
             MemoryError::Graph(error) => write!(f, "memory: {error}"),
         }
     }

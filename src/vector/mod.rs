@@ -81,6 +81,11 @@ pub trait VectorIndex: Send {
     /// Remove the vector for `id`, if present.
     fn remove(&mut self, id: &VectorId) -> Result<(), VectorError>;
 
+    /// The stored embedding for `id`, or `None` when the index holds no vector under that key. Lets a
+    /// caller that already indexed a vector reuse it rather than re-embed: the consolidation pass reads
+    /// back the entries it embedded on an earlier sweep instead of paying the embed a second time.
+    fn get(&self, id: &VectorId) -> Result<Option<Embedding>, VectorError>;
+
     fn len(&self) -> Result<usize, VectorError>;
 
     fn is_empty(&self) -> Result<bool, VectorError> {

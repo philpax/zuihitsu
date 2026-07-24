@@ -137,6 +137,10 @@ headers = { Authorization = "Bearer your-token" }
 discord = { key = "00000000-0000-0000-0000-000000000000" }
 ```
 
+The maintenance passes (consolidation, canonical-profile minting, and
+link-redundant entry cleanup) are tuned through the settings store, not this
+file — see the Settings section of `docs/maintenance-passes.md`.
+
 ## Going deeper
 
 - `docs/overview.md`: the design spec, laying out the goals, the architectural principles, and the map of the per-area documents that cover every subsystem in detail.

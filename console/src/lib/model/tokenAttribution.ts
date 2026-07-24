@@ -71,19 +71,31 @@ export function attributeTokens(
   });
 }
 
-/// A warm continuation: the full part list, in send order, with two measured lumps split within
-/// themselves — the shared prefix (the prior call's total) apportioned across the system sections,
-/// the tools, and the earlier messages by char share, and the appended slice (the delta) split over
-/// its messages with the prior completion pinning the assistant message.
+/// A warm call (a `Continuation`, or a `Base` re-sending a warm prefix): the full part list, in send
+/// order, with two measured lumps split within themselves — the shared prefix (the prior call's
+/// total) apportioned across the system sections, the tools, and the earlier messages by char share,
+/// and the appended slice (the delta) split over its messages with the prior completion pinning the
+/// assistant message.
 function measuredDelta(
   call: ModelInteraction,
   prior: ModelInteraction,
   total: number,
   delta: number,
 ): CallAttribution {
+  // The index at and beyond which a message belongs to the appended slice. A warm verdict guarantees
+  // (via cachePath's `extendsMessages`) that the prior call's messages are a prefix of this call's,
+  // so the prior call's message count is exactly the prefix boundary. A `Continuation` records that
+  // boundary in `appendedFrom`; a warm `Base` re-sends the whole prompt in a single step and carries
+  // `appendedFrom = 0`, which would spray the delta across every message and collapse the ~28k prefix
+  // onto the system rows — so its boundary is the prior call's message count instead. If the messages
+  // somehow shrank (never on a warm verdict, but be honest), fall back to a plain apportioned lump.
+  if (call.record === "base" && call.messages.length < prior.messages.length) {
+    return apportionedLump(call, total);
+  }
+  const appendedFrom = call.record === "base" ? prior.messages.length : call.appendedFrom;
   const parts = lumpParts(call);
   const appendedPart = (part: { row: AttributedRow }) =>
-    part.row.messageIndex !== undefined && part.row.messageIndex >= call.appendedFrom;
+    part.row.messageIndex !== undefined && part.row.messageIndex >= appendedFrom;
   const prefixParts = parts.filter((part) => !appendedPart(part));
   const appendedParts = parts.filter(appendedPart);
 

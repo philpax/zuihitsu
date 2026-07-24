@@ -3,7 +3,7 @@
 //! exact-, multi-word-, or list-named target writes through cleanly. Reads through a fuzzy hit stay
 //! free, and the refusal is an ordinary catchable Lua error that rolls the block back.
 
-use super::*;
+use crate::search::{BlockOutcome, Harness, TerminalCause};
 
 #[tokio::test]
 async fn a_fuzzy_write_through_a_mismatched_hit_is_refused() {

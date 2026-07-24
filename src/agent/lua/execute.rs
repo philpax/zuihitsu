@@ -5,19 +5,19 @@ use std::{sync::Arc, time::Instant};
 
 use parking_lot::Mutex;
 
-use crate::agent::{
-    BlockContext,
-    lua::{
-        BlockOutcome, LuaError, Session,
-        commit::{summarize_committed, with_commit_summary},
-        runtime::{
-            BlockApi, LockSet, combine_output, eval_block, release_locks, render, timed_out_cause,
-        },
-        tables::{TurnSkip, entry_metatable, install_block_api},
-    },
-};
-
 use crate::{
+    agent::{
+        BlockContext,
+        lua::{
+            BlockOutcome, LuaError, Session,
+            commit::{summarize_committed, with_commit_summary},
+            runtime::{
+                BlockApi, LockSet, combine_output, eval_block, release_locks, render,
+                timed_out_cause,
+            },
+            tables::{TurnSkip, entry_metatable, install_block_api},
+        },
+    },
     engine::Engine,
     event::{EventPayload, EventSource, TerminalCause},
     ids::{MemoryId, TurnId},

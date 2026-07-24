@@ -3,10 +3,12 @@ use zuihitsu::{
     RelationName, Seq, Timestamp, Visibility,
 };
 
-use super::{project_relations, render_locations, render_shapes};
-use crate::package::{
-    Aggregate, Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
-    ScenarioReport, Stat, TokenStat,
+use crate::{
+    analyze::{project_relations, render_locations, render_shapes},
+    package::{
+        Aggregate, Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
+        ScenarioReport, Stat, TokenStat,
+    },
 };
 
 fn event(payload: EventPayload) -> Event {

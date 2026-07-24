@@ -20,6 +20,9 @@ pub(super) enum ApiError {
     SnapshotsDisabled,
     /// The metrics endpoint was called but the recorder could not be installed at boot.
     MetricsDisabled,
+    /// A detached task backing the request failed to join — a panic in the turn task, surfaced as
+    /// an internal failure rather than swallowed.
+    Internal(String),
 }
 
 impl From<ServerError> for ApiError {
@@ -49,6 +52,10 @@ impl IntoResponse for ApiError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "the metrics recorder is not installed".to_owned(),
             ),
+            ApiError::Internal(message) => {
+                tracing::error!(%message, "request failed");
+                (StatusCode::INTERNAL_SERVER_ERROR, message)
+            }
         };
         (status, Json(ErrorBody { error: message })).into_response()
     }

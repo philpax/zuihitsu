@@ -3,9 +3,11 @@
 
 use std::collections::HashSet;
 
-use super::{corpus, topic};
 use crate::{
-    agent::turn::ambient::{MAX_TURN_TOKENS, ambient_recall},
+    agent::turn::ambient::{
+        MAX_TURN_TOKENS, ambient_recall,
+        tests::{corpus, topic},
+    },
     ids::{MemoryId, TurnId},
     settings::AmbientSettings,
     turn_ref,

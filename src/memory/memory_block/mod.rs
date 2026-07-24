@@ -24,12 +24,15 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
+mod attest;
 mod calendar;
+mod consolidate;
 mod effects;
 mod error;
 mod links;
 mod reads;
 mod resolve;
+mod retract;
 mod suggest;
 mod tags;
 mod writes;
@@ -41,9 +44,52 @@ pub use error::MemoryError;
 /// a bare string the agent typed — a full id, or a unique id prefix read off a rendered line — arrives
 /// as [`EntrySelector::Ref`] and is resolved against the memory's class (see
 /// [`MemoryBlock::resolve_entry_ref`]).
+#[derive(Debug)]
 pub enum EntrySelector {
     Id(EntryId),
     Ref(String),
+}
+
+/// What an `append` yielded once the dedup capture matrix ran: a fresh entry, or a corroboration of an
+/// existing entry the write was found to duplicate. The Lua layer hands back the entry either way (a
+/// corroboration returns the existing entry's handle) and surfaces the corroboration's note.
+#[derive(Debug)]
+pub enum AppendOutcome {
+    /// A new content entry was recorded; its id.
+    Appended {
+        entry: EntryId,
+        /// A non-blocking teaching note surfaced with the append — today the cross-subject
+        /// near-duplicate advisory. `None` for a plain append.
+        advisory: Option<String>,
+    },
+    /// The write corroborated an existing entry rather than recording a duplicate — see
+    /// [`Corroboration`].
+    Corroborated(Corroboration),
+}
+
+/// An entry an `append` or an explicit `attest` stood behind rather than recording anew: the existing
+/// entry now attested, and the note the agent reads so the capture is never silent.
+#[derive(Debug)]
+pub struct Corroboration {
+    pub entry: EntryId,
+    pub note: String,
+}
+
+/// What a [`MemoryBlock::retract`] did. Under a conversation turn (platform authority) a retraction is
+/// per-attester: when the fact is corroborated by other tellers, only the speaker's own account is
+/// withdrawn and the entry stands; the Lua layer surfaces `Withdrawn`'s note into the agent's own
+/// output so the partial withdrawal is never silent. A maintenance pass or the console (agent or
+/// operator authority) always retracts the whole entry, as does a turn whose speaker is the fact's
+/// sole teller.
+#[derive(Debug)]
+pub enum Retraction {
+    /// The whole entry was tombstoned — the speaker was the fact's only teller, it was a
+    /// public/attributed fact the speaker never attested, or the write ran under agent/operator
+    /// authority (which retract the entry outright).
+    Entry,
+    /// Only the speaker's attestation was withdrawn; the fact stands, attested by the remaining
+    /// tellers. The note names those visible to the present audience — never the hidden ones.
+    Withdrawn { note: String },
 }
 
 impl From<EntryId> for EntrySelector {
@@ -60,11 +106,17 @@ pub(super) const MIN_ENTRY_PREFIX: usize = 4;
 
 /// Who is driving a block's writes. Operator authority is the console; it is the only path
 /// permitted to edit `self`, and it authors its links as `Operator` rather than `Agent` (spec
-/// §Imprint interview). Platform authority is an ordinary conversation turn.
+/// §Imprint interview). Platform authority is an ordinary conversation turn. Agent authority
+/// is a maintenance pass running off the hot path — consolidation, canonical-profile minting,
+/// and link-redundant entry cleanup. It permits cross-teller supersede and free `same_as`
+/// assertion (the powers these passes need) while still blocking `self` writes (`guard_self`
+/// blocks all non-Operator authority). Narrower than a full self-evolution tier: no self-model
+/// writes, no persona-source entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Authority {
     Platform,
     Operator,
+    Agent,
 }
 
 /// One block's in-progress memory mutations. Built fresh per block, mutated through its operations,
@@ -98,6 +150,14 @@ pub struct MemoryBlock {
     told_in: Option<ConversationRef>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
     confidential_context: bool,
+    /// Whether this block's writes commit under
+    /// [`EventSource::PlatformConnector`](crate::event::EventSource::PlatformConnector) — a connector
+    /// maintaining a participant's platform attributes on the exact stub, holding the entry ids it
+    /// supersedes and retracts. Set via [`MemoryBlock::authored_by_connector`], it exempts every write
+    /// from the class-primary redirect in [`MemoryBlock::class_write_target`], so a connector attribute
+    /// stays on the binding it addressed rather than following the agent-write redirect to the class
+    /// primary.
+    connector_authored: bool,
     /// Who is present in the conversation — the set `memory.search` filters its hits against (spec
     /// §Visibility). Carried so the read path can reach it; writes do not use it.
     present_set: Vec<MemoryId>,
@@ -131,8 +191,17 @@ pub struct EntryRef {
     pub visibility: Visibility,
     /// Who the entry is attributed to, resolved to a readable label ("person/erin", "you" for the
     /// agent's own note) — so a read shows where a fact came from, which is what tells the agent whose
-    /// confidence it is.
+    /// confidence it is. The founding teller; the fuller attesting set is [`EntryRef::attesters`].
     pub teller: String,
+    /// The tellers who stand behind this entry's fact, resolved to readable labels — its **visible**
+    /// attestation subset for the read's present audience, the agent (the synthesizer of a
+    /// consolidation replacement) skipped and each named at most once, founding-first. A read renders
+    /// these in place of the lone `teller` when non-empty, so a multiply-attested fact reads `from
+    /// person/erin, person/dave` and a consolidation replacement reads its real tellers rather than the
+    /// agent. A hidden attestation is filtered out here (no residue). Empty for an agent-only entry (the
+    /// read falls back to `teller`) and for the append-echo and by-id handbacks, which carry only the
+    /// founding teller.
+    pub attesters: Vec<String>,
     /// Whether the entry is under an unresolved belief arbitration — a fact the agent recorded as
     /// contested and should surface as such rather than assert as settled. Lets a read advertise the
     /// dispute so the agent honors it when answering, instead of confidently picking one account.
@@ -193,6 +262,17 @@ pub struct LinkRef {
     /// a neighborhood rendered from a hub keeps the spokes' dates without a second read. Not
     /// visibility-filtered, mirroring the link readers, which surface the agent's whole graph.
     pub occurred_at: Option<TemporalRef>,
+}
+
+/// One row of a `memory.list` result, after `same_as` classes are collapsed. A lone memory lists as
+/// itself; a multi-member identity lists once, under its class primary (`id`), at the position its
+/// first-encountered member held. `description` is a resolved override the Lua layer stamps on the
+/// handle — `Some` only when the primary's own description is empty but a member has one, so a
+/// freshly-minted, undescribed canonical profile still lists under the stub's description rather than a
+/// blank line. `None` means read the primary's own description lazily, the common path.
+pub struct ListedMemory {
+    pub id: MemoryId,
+    pub description: Option<String>,
 }
 
 /// A memory's whole record, assembled for `mem:details` — the one-render read that licenses "I don't
@@ -316,6 +396,13 @@ pub struct AppendOptions {
     pub told_by: Option<Teller>,
     #[serde(skip)]
     pub exclude: Option<BTreeSet<MemoryId>>,
+    /// An entry the dedup scan skips — that entry only — so a re-append the agent has decided names a
+    /// genuinely different fact records anew rather than being folded into the entry a near-duplicate
+    /// check matched. Every other capture still fires. Resolved at the Lua boundary (an entry handle,
+    /// id, or unique id prefix) and set after, so it carries a resolved [`EntrySelector`] rather than a
+    /// raw Lua value.
+    #[serde(skip)]
+    pub distinct_from: Option<EntrySelector>,
 }
 
 /// The overrides a `links.create` call accepts: `visibility` forces the visibility instead of the
@@ -429,6 +516,7 @@ impl MemoryBlock {
             context_memory,
             told_in,
             confidential_context,
+            connector_authored: false,
             present_set,
             max_entry_chars,
             buffer: Vec::new(),
@@ -437,6 +525,17 @@ impl MemoryBlock {
             skip: None,
             open_default_seeds: BTreeSet::new(),
         })
+    }
+
+    /// Mark this block as connector-authored: its writes commit under
+    /// [`EventSource::PlatformConnector`](crate::event::EventSource::PlatformConnector) and maintain a
+    /// participant's platform attributes on the exact
+    /// stub, so [`MemoryBlock::class_write_target`] must not redirect them to the class primary the way
+    /// an agent write is redirected. Used by the platform projection path, which builds the block and
+    /// then appends the connector's attribute entries.
+    pub(crate) fn authored_by_connector(mut self) -> Self {
+        self.connector_authored = true;
+        self
     }
 }
 

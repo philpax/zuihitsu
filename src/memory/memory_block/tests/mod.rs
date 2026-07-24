@@ -1,22 +1,33 @@
 //! Shared fixtures and the concern-grouped test submodules for the memory block.
 
+mod attestation_retraction;
 mod authority;
 mod conflict_suggestions;
+mod consolidation;
 mod content_limit;
+mod free_merge;
+mod link_class;
+mod list_class;
 mod mutation_guards;
 mod writes;
 
-pub(super) use super::{AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice};
+pub(super) use crate::memory::memory_block::{
+    AppendOptions, Authority, MemoryBlock, MemoryError, VisibilityChoice,
+};
 use crate::{
     clock::ManualClock,
     engine::Engine,
     event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
     graph::Graph,
     ids::{ConversationId, MemoryId, MemoryName, Namespace},
+    model::embed::Embedder,
     store::{MemoryStore, Store},
     time::Timestamp,
+    vector::VectorIndex,
     vocabulary::RelationName,
 };
+
+use std::sync::Arc;
 
 /// A block over an empty in-memory graph and a conversation with no context — enough to exercise
 /// the write invariants directly, no Lua VM and no store materialization involved. The engine's
@@ -55,6 +66,36 @@ pub(super) fn block_without_conversation(
         teller,
         authority,
         None,
+        None,
+        Vec::new(),
+        TEST_MAX_ENTRY_CHARS,
+    )
+    .unwrap()
+}
+
+/// A block with semantic retrieval attached — the embedder and vector index the dedup check needs.
+/// The caller owns the `InMemoryVectorIndex` so it can seed vectors before the block's dedup check
+/// runs.
+pub(super) fn block_with_retrieval(
+    graph: Graph,
+    clock: ManualClock,
+    teller: Teller,
+    authority: Authority,
+    embedder: Arc<dyn Embedder>,
+    vectors: Box<dyn VectorIndex>,
+) -> MemoryBlock {
+    let engine = Engine::with_retrieval(
+        Box::new(MemoryStore::new()),
+        graph,
+        Box::new(clock),
+        embedder,
+        vectors,
+    );
+    MemoryBlock::new(
+        engine,
+        teller,
+        authority,
+        Some(ConversationId::generate()),
         None,
         Vec::new(),
         TEST_MAX_ENTRY_CHARS,

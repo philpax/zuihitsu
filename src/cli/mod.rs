@@ -12,6 +12,7 @@ pub(crate) mod client;
 pub(crate) mod debug;
 pub(crate) mod error;
 pub(crate) mod interact;
+pub(crate) mod maintenance;
 pub(crate) mod root;
 pub(crate) mod state;
 

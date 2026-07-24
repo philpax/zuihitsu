@@ -4,11 +4,14 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::{ConversationRef, Teller},
     graph::{
-        ConversationView, Graph, GraphError, OpenSessionView, ParticipantMint, SessionView,
-        backend, parse_ulid, timestamp_column,
+        AttestationView, ConversationView, EntryView, Graph, GraphError, MemoryView,
+        OpenSessionView, ParticipantMint, SessionView, backend, parse_ulid, timestamp_column,
     },
     ids::{ConversationId, ConversationLocator, MemoryId, MemoryName, Namespace, Seq, SessionId},
-    visibility::{MarkerRoom, MarkerTurn, room_display},
+    visibility::{
+        MarkerAttestation, MarkerRoom, MarkerTurn, entry_attestation_marker, room_display,
+        visible_attestations,
+    },
     vocabulary::TagName,
 };
 use rusqlite::{OptionalExtension, params};
@@ -135,14 +138,19 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
     }
 
-    /// Resolve a teller to the display name a marker shows (a participant's handle, or a fixed label
-    /// for the agent and genesis). Shared by search and brief composition.
+    /// Resolve a teller to the display name a marker shows (a participant's full canonical handle, or
+    /// a fixed label for the agent and genesis). A participant is canonicalized through its `same_as`
+    /// class to the class primary before rendering, so a brief's "told by person/philpax" and a buffer
+    /// turn's "person/philpax:" name the same person the same way (see `participant_names`). Shared by
+    /// search and brief composition.
     pub fn teller_display(&self, teller: &Teller) -> Result<String, GraphError> {
         Ok(match teller {
-            Teller::Participant(id) => self
-                .memory_by_id(*id)?
-                .map(|memory| memory.name.as_str().to_owned())
-                .unwrap_or_else(|| "someone".to_owned()),
+            Teller::Participant(id) => {
+                let primary = self.class_id(*id)?.unwrap_or(*id);
+                self.memory_by_id(primary)?
+                    .map(|memory| memory.name.as_str().to_owned())
+                    .unwrap_or_else(|| "someone".to_owned())
+            }
             Teller::Agent => "the agent".to_owned(),
             Teller::Bootstrap => "genesis".to_owned(),
         })
@@ -175,6 +183,48 @@ impl Graph {
             turn_id: r.turn,
             room,
         })
+    }
+
+    /// The inline provenance marker `entry` carries when surfaced to `present_set` — the one place a
+    /// live surface (search, brief composition, the calendar) turns a visible entry into its marker.
+    /// Resolves the entry's **visible** attestation subset (the chip rule), resolving each teller and
+    /// room, and hands it to [`entry_attestation_marker`], so the marker speaks the attesting tellers
+    /// the audience may see and no hidden attestation leaves a residue. `None` for a public entry
+    /// standing on its founding source alone (and for a superseded one, which surfaces no attestation).
+    pub fn entry_provenance_marker(
+        &self,
+        entry: &EntryView,
+        memory: &MemoryView,
+        present_set: &[MemoryId],
+    ) -> Result<Option<String>, GraphError> {
+        let class_of = |id| self.class_id(id).map(|class| class.unwrap_or(id));
+        // A hand-built view left the attestation set empty; fall back to the founding attestation so a
+        // singleton reads bit-identically to reasoning over the entry's own `told_by`/`visibility`,
+        // mirroring the predicate's own synthesis (see [`explain`]).
+        let synthesized;
+        let entry = if entry.attestations.is_empty() {
+            let mut view = entry.clone();
+            view.attestations = vec![AttestationView::founding(
+                entry.told_by.clone(),
+                entry.told_in.clone(),
+                entry.asserted_at,
+                entry.visibility.clone(),
+            )];
+            synthesized = view;
+            &synthesized
+        } else {
+            entry
+        };
+        let mut resolved = Vec::new();
+        for attestation in visible_attestations(entry, memory, present_set, &class_of)? {
+            resolved.push(MarkerAttestation {
+                posture: attestation.posture.clone(),
+                teller: self.teller_display(&attestation.teller)?,
+                is_agent: matches!(attestation.teller, Teller::Agent),
+                marker: self.marker_ref(attestation.told_in.as_ref())?,
+            });
+        }
+        Ok(entry_attestation_marker(&resolved))
     }
 
     /// A session by id, with its participants, or `None` if unknown.

@@ -139,6 +139,22 @@ impl Graph {
         })
     }
 
+    /// Every live memory id that begins with `prefix` (a full id matches itself), ordered by id — the
+    /// resolution primitive the operator's offline identity commands (`debug designate-primary`,
+    /// `debug merge`) use to turn a typed id or unique prefix into exactly one memory, erroring when the
+    /// prefix is ambiguous. Matched case-insensitively against the stored uppercase ULID, so an operator
+    /// may paste either casing. A soft-deleted memory is excluded, so a stale id resolves to nothing
+    /// rather than a hidden memory.
+    pub fn memory_ids_with_prefix(&self, prefix: &str) -> Result<Vec<MemoryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT id FROM memories WHERE id LIKE ?1 || '%' AND deleted = 0 ORDER BY id",
+        )?;
+        let ids: Vec<String> = query_map_into(stmt, params![prefix.to_uppercase()], |row| {
+            Ok::<_, GraphError>(row.get("id")?)
+        })?;
+        ids.iter().map(|id| Ok(MemoryId(parse_ulid(id)?))).collect()
+    }
+
     /// The count of live (non-deleted) memories — the agent's knowledge footprint, surfaced as a
     /// gauge. A `COUNT(*)` rather than materializing the memories, so a metrics scrape stays cheap
     /// on a large graph.

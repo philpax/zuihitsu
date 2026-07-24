@@ -1,7 +1,13 @@
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
-import { type EventCategory, eventCategory, eventSummary, isBackgroundEvent } from "./events.ts";
+import {
+  type BackgroundEventType,
+  type EventCategory,
+  eventCategory,
+  eventSummary,
+  isBackgroundEvent,
+} from "./events.ts";
 
 /// One background-pass event (a description regeneration, a temporal resolution or its recorded
 /// drop, a belief arbitration, or an inferred link set), summarized for the Background view and
@@ -12,7 +18,7 @@ export interface BackgroundEvent {
   recordedAt: number;
   /// The envelope's authoring authority, shown as faint provenance in the expanded row.
   source: EventSource;
-  type: EventPayload["type"];
+  type: BackgroundEventType;
   category: EventCategory;
   summary: string;
   payload: EventPayload;
@@ -39,14 +45,15 @@ function backgroundMemoryIds(payload: EventPayload): string[] {
     case "MemoryDescriptionRegenerated":
     case "EntryTemporalResolved":
     case "EntryTemporalResolveFailed":
+    case "EntriesConsolidated":
       return [payload.id];
     case "BeliefArbitrated":
     case "LinksInferred":
       return [payload.memory];
     default:
-      // Only ever called for BACKGROUND_TYPES members (the caller gates on `isBackgroundEvent`), so
-      // any other variant reaching here means BACKGROUND_TYPES and this switch have drifted apart —
-      // add the new background type to the set and give it a case above.
+      // Only ever called for BACKGROUND_TYPES members (the caller gates on `isBackgroundEvent`),
+      // so any other variant reaching here means BACKGROUND_TYPES and this switch have drifted
+      // apart — add the new background type to the set and give it a case above.
       throw new Error(`backgroundMemoryIds: ${payload.type} is not a background-pass type`);
   }
 }

@@ -1,4 +1,4 @@
-use super::*;
+use crate::http_server::tests::*;
 #[tokio::test]
 async fn health_reports_genesis_status() {
     let server =

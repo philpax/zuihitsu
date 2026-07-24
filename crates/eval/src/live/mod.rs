@@ -148,7 +148,7 @@ impl EvalSink {
             LiveEvent::RunEvent {
                 scenario,
                 run,
-                event,
+                event: Box::new(event),
             },
         );
         Ok(())
@@ -247,7 +247,7 @@ impl EvalSink {
                 catch_up.push(LiveEvent::RunEvent {
                     scenario,
                     run,
-                    event: event.clone(),
+                    event: Box::new(event.clone()),
                 });
             }
         }

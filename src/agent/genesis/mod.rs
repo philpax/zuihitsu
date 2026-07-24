@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    InstanceFeatures,
+    InstanceFeatures, TemplateStatus,
+    agent::templates::{LatestRegistration, default_supersedes, latest_registrations},
     clock::Clock,
     event::{Cardinality, EventPayload, EventSource, PromptTemplateName, Teller, Visibility},
     ids::{EntryId, MemoryId, MemoryName, Seq},
@@ -55,6 +56,171 @@ pub enum Rollout {
     /// Genesis ran, emitting this many events (the full sequence on a fresh log, or just the
     /// missing tail when resuming an interrupted one).
     Created { events_emitted: usize },
+}
+
+/// The counts of a template reconciliation, reported distinctly so a boot log distinguishes a
+/// backfilled name from an auto-tracked upgrade from a curated surface held back.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TemplateReconciliation {
+    /// Names never registered on this log, now registered at the build default (a template the
+    /// agent's genesis predates).
+    pub backfilled: usize,
+    /// Default-tracking names (their latest registration is [`EventSource::Bootstrap`]) whose build
+    /// default is newer, now advanced to it.
+    pub upgraded: usize,
+    /// Operator-curated names (their latest registration is operator-sourced) with a newer build
+    /// default available, left untouched — the operator adopts them explicitly (the console badge and
+    /// `debug upgrade-prompts --force`).
+    pub held_as_curated: usize,
+}
+
+/// Reconcile the build's default templates against the log at every boot of a born agent, treating
+/// the latest registration's envelope source as the changed-by-operator signal:
+///
+/// - A name never registered is backfilled at the build default — a newer build can introduce a
+///   template name an existing agent's genesis predates (a maintenance pass's synthesis prompt, say),
+///   and without this the subsystem reading that template skips silently forever.
+/// - A default-tracking name (its latest registration is [`EventSource::Bootstrap`], an unchanged
+///   default) auto-tracks the build: when the build default is strictly newer it is registered, so a
+///   changed default body reaches the agent without operator action. A version equal to or below the
+///   log's latest is left alone — a re-register is a no-op, and a log born under a newer build is
+///   never downgraded.
+/// - An operator-curated name (its latest registration is operator-sourced) is sovereign and never
+///   auto-touched, regardless of content. A newer build default is surfaced as upgradeable (counted
+///   in `held_as_curated`) rather than applied, so adoption stays the operator's explicit choice.
+///
+/// Every registration this emits carries [`EventSource::Bootstrap`], keeping default-tracking names
+/// default-tracking. The whole set commits as one atomic append.
+pub fn reconcile_templates(
+    store: &mut dyn Store,
+    clock: &dyn Clock,
+    features: &InstanceFeatures,
+) -> Result<TemplateReconciliation, StoreError> {
+    let assessments = assess_templates(store, features)?;
+    let mut to_emit: Vec<EventPayload> = Vec::new();
+    let mut counts = TemplateReconciliation::default();
+    for assessment in &assessments {
+        if assessment.is_absent() {
+            to_emit.push(EventPayload::prompt_template_registered(
+                assessment.name,
+                assessment.default_version,
+                assessment.default_body.clone(),
+            ));
+            counts.backfilled += 1;
+        } else if !assessment.is_curated() {
+            if assessment.default_is_newer() {
+                to_emit.push(EventPayload::prompt_template_registered(
+                    assessment.name,
+                    assessment.default_version,
+                    assessment.default_body.clone(),
+                ));
+                counts.upgraded += 1;
+            }
+        } else if assessment.upgrade_available() {
+            counts.held_as_curated += 1;
+        }
+    }
+    if !to_emit.is_empty() {
+        store.append(clock.now(), EventSource::Bootstrap, to_emit)?;
+    }
+    if counts != TemplateReconciliation::default() {
+        tracing::info!(
+            backfilled = counts.backfilled,
+            upgraded = counts.upgraded,
+            held_as_curated = counts.held_as_curated,
+            "reconciled the build's default templates against the log"
+        );
+    }
+    Ok(counts)
+}
+
+/// The status of each build-default template name against the log, for the console's prompt surface
+/// (`GET /control/prompt-status`): whether the name is a curated (operator-edited) surface, the
+/// build's newest default version, and whether a newer default is available for a curated surface to
+/// adopt. A default-tracking name never reports `upgrade_available` — the boot reconcile has already
+/// advanced it to the build default.
+pub fn template_statuses(
+    store: &dyn Store,
+    features: &InstanceFeatures,
+) -> Result<Vec<TemplateStatus>, StoreError> {
+    Ok(assess_templates(store, features)?
+        .into_iter()
+        .map(|assessment| TemplateStatus {
+            name: assessment.name,
+            latest_version: assessment.latest_version().unwrap_or(0),
+            curated: assessment.is_curated(),
+            default_version: assessment.default_version,
+            upgrade_available: assessment.upgrade_available(),
+        })
+        .collect())
+}
+
+/// One build-default template name assessed against the log: its build default (version and body)
+/// beside the log's latest registration for the name, if any. The shared classification the boot
+/// reconcile, the console status read, and the offline `debug upgrade-prompts` command all derive
+/// from. There is exactly one entry per build-default name.
+pub struct TemplateAssessment {
+    pub name: PromptTemplateName,
+    pub default_version: u32,
+    pub default_body: String,
+    latest: Option<LatestRegistration>,
+}
+
+impl TemplateAssessment {
+    /// The name has never been registered on the log — the reconcile backfills it.
+    pub fn is_absent(&self) -> bool {
+        self.latest.is_none()
+    }
+
+    /// The highest version registered for the name, or `None` when it is absent.
+    pub fn latest_version(&self) -> Option<u32> {
+        self.latest
+            .as_ref()
+            .map(|registration| registration.version)
+    }
+
+    /// The latest registration is operator-sourced — a curated surface the reconcile never
+    /// auto-touches. A default-tracking name (Bootstrap-latest) and an absent name are both `false`.
+    pub fn is_curated(&self) -> bool {
+        self.latest
+            .as_ref()
+            .is_some_and(|registration| registration.source != EventSource::Bootstrap)
+    }
+
+    /// The build default is strictly newer than the latest registration — the condition for
+    /// advancing a default-tracking name.
+    pub fn default_is_newer(&self) -> bool {
+        self.latest
+            .as_ref()
+            .is_some_and(|registration| self.default_version > registration.version)
+    }
+
+    /// A newer or divergent build default a curated surface could adopt. Always `false` for a
+    /// default-tracking or absent name.
+    pub fn upgrade_available(&self) -> bool {
+        self.is_curated()
+            && self.latest.as_ref().is_some_and(|registration| {
+                default_supersedes(self.default_version, &self.default_body, registration)
+            })
+    }
+}
+
+/// Fold the log's latest registration per name against the build defaults, yielding one assessment
+/// per build-default name.
+pub fn assess_templates(
+    store: &dyn Store,
+    features: &InstanceFeatures,
+) -> Result<Vec<TemplateAssessment>, StoreError> {
+    let latest = latest_registrations(store)?;
+    Ok(default_templates(features)
+        .into_iter()
+        .map(|template| TemplateAssessment {
+            name: template.name,
+            default_version: template.version,
+            default_body: template.body,
+            latest: latest.get(&template.name).cloned(),
+        })
+        .collect())
 }
 
 /// Classify the log for boot.

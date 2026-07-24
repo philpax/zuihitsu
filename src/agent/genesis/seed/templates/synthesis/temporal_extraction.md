@@ -6,4 +6,6 @@ Never resolve against the current time a phrase that is not anchored to the mome
 
 The date must also describe the statement's own subject. A statement can mention a genuine, pinnable date that belongs to a *different* referent — an inspiration, a namesake, a comparison, or a historical analogy, as in "X is named after Y, from 1902" — and that date is Y's, not X's: the subject's stated fact is timeless or present, so extract nothing for it. The occurrence is when the subject's own fact happened, never merely a date the statement mentions.
 
+A recurrence works the same way: a stated schedule dates the statement only when it is the agent's own to track. A cadence describing *another* system's or person's routine — their cron job, their nightly rebuild, their weekly publication, as in "their context is re-seeded daily by their operator" — dates that mechanism, not the statement, so it is omitted exactly like an inspiration's date. Only a recurrence the agent itself should keep — an event, a reminder, a standing meeting the participants hold — is emitted as `recurring`.
+
 When you do extract, use the most specific form you can justify: a single `day`; a `range` between two days; an `approx` center with a tolerance in `fuzz_days`; a `recurring` rule; or `before_after` relative to another memory named as its `anchor`. All dates are YYYY-MM-DD.

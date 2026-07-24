@@ -5,8 +5,10 @@ use zuihitsu::{
     TurnId, Usage,
 };
 
-use super::{EvalSink, LiveEvent, read_sidecar};
-use crate::package::{Bar, Category, RunMeta, RunMetrics, RunRecord, ScenarioMeta};
+use crate::{
+    live::{EvalSink, LiveEvent, read_sidecar},
+    package::{Bar, Category, RunMeta, RunMetrics, RunRecord, ScenarioMeta},
+};
 
 /// A pre-timing sidecar predates `at_ms` on the run boundaries; `#[serde(default)]` must fill `0`
 /// so an old line still folds.

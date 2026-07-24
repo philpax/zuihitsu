@@ -2,11 +2,10 @@
 //! registered relations, and candidate targets into the model's prompt.
 
 use crate::{
+    agent::turn::link_inference::{CANDIDATE_CAP, relations::ExistingLink},
     graph::{EntryView, MemoryView, RelationView},
     time::{self, Timestamp},
 };
-
-use crate::agent::turn::link_inference::{CANDIDATE_CAP, relations::ExistingLink};
 
 /// Render the inference prompt: the memory and its numbered statements, its existing links, the
 /// registered relations, and the candidate target memories by handle and description.

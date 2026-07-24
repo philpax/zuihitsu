@@ -6,7 +6,13 @@ import type { RecurringItem } from "../../lib/model/audit.ts";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { turnComponents } from "../../components/markdownComponents.tsx";
-import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
+import {
+  attestationHidden,
+  connectorPlatform,
+  isPrivate,
+  tellerLabel,
+  visibilityLabel,
+} from "../../lib/model/labels.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
 import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
@@ -95,6 +101,7 @@ export function EntryItem({
   nameById,
   faded,
   disputed,
+  expanded,
   memoryName,
   onRetract,
 }: {
@@ -102,12 +109,22 @@ export function EntryItem({
   nameById: Map<string, string>;
   faded?: boolean;
   disputed?: boolean;
+  /// Render the operator archaeology beside the entry: each corroborating attester with its posture,
+  /// distinct phrasing, and — on a history read — its retracted attestations struck through. The
+  /// compact metadata line keeps only the attester chips and the count badge without this.
+  expanded?: boolean;
   /// The memory's name, passed so the retract button can address the entry by memory + entry id.
   memoryName?: string;
   /// Retract this entry under operator authority. Present only in the live agent frame at the head.
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const priv = isPrivate(entry.visibility);
+  // The founding attestation is `attestations[0]` (the reads order founding first), and it is the
+  // same teller the row already renders as `told by`. The tail is the corroboration — a further
+  // teller standing behind the same fact — so the chips never double-render the founding teller.
+  const corroborations = entry.attestations.slice(1);
+  const liveCorroborations = corroborations.filter((att) => att.retracted_reason === null);
+  const liveCount = entry.attestations.filter((att) => att.retracted_reason === null).length;
   return (
     <li className={faded ? "opacity-55" : undefined}>
       <div className={"text-base/relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")}>
@@ -135,10 +152,57 @@ export function EntryItem({
           </>
         )}
         <span>told by {tellerLabel(entry.told_by, nameById)}</span>
+        {/* A count badge when more than one live teller stands behind the fact — the founding teller
+            plus its corroboration. */}
+        {liveCount > 1 && (
+          <span
+            className="border border-line px-1 text-ink-faint"
+            title={`${liveCount} tellers stand behind this fact`}
+          >
+            ×{liveCount}
+          </span>
+        )}
+        {/* The compact corroboration: the further tellers as inline chips. A hidden corroboration
+            (posture narrower than the entry's audience) wears the clay confidence idiom so the
+            operator tells it apart from open corroboration at a glance — the agent-facing read drops
+            it, the operator console keeps it. The expanded view lists these in full below instead. */}
+        {!expanded &&
+          liveCorroborations.map((att, index) => {
+            const hidden = attestationHidden(att.posture, entry.visibility);
+            return (
+              <span key={index} className="contents">
+                <span className="text-ink-faint/45">·</span>
+                <span
+                  className={hidden ? "text-clay" : undefined}
+                  title={
+                    hidden
+                      ? `hidden corroboration (${visibilityLabel(att.posture, nameById)})`
+                      : visibilityLabel(att.posture, nameById)
+                  }
+                >
+                  also {tellerLabel(att.teller, nameById)}
+                </span>
+              </span>
+            );
+          })}
         <span className="text-ink-faint/45">·</span>
         <span className={priv ? "text-clay" : undefined}>
           {visibilityLabel(entry.visibility, nameById)}
         </span>
+        {/* A connector-maintained attribute (a username, display name, or nickname the platform
+            connector owns) is marked so it reads apart from an agent-recorded fact — the cleanup
+            passes leave it untouched, since the connector supersedes it as the account changes. */}
+        {connectorPlatform(entry.origin) && (
+          <>
+            <span className="text-ink-faint/45">·</span>
+            <span
+              className="text-sage"
+              title="maintained by a platform connector; the cleanup passes leave it untouched"
+            >
+              via {connectorPlatform(entry.origin)}
+            </span>
+          </>
+        )}
         <span className="text-ink-faint/45">·</span>
         <time dateTime={new Date(entry.asserted_at).toISOString()}>
           {formatDateTime(entry.asserted_at)}
@@ -164,6 +228,55 @@ export function EntryItem({
           <RetractButton memoryName={memoryName} entryId={entry.entry_id} onRetract={onRetract} />
         )}
       </p>
+      {/* Operator archaeology: the corroborating attestations in full, each attester with its own
+          posture and distinct phrasing. A hidden corroboration keeps the clay confidence idiom; a
+          retracted one (present only on the history reads) reads struck through with its stated
+          reason, the way a retracted entry does. */}
+      {expanded && corroborations.length > 0 && (
+        <ul className="mt-1.5 flex flex-col gap-1 border-l border-line pl-3 font-mono text-2xs text-ink-faint">
+          {corroborations.map((att, index) => {
+            const retracted = att.retracted_reason !== null;
+            const hidden = attestationHidden(att.posture, entry.visibility);
+            return (
+              <li key={index}>
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span
+                    className={
+                      (retracted ? "text-ink-soft line-through " : hidden ? "text-clay " : "") +
+                      "font-medium"
+                    }
+                  >
+                    also {tellerLabel(att.teller, nameById)}
+                  </span>
+                  <span className="text-ink-faint/45">·</span>
+                  <span className={hidden ? "text-clay" : undefined}>
+                    {visibilityLabel(att.posture, nameById)}
+                  </span>
+                  {att.source_entry && (
+                    <>
+                      <span className="text-ink-faint/45">·</span>
+                      <span title={att.source_entry}>
+                        carried from {att.source_entry.slice(0, 10)}
+                      </span>
+                    </>
+                  )}
+                  {retracted && (
+                    <>
+                      <span className="text-ink-faint/45">·</span>
+                      <span className="text-clay">withdrawn: {att.retracted_reason}</span>
+                    </>
+                  )}
+                </span>
+                {att.phrasing && (
+                  <p className="mt-0.5 font-serif text-2xs/relaxed text-ink-soft italic">
+                    “{att.phrasing}”
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </li>
   );
 }

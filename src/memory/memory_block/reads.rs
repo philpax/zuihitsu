@@ -4,11 +4,12 @@ use std::collections::BTreeSet;
 
 use crate::{
     event::{EventPayload, Volatility},
-    graph::EntryView,
+    graph::{EntryView, Graph},
     ids::{EntryId, MemoryId, MemoryName},
+    memory::memory_block::{
+        EntryRef, ListedMemory, MemoryBlock, MemoryDetails, MemoryError, resolve::AnnotatedEntry,
+    },
 };
-
-use crate::memory::memory_block::{EntryRef, MemoryBlock, MemoryDetails, MemoryError};
 
 impl MemoryBlock {
     /// Resolve a name to a memory id, or `None`, for `memory.get` — touches the result so it enters
@@ -58,7 +59,15 @@ impl MemoryBlock {
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
+            .map(|annotated| {
+                let AnnotatedEntry {
+                    entry,
+                    withheld,
+                    stale,
+                    attesters,
+                } = annotated;
+                self.entry_ref(entry, &disputed, withheld, stale, attesters)
+            })
             .collect();
         refs.extend(self.pending_entries(&members, &pending_superseded));
         Ok(refs)
@@ -79,7 +88,15 @@ impl MemoryBlock {
         let members = self.touch_class(id, members);
         let mut refs: Vec<EntryRef> = annotated
             .into_iter()
-            .map(|(entry, withheld, stale)| self.entry_ref(entry, &disputed, withheld, stale))
+            .map(|annotated| {
+                let AnnotatedEntry {
+                    entry,
+                    withheld,
+                    stale,
+                    attesters,
+                } = annotated;
+                self.entry_ref(entry, &disputed, withheld, stale, attesters)
+            })
             .collect();
         refs.extend(self.pending_entries(&members, &BTreeSet::new()));
         Ok(refs)
@@ -119,17 +136,45 @@ impl MemoryBlock {
         })
     }
 
-    /// The ids of every live memory whose name begins with `prefix`, ordered by name — the read behind
-    /// `memory.list`, the handle-discovery-by-stem lookup. A committed-only graph read (like the link
-    /// readers and search): a memory created but not yet committed this block does not list. The prefix
-    /// is matched literally, its LIKE metacharacters escaped in the graph, so a `%` in the stem does not
-    /// wildcard. Returns every match uncapped; the Lua layer caps the list and notes the remainder.
-    pub fn list_by_prefix(&self, prefix: &str) -> Result<Vec<MemoryId>, MemoryError> {
-        Ok(self
-            .engine
-            .graph
-            .lock()
-            .memory_ids_with_name_prefix(prefix)?)
+    /// The live memories whose name begins with `prefix`, ordered by name, with `same_as` classes
+    /// collapsed — the read behind `memory.list`, the handle-discovery-by-stem lookup. One identity
+    /// spanning a canonical profile and its platform stubs lists once, under the class primary, rather
+    /// than as several near-identical rows. A lone memory lists as itself (the common path). A
+    /// multi-member class lists once, at the position its first-encountered member held in name order,
+    /// rendered under the primary — with the primary's description, or, when that is empty, the first
+    /// non-empty member's, so an undescribed fresh profile does not list as a blank line. A
+    /// committed-only graph read (like the link readers and search): a memory created but not yet
+    /// committed this block does not list. The prefix is matched literally, its LIKE metacharacters
+    /// escaped in the graph, so a `%` in the stem does not wildcard. Returns every collapsed row
+    /// uncapped; the Lua layer caps the list and notes the remainder.
+    pub fn list_by_prefix(&self, prefix: &str) -> Result<Vec<ListedMemory>, MemoryError> {
+        let graph = self.engine.graph.lock();
+        let ids = graph.memory_ids_with_name_prefix(prefix)?;
+        let mut seen: BTreeSet<MemoryId> = BTreeSet::new();
+        let mut rows: Vec<ListedMemory> = Vec::new();
+        for id in ids {
+            // The class primary is the identity a row renders under; a lone memory is its own primary.
+            let Some(primary) = graph.class_id(id)? else {
+                continue;
+            };
+            if !seen.insert(primary) {
+                // A later-encountered member of an already-emitted class collapses into it.
+                continue;
+            }
+            let members = graph.class_members(primary)?;
+            // Only a multi-member class needs a resolved description; a lone memory reads its own
+            // lazily (`None`), leaving the common path untouched.
+            let description = if members.len() > 1 {
+                class_description(&graph, primary, &members)?
+            } else {
+                None
+            };
+            rows.push(ListedMemory {
+                id: primary,
+                description,
+            });
+        }
+        Ok(rows)
     }
 
     /// The live members of `id`'s `same_as` class (including `id`), for the Lua lock layer to acquire
@@ -170,6 +215,7 @@ impl MemoryBlock {
                 text: text.clone(),
                 visibility: visibility.clone(),
                 teller: self.teller_label(told_by),
+                attesters: Vec::new(),
                 disputed: false,
                 occurred_at: occurred_at.clone(),
                 withheld: false,
@@ -179,4 +225,48 @@ impl MemoryBlock {
             _ => None,
         })
     }
+
+    /// The [`EntryRef`] for an entry addressable this block, whether it was just appended (found in the
+    /// buffer) or already committed (read from the graph) — so a corroboration can hand back the
+    /// existing entry it stood behind, not only a freshly-appended one. Prefers the pending copy so a
+    /// same-block append still renders with the teller and visibility it was buffered under.
+    pub fn entry_ref_by_id_any(&self, entry_id: EntryId) -> Result<Option<EntryRef>, MemoryError> {
+        if let Some(entry) = self.entry_ref_by_id(entry_id) {
+            return Ok(Some(entry));
+        }
+        let committed = { self.engine.graph.lock().entry_by_id(entry_id)? };
+        // A by-id handback carries only the founding teller; a live read is where the fuller attesting
+        // set materializes with its audience.
+        Ok(committed
+            .map(|(_, view)| self.entry_ref(view, &BTreeSet::new(), false, false, Vec::new())))
+    }
+}
+
+/// Resolve a collapsed class's list description: the primary's own when it has one — returned as `None`,
+/// so the handle reads it lazily like any other row — else the first non-empty member's description (by
+/// id order), a concrete override the Lua layer stamps on the handle. `None` when no member carries a
+/// description, in which case the row reads the primary's empty description lazily.
+fn class_description(
+    graph: &Graph,
+    primary: MemoryId,
+    members: &[MemoryId],
+) -> Result<Option<String>, MemoryError> {
+    let primary_description = graph
+        .memory_by_id(primary)?
+        .map(|memory| memory.description)
+        .unwrap_or_default();
+    if !primary_description.is_empty() {
+        return Ok(None);
+    }
+    for &member in members {
+        if member == primary {
+            continue;
+        }
+        if let Some(memory) = graph.memory_by_id(member)?
+            && !memory.description.is_empty()
+        {
+            return Ok(Some(memory.description));
+        }
+    }
+    Ok(None)
 }

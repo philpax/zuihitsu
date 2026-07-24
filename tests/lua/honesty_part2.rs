@@ -1,4 +1,6 @@
-use super::*;
+use crate::{
+    BlockOutcome, Harness, MILLIS_PER_DAY, MemoryName, Namespace, STALE_HIGH_DAYS, Teller,
+};
 #[tokio::test]
 async fn a_superseded_aged_entry_is_not_marked_stale_in_history() {
     let h = Harness::new();

@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, MILLIS_PER_DAY, MemoryName, Namespace, TerminalCause};
 
 #[tokio::test]
 async fn calendar_upcoming_surfaces_a_recurring_instance() {

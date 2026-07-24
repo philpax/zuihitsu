@@ -24,6 +24,8 @@ const OUTCOME_TYPES = new Set<EventPayload["type"]>([
   "MemoryContentAppended",
   "MemorySuperseded",
   "EntryRetracted",
+  "EntryAttested",
+  "AttestationRetracted",
   "MemoryVolatilitySet",
   "MemoryDescriptionRegenerated",
   "BeliefArbitrated",
@@ -91,6 +93,9 @@ export interface TurnModel {
   role: TurnRole;
   text: string;
   speaker: string | null;
+  /// The recorded participant id behind `speaker` — the platform stub the connector resolved. The
+  /// view canonicalizes it to the class primary for display, dimming this actually-used handle.
+  speakerId: string | null;
   initiation: Initiation;
   deliberation: DeliberationStep[];
   /// What the turn produced: the graph-mutating events its Lua committed (writes, links, tags,
@@ -106,6 +111,10 @@ export interface TurnModel {
   /// joins): the same content `text` holds as rendered markup, kept as data so the transcript renders
   /// a proper entrance treatment rather than the raw markup. `null` for every other turn.
   brief: Brief | null;
+  /// True when this agent turn was produced by the checkpoint/end-of-session flush (its `produced_by`
+  /// names the `Flush` template) — an internal bookkeeping turn that writes working state to memory
+  /// and is delivered to no participant. Surfaced so the transcript marks it as internal at a glance.
+  checkpoint: boolean;
 }
 
 /// One graph-mutating event a turn produced, summarized for the transcript and carrying the full
@@ -183,12 +192,14 @@ export function emptyTurn(turnId: string, seq: number): TurnModel {
     role: "Agent",
     text: "",
     speaker: null,
+    speakerId: null,
     initiation: "Responding",
     deliberation: [],
     outcomes: [],
     entrance: false,
     wakeup: null,
     brief: null,
+    checkpoint: false,
   };
 }
 
@@ -299,8 +310,10 @@ export function buildConversations(
         model.role = payload.role;
         model.text = payload.text;
         model.speaker = name(payload.participant);
+        model.speakerId = payload.participant;
         model.initiation = payload.initiation;
         model.brief = payload.brief;
+        model.checkpoint = payload.produced_by?.template_name === "flush";
         // Outcomes belong to the agent's response cycle; an inbound or system turn closes the prior
         // one so its post-reply synthesis attributes correctly and later setup does not.
         currentTurnId = payload.role === "Agent" ? payload.turn_id : null;
@@ -390,7 +403,10 @@ export function buildConversations(
       case "MemoryDeleted":
       case "MemoryContentAppended":
       case "MemorySuperseded":
+      case "EntriesConsolidated":
       case "EntryRetracted":
+      case "EntryAttested":
+      case "AttestationRetracted":
       case "EntryTemporalResolved":
       case "EntryTemporalResolveFailed":
       case "EntryDescriptionMirrored":
@@ -486,12 +502,15 @@ function outcomeMemoryIds(payload: EventPayload): string[] {
     case "MemoryDeleted":
     case "MemoryContentAppended":
     case "MemorySuperseded":
+    case "EntriesConsolidated":
     case "MemoryVolatilitySet":
     case "MemoryDescriptionRegenerated":
     case "EntryTemporalResolved":
     case "EntryDescriptionMirrored":
       return [payload.id];
     case "EntryRetracted":
+    case "EntryAttested":
+    case "AttestationRetracted":
     case "BeliefArbitrated":
       return [payload.memory];
     case "TagAppliedToMemory":

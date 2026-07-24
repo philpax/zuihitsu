@@ -12,6 +12,7 @@ use crate::{
     },
     event::{ConversationRef, EventPayload, EventSource, Initiation, SessionEndCause, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, NamespacedMemoryName, Seq, SessionId, TurnId},
+    instance::{CheckpointTrigger, Instance, InstanceError, OpenSession, TailSeed, carryover_tail},
     memory::{brief, scheduler},
     metrics::{
         observe_flush_turn, observe_session_closed, observe_session_opened,
@@ -20,10 +21,6 @@ use crate::{
     model::ModelClient,
     settings::Settings,
     time::{self, Timestamp},
-};
-
-use crate::instance::{
-    CheckpointTrigger, Instance, InstanceError, OpenSession, TailSeed, carryover_tail,
 };
 
 /// The previous session's reconstructed tail: its char-budget extent (seeding the new buffer) plus the

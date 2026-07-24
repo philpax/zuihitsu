@@ -11,6 +11,8 @@
 __pycache__/
 *.pyc
 /spike/runs/
+# fastembed (CPU embedding model) cache — model weights downloaded on first test run.
+/.fastembed_cache/
 
 # Eval harness: full packages (and their resumable .jsonl sidecars) are heavy local artifacts,
 # kept under eval/<name>.json; only the small metrics history is tracked. Ignore everything else in

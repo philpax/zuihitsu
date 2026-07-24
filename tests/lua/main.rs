@@ -4,7 +4,7 @@
 //! (spec §Lua API → block transactionality).
 //!
 //! The suite is partitioned by API surface into sibling modules; shared imports, helpers, and the
-//! block-budget constants live here and reach each module through `use super::*`.
+//! block-budget constants live here, and each module imports what it needs from the crate root.
 
 #[path = "../common/mod.rs"]
 mod common;

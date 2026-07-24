@@ -12,6 +12,7 @@ pub mod api;
 pub mod executor;
 pub mod live;
 pub mod package;
+pub mod prompts;
 pub mod step;
 
 #[cfg(feature = "ts")]
@@ -28,6 +29,7 @@ pub use package::{
     RunRecord, RunSummary, ScenarioMeta, ScenarioReport, ScenarioSummary, Stat, TokenStat, Verdict,
     VerdictKind,
 };
+pub use prompts::TemplateStatus;
 pub use step::{BurstMessage, EvalStep, InterruptedTurn, OnMissing, StepText, Turn};
 
 // Re-export the wire types the crate depends on, so the eval crate can reach them through a

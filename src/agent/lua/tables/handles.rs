@@ -2,15 +2,15 @@
 
 use crate::agent::lua::tables::*;
 
-/// The `mem:*` handle methods (`append`, `entries`, `find_entry`, `history`, `supersede`, `retract`,
-/// `revise`) on the
+/// The `mem:*` handle methods (`append`, `attest`, `entries`, `find_entry`, `history`, `supersede`,
+/// `retract`, `revise`) on the
 /// metatable's `methods` table. Each acts on the handle passed as `this`. `entry_metatable`
 /// backs the entry handles the content reads and `append` return.
 ///
 /// `features` gates the link readers (`:outgoing`, `:incoming`, `:links`), merging
-/// (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods (`:append`,
+/// (`:propose_merge`), and tagging (`:tag`, `:untag`) methods. Memory methods (`:append`, `:attest`,
 /// `:supersede`, `:retract`, `:revise`, `:set_volatility`, `:rename`) are always installed. The content
-/// writers (`:append`, `:supersede`, `:retract`, `:revise`) each run [`guard_search_write`] on their
+/// writers (`:append`, `:attest`, `:supersede`, `:retract`, `:revise`) each run [`guard_search_write`] on their
 /// receiver first, so a write through a `memory.search` hit the query did not name is refused before it
 /// commits — the fuzzy-write guard. Link *writes*
 /// (`links.create`/`links.remove`) live on the `links` module table rather than on a handle (see
@@ -49,14 +49,117 @@ pub(super) fn install_handle_methods(
                     guard_search_taint(&api, id)?;
                     api.lock(id).await;
                     let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
-                    let entry = {
-                        let mut block = api.block.lock();
-                        let entry_id = block
-                            .append(id, &text, opts)
-                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                        block.entry_ref_by_id(entry_id)
+                    // Embed the candidate for the dedup check, if retrieval is configured. The
+                    // embedding is computed off the block lock (it is async), then passed into
+                    // `append_dedup` which searches the vector index under a brief sync lock. The
+                    // candidate is embedded as `"{handle}: {text}"` so it matches the contextual
+                    // embedding space the dedup check searches — normalizing name-bearing and
+                    // name-less phrasings of the same fact.
+                    let (engine, _) = api.block.lock().retrieval_handle();
+                    let embedding = if let Some(retrieval) = &engine.retrieval {
+                        let name = {
+                            let graph = engine.graph.lock();
+                            graph
+                                .memory_by_id(id)
+                                .ok()
+                                .flatten()
+                                .map(|memory| memory.name)
+                        };
+                        let text_to_embed = match &name {
+                            Some(name) => {
+                                crate::model::embed::contextual_text(name.as_str(), &text)
+                            }
+                            None => {
+                                tracing::debug!(
+                                    "dedup: memory name did not resolve; embedding raw text \
+                                     without a contextual prefix",
+                                );
+                                text.clone()
+                            }
+                        };
+                        retrieval
+                            .embedder
+                            .embed(std::slice::from_ref(&text_to_embed))
+                            .await
+                            .ok()
+                            .and_then(|v| v.into_iter().next())
+                    } else {
+                        None
                     };
+                    let (entry, note) = {
+                        let mut block = api.block.lock();
+                        let outcome = block
+                            .append_dedup(id, &text, opts, embedding.as_deref())
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        match outcome {
+                            AppendOutcome::Appended { entry, advisory } => (
+                                block
+                                    .entry_ref_by_id_any(entry)
+                                    .map_err(|error| route_error(error, &mut api.infra.lock()))?,
+                                advisory,
+                            ),
+                            AppendOutcome::Corroborated(corroboration) => (
+                                block
+                                    .entry_ref_by_id_any(corroboration.entry)
+                                    .map_err(|error| route_error(error, &mut api.infra.lock()))?,
+                                Some(corroboration.note),
+                            ),
+                        }
+                    };
+                    // A corroboration folded the write into an existing entry rather than recording a
+                    // new one; the note into the agent's own output makes that capture explicit,
+                    // however the returned handle is inspected.
+                    if let Some(note) = note {
+                        let mut printed = api.printed.lock();
+                        printed.push_str(&note);
+                        printed.push('\n');
+                    }
                     let entry = entry.ok_or(BlockConsistencyError::AppendedEntryMissing)?;
+                    make_entry_handle(&lua, &entry, &entry_metatable)
+                }
+            }
+        })?,
+    )?;
+
+    // mem:attest(entry[, opts]) — stand behind an existing entry's fact as a further teller, rather
+    // than re-recording it. `entry` is an entry handle, or its id or a unique id prefix as a string
+    // (like supersede's argument); `opts` mirrors append's teller and visibility overrides. Runs the
+    // same fuzzy-write guard and block taint as the content writers, and locks the whole class (the
+    // block resolves and validates the entry against the merged identity). Returns the attested entry
+    // as a handle, and emits a note describing the corroboration into the agent's own output.
+    methods.set(
+        "attest",
+        lua.create_async_function({
+            let api = api.clone();
+            let entry_metatable = entry_metatable.clone();
+            move |lua, (this, entry, opts): (HandleSelf, Value, Value)| {
+                let api = api.clone();
+                let entry_metatable = entry_metatable.clone();
+                async move {
+                    guard_search_write(&this.0)?;
+                    let id = handle_id(&this.0)?;
+                    guard_search_taint(&api, id)?;
+                    let selector = entry_selector(&entry)?;
+                    api.lock_class(id).await?;
+                    let opts = append_options_from_lua(&api, &lua, opts)?.unwrap_or_default();
+                    let (entry_id, note) = {
+                        let mut block = api.block.lock();
+                        let corroboration = block
+                            .attest(id, selector, opts)
+                            .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                        (corroboration.entry, corroboration.note)
+                    };
+                    {
+                        let mut printed = api.printed.lock();
+                        printed.push_str(&note);
+                        printed.push('\n');
+                    }
+                    let entry = api
+                        .block
+                        .lock()
+                        .entry_ref_by_id_any(entry_id)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?
+                        .ok_or(BlockConsistencyError::AttestedEntryMissing)?;
                     make_entry_handle(&lua, &entry, &entry_metatable)
                 }
             }
@@ -265,10 +368,20 @@ pub(super) fn install_handle_methods(
                     guard_search_taint(&api, id)?;
                     let entry = entry_selector(&entry)?;
                     api.lock_class(id).await?;
-                    api.block
+                    // A per-attester withdrawal leaves the fact standing, so the note into the agent's
+                    // own output makes explicit what happened — whether the whole entry went or only
+                    // this teller's account (see [`Retraction`]).
+                    let outcome = api
+                        .block
                         .lock()
-                        .retract(id, entry, &reason)
-                        .map_err(|error| route_error(error, &mut api.infra.lock()))
+                        .retract(id, entry, &reason, None)
+                        .map_err(|error| route_error(error, &mut api.infra.lock()))?;
+                    if let Retraction::Withdrawn { note } = outcome {
+                        let mut printed = api.printed.lock();
+                        printed.push_str(&note);
+                        printed.push('\n');
+                    }
+                    Ok(())
                 }
             }
         })?,

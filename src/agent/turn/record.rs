@@ -1,13 +1,12 @@
 //! `TurnRecord` and `append_turn`: recording a conversation turn to the event log.
 
 use crate::{
+    agent::turn::TurnError,
     clock::Clock,
     event::{EventPayload, EventSource, Initiation, ProducedBy, TurnRole},
     ids::{ConversationId, MemoryId, TurnId},
     store::Store,
 };
-
-use crate::agent::turn::TurnError;
 
 /// One `ConversationTurn` to record: the inbound participant message, the agent's response, or a
 /// system message. Holds just the turn's fields; the seams it is written through — the store it is

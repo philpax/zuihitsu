@@ -23,7 +23,7 @@ use session::{OpenSession, RoutedTurn, TailSeed, carryover_tail};
 
 pub use control::{
     Arbitration, ContextEntry, Control, DesignateOutcome, LuaConsoleOutcome, MergeProposal,
-    ModelCall, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
+    ModelCall, RetractAttestationOutcome, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
 };
 pub use platform::{
     LinkError, LinkNode, MessageInput, ParticipantAttribute, Platform, ProjectOutcome, RosterResync,
@@ -49,6 +49,7 @@ use crate::{
     engine::Engine,
     graph::Graph,
     ids::{ConversationId, MemoryId, Seq},
+    instance::workers::MaintenanceStart,
     mcp::{McpHost, McpServerConfig},
     memory::search::{SearchHit, SearchQuery, search as rank_search},
     metrics::observe_search,
@@ -119,6 +120,20 @@ pub(crate) struct BackgroundPasses {
     describe_guard: tokio::sync::Mutex<()>,
     /// As `describe_guard`, serializing the link-inference catch-up.
     link_inference_guard: tokio::sync::Mutex<()>,
+    /// The consolidation pass's cursor: the log seq through which entries have been considered for
+    /// consolidation. Re-seeded to log-head at boot, like the link-inference cursor.
+    consolidation_cursor: Mutex<Seq>,
+    /// Serializes consolidation sweeps so two do not overlap.
+    consolidation_guard: tokio::sync::Mutex<()>,
+    /// The canonicalize pass's cursor: the log seq through which platform stubs have been considered.
+    canonicalize_cursor: Mutex<Seq>,
+    /// Serializes canonicalize sweeps.
+    canonicalize_guard: tokio::sync::Mutex<()>,
+    /// The link-cleanup pass's cursor: the log seq through which entries have been considered for
+    /// link-redundancy cleanup.
+    link_cleanup_cursor: Mutex<Seq>,
+    /// Serializes link-cleanup sweeps.
+    link_cleanup_guard: tokio::sync::Mutex<()>,
 }
 
 mod session_store;
@@ -266,6 +281,17 @@ impl Instance {
     /// in the commit window — and classify the log for the caller to act on. The single-writer log
     /// lock is acquired when the (file-backed) store is opened, before the instance is constructed.
     pub fn boot(&mut self) -> Result<GenesisStatus, InstanceError> {
+        // A born agent reconciles its templates against this build: names its genesis predates are
+        // backfilled, unchanged defaults (Bootstrap-latest) auto-track the build, and operator-curated
+        // surfaces are left untouched (see `genesis::reconcile_templates`). Before materialization, so
+        // the graph applies the registrations in the same catch-up.
+        if genesis::status(self.engine.store.lock().as_ref())? == GenesisStatus::Complete {
+            genesis::reconcile_templates(
+                self.engine.store.lock().as_mut(),
+                self.engine.clock.as_ref(),
+                &self.features,
+            )?;
+        }
         let applied = self
             .engine
             .graph
@@ -403,6 +429,49 @@ impl Instance {
 
     pub(crate) fn baseline_link_inference_cursor(&self) -> Result<(), InstanceError> {
         self.passes.baseline_link_inference_cursor(&self.engine)
+    }
+
+    /// Seed the maintenance pass cursors to log-head, so a restart does not re-process old content.
+    pub(crate) fn baseline_maintenance_cursors(&self) -> Result<(), InstanceError> {
+        self.passes.baseline_maintenance_cursors(&self.engine)
+    }
+
+    /// Drive the consolidation pass on demand — the CLI/console entry point. Returns how many memories
+    /// were considered. Unlike the timer driver (which resumes from the incremental cursor), the manual
+    /// path sweeps the whole log from the start ([`MaintenanceStart::FromStart`]): a fresh instance
+    /// seeds the cursor to log-head at boot, so an incremental manual pass would be a no-op that defeats
+    /// its purpose. The pass is idempotent, so a full re-sweep is safe.
+    pub async fn consolidation_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes
+            .consolidation_catch_up(&self.engine, model, MaintenanceStart::FromStart)
+            .await
+    }
+
+    /// Drive the canonical-profile pass on demand. Returns how many stubs were considered. Sweeps from
+    /// the start of the log, like [`Instance::consolidation_catch_up`] — see it for the timer/manual
+    /// asymmetry.
+    pub async fn canonicalize_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes
+            .canonicalize_catch_up(&self.engine, model, MaintenanceStart::FromStart)
+            .await
+    }
+
+    /// Drive the link-redundant entry cleanup pass on demand. Returns how many memories were considered.
+    /// Sweeps from the start of the log, like [`Instance::consolidation_catch_up`] — see it for the
+    /// timer/manual asymmetry.
+    pub async fn link_cleanup_catch_up(
+        &self,
+        model: &dyn ModelClient,
+    ) -> Result<usize, InstanceError> {
+        self.passes
+            .link_cleanup_catch_up(&self.engine, model, MaintenanceStart::FromStart)
+            .await
     }
 
     /// The lazily-minted async lock serializing `conversation`'s session lifecycle. Delegates to

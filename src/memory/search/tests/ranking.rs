@@ -1,4 +1,4 @@
-use super::*;
+use crate::{memory::search::tests::*, time::MILLIS_PER_DAY};
 #[tokio::test]
 async fn the_matching_memory_ranks_first() {
     let mut corpus = Corpus::new();
@@ -49,11 +49,13 @@ async fn recency_breaks_a_tie() {
             Namespace::Topic.with_name("fresh"),
             "shared topic text",
             "shared topic text",
-            100 * DAY,
+            100 * MILLIS_PER_DAY,
         )
         .await;
 
-    let ranked = corpus.query("shared topic text", 100 * DAY, 5).await;
+    let ranked = corpus
+        .query("shared topic text", 100 * MILLIS_PER_DAY, 5)
+        .await;
     assert_eq!(ranked.first(), Some(&fresh));
     assert!(ranked.contains(&stale));
 }

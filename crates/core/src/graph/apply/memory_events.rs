@@ -3,11 +3,9 @@
 use rusqlite::params;
 
 use crate::{
-    event::{Event, EventPayload, Visibility},
-    graph::{GraphError, backend},
+    event::{Event, EventPayload, EventSource, Visibility},
+    graph::{Graph, GraphError, backend},
 };
-
-use crate::graph::Graph;
 
 impl Graph {
     /// Materialize the memory-event arm of [`Graph::apply`](crate::graph::Graph::apply). Returns `Ok(true)`
@@ -136,13 +134,20 @@ impl Graph {
                 // ground truth a later extracted occurrence must never shadow (an untimed append has no
                 // occurrence to classify, so it is not authored).
                 let occurred_authored = i64::from(occurred_at.is_some());
+                // The recording event's source fixes the entry's origin: a platform connector's
+                // projected attribute carries its platform, everything else records as NULL. The
+                // cleanup passes read this back to leave connector-owned entries untouched.
+                let origin_platform = match &event.source {
+                    EventSource::PlatformConnector(platform) => Some(platform.as_str()),
+                    _ => None,
+                };
                 self.conn
                     .execute(
                         "INSERT INTO content_entries \
                          (entry_id, memory_id, asserted_at, occurred_at, occurred_sort, \
                           occurred_lo, occurred_hi, occurred_authored, text, told_by, told_in, \
-                          visibility, seq)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                          visibility, origin_platform, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                         params![
                             entry_id.0.to_string(),
                             id.0.to_string(),
@@ -160,6 +165,30 @@ impl Graph {
                                     serde_json::to_string(r).map_err(GraphError::Serialize)
                                 })
                                 .transpose()?,
+                            serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
+                            origin_platform,
+                            event.seq.0 as i64,
+                        ],
+                    )
+                    .map_err(backend)?;
+                // Record the founding attestation this entry carries by construction: the teller that
+                // recorded it stands behind its fact under the entry's own posture. This is what makes
+                // every existing log replay with a singleton attestation set — a later
+                // `EntryAttested` adds further tellers, but the founding one is always derived here
+                // from the append's own `told_by`/`told_in`/`asserted_at`/`visibility`.
+                self.conn
+                    .execute(
+                        "INSERT INTO entry_attestations \
+                         (entry_id, teller, told_in, asserted_at, posture, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            entry_id.0.to_string(),
+                            serde_json::to_string(told_by).map_err(GraphError::Serialize)?,
+                            told_in
+                                .as_ref()
+                                .map(|r| serde_json::to_string(r).map_err(GraphError::Serialize))
+                                .transpose()?,
+                            asserted_at.as_millisecond(),
                             serde_json::to_string(visibility).map_err(GraphError::Serialize)?,
                             event.seq.0 as i64,
                         ],
@@ -204,6 +233,26 @@ impl Graph {
                     )
                     .map_err(backend)?;
             }
+            EventPayload::EntriesConsolidated {
+                sources,
+                replacement,
+                ..
+            } => {
+                // Tombstone each source entry by stamping `superseded_by` = the replacement entry id,
+                // the same mechanism `MemorySuperseded` uses for a single entry. Live reads exclude
+                // them (`superseded_by IS NULL`); history reads keep them. The `EntriesConsolidated`
+                // event itself carries the full many-to-one relationship that `MemorySuperseded`'s
+                // one-to-one shape cannot express — a reader finds the consolidation relationship by
+                // reading the event, not a side table.
+                for source in sources {
+                    self.conn
+                        .execute(
+                            "UPDATE content_entries SET superseded_by = ?1 WHERE entry_id = ?2",
+                            params![replacement.0.to_string(), source.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
+            }
             EventPayload::EntryRetracted { entry, reason, .. } => {
                 // Tombstone the retracted entry: stamp its own id into superseded_by so every live
                 // filter (`superseded_by IS NULL`) hides it exactly as a supersession would — with no
@@ -217,6 +266,101 @@ impl Graph {
                         params![entry.0.to_string(), reason],
                     )
                     .map_err(backend)?;
+                // Withdraw every teller's attestation too: a whole-entry retraction retires the fact
+                // outright, so no attestation still stands behind it. Stamping each live one keeps
+                // history coherent — a reader sees the same reason on the entry and on each teller.
+                self.conn
+                    .execute(
+                        "UPDATE entry_attestations SET retracted_reason = ?1
+                         WHERE entry_id = ?2 AND retracted_reason IS NULL",
+                        params![reason, entry.0.to_string()],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::EntryAttested {
+                entry,
+                teller,
+                told_in,
+                asserted_at,
+                posture,
+                phrasing,
+                source_entry,
+                ..
+            } => {
+                // Upsert this teller's attestation, last-writer-wins on the (entry, teller) key: a
+                // re-attestation by the same teller overwrites the row (and revives it if it had been
+                // withdrawn). The audience-widening invariant — that no attestation is wider than the
+                // entry's founding posture — is the write path's to enforce; the fold trusts the
+                // recorded event and never rejects here, since replay must reproduce the log verbatim.
+                // A re-attest keeps the row's original `seq`: the attestation reads order by seq with
+                // the founding attestation first, and a founding teller re-attesting their own entry
+                // (a narrowing, say) must not push the founding row behind later attesters — the
+                // marker assembly and the visibility fallback both key on founding-first.
+                self.conn
+                    .execute(
+                        "INSERT INTO entry_attestations \
+                         (entry_id, teller, told_in, asserted_at, posture, phrasing, source_entry, seq)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                         ON CONFLICT(entry_id, teller) DO UPDATE SET
+                             told_in = excluded.told_in,
+                             asserted_at = excluded.asserted_at,
+                             posture = excluded.posture,
+                             phrasing = excluded.phrasing,
+                             source_entry = excluded.source_entry,
+                             retracted_reason = NULL",
+                        params![
+                            entry.0.to_string(),
+                            serde_json::to_string(teller).map_err(GraphError::Serialize)?,
+                            told_in
+                                .as_ref()
+                                .map(|r| serde_json::to_string(r).map_err(GraphError::Serialize))
+                                .transpose()?,
+                            asserted_at.as_millisecond(),
+                            serde_json::to_string(posture).map_err(GraphError::Serialize)?,
+                            phrasing,
+                            source_entry.as_ref().map(|e| e.0.to_string()),
+                            event.seq.0 as i64,
+                        ],
+                    )
+                    .map_err(backend)?;
+            }
+            EventPayload::AttestationRetracted {
+                entry,
+                teller,
+                reason,
+                ..
+            } => {
+                let teller_json = serde_json::to_string(teller).map_err(GraphError::Serialize)?;
+                // Stamp this teller's attestation withdrawn in place; the row is otherwise immutable.
+                self.conn
+                    .execute(
+                        "UPDATE entry_attestations SET retracted_reason = ?1
+                         WHERE entry_id = ?2 AND teller = ?3",
+                        params![reason, entry.0.to_string(), teller_json],
+                    )
+                    .map_err(backend)?;
+                // When no live attestation remains, tombstone the entry exactly as EntryRetracted
+                // does — no teller still stands behind the fact, so it leaves every live surface (its
+                // own id in superseded_by, the reason recorded). While an attestation still stands, the
+                // entry stays live and the predicate reasons over the remaining set.
+                let live: i64 = self
+                    .conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM entry_attestations
+                         WHERE entry_id = ?1 AND retracted_reason IS NULL",
+                        params![entry.0.to_string()],
+                        |r| r.get(0),
+                    )
+                    .map_err(backend)?;
+                if live == 0 {
+                    self.conn
+                        .execute(
+                            "UPDATE content_entries SET superseded_by = ?1, retracted_reason = ?2
+                             WHERE entry_id = ?1",
+                            params![entry.0.to_string(), reason],
+                        )
+                        .map_err(backend)?;
+                }
             }
             EventPayload::EntryDescriptionMirrored { entry_id, .. } => {
                 // Flag the seed entry as a description mirror in place; the append row is otherwise
@@ -234,11 +378,12 @@ impl Graph {
                 occurred_at,
                 ..
             } => {
-                // The extraction pass resolved this entry's occurrence after it was appended;
-                // recompute its denormalized columns in place (text and FTS are untouched). This
-                // occurrence is inferred, not authored, so `occurred_authored` stays 0 — a
-                // representative-date projection must not let this guess shadow a stated date.
-                let occurrence = self.occurrence_columns(Some(occurred_at))?;
+                // Resolve or withdraw this entry's occurrence after it was appended; recompute its
+                // denormalized columns in place (text and FTS are untouched). A resolved occurrence is
+                // inferred, not authored, so `occurred_authored` stays 0 — a representative-date
+                // projection must not let this guess shadow a stated date — and a withdrawal (`None`)
+                // clears every occurrence column back to NULL, returning the entry to untimed.
+                let occurrence = self.occurrence_columns(occurred_at.as_ref())?;
                 self.conn
                     .execute(
                         "UPDATE content_entries
@@ -254,6 +399,20 @@ impl Graph {
                         ],
                     )
                     .map_err(backend)?;
+                // A withdrawal also disarms any wake-up armed off the old occurrence: the scheduler
+                // keys a recurring firing on `occurred_at IS NOT NULL` and the pending surface on
+                // `fired_at IS NOT NULL AND surfaced_at IS NULL`, so clearing the occurrence alone
+                // unarms a not-yet-fired entry, and clearing `fired_at`/`surfaced_at` retracts one that
+                // already fired but has not surfaced. Both are needed to fully unarm an errant wake-up.
+                if occurred_at.is_none() {
+                    self.conn
+                        .execute(
+                            "UPDATE content_entries SET fired_at = NULL, surfaced_at = NULL \
+                             WHERE entry_id = ?1",
+                            params![entry_id.0.to_string()],
+                        )
+                        .map_err(backend)?;
+                }
             }
             EventPayload::ScheduledJobFired {
                 entry_id, fired_at, ..

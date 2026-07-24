@@ -4,13 +4,14 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::GraphError,
     ids::{EntryId, MemoryId, MemoryName},
-    memory::visibility::subject_participant,
+    memory::{
+        memory_block::{
+            AppendOptions, Authority, EntrySelector, MemoryBlock, MemoryError,
+            reconcile_forced_visibility, suggest::most_similar,
+        },
+        visibility::subject_participant,
+    },
     time::TemporalRef,
-};
-
-use crate::memory::memory_block::{
-    AppendOptions, Authority, EntrySelector, MemoryBlock, MemoryError, reconcile_forced_visibility,
-    suggest::most_similar,
 };
 
 impl MemoryBlock {
@@ -163,7 +164,8 @@ impl MemoryBlock {
         Ok(())
     }
 
-    /// Append a content entry to `id`. `opts.told_by` stamps a specific teller (a relayed claim's
+    /// Buffer a content entry for `id` — the agent's primary write, recording a fact, an
+    /// observation, or a relayed claim. `opts.told_by` overrides the speaker (a relayed claim's
     /// source); `opts.by_agent` attributes it to the agent; with neither, it is the current speaker.
     /// `opts.visibility` forces the visibility; otherwise the write-time default applies (a
     /// `#confidential` room, or an aside about an absent third party, defaults private to the teller).
@@ -243,45 +245,6 @@ impl MemoryBlock {
         self.touched.insert(id);
         self.buffer
             .push(EventPayload::memory_superseded(id, old, new));
-        Ok(())
-    }
-
-    /// Retract `entry` on `id` to a tombstone, recording `reason` — the agent withdraws a fact
-    /// outright rather than replacing it in place (spec §Visibility → superseded entries are not live).
-    /// This is the honest correction when a fact was filed on the wrong memory: `supersede` demands a
-    /// replacement text on the *same* entry, which cannot move a fact to another memory, so the fix is
-    /// to retract here and re-assert on the right memory with a fresh append. `entry` must be a live
-    /// entry of `id`'s `same_as` class (a live read, so the lock layer holds the class), and `reason`
-    /// must be non-empty (an unexplained retraction is unauditable). Buffers an `EntryRetracted`; the
-    /// entry then drops from every live surface while remaining in history with its reason. Guarded
-    /// exactly like `supersede`: platform authority may not retract a `self` entry, nor another
-    /// participant's confidence ([`MemoryBlock::guard_foreign_confidence_supersede`]).
-    pub fn retract(
-        &mut self,
-        id: MemoryId,
-        entry: impl Into<EntrySelector>,
-        reason: &str,
-    ) -> Result<(), MemoryError> {
-        // Recorded against the class primary when told through a platform-agnostic handle, matching where
-        // `supersede` lands the tombstone — `live_class_entries` gathers the whole class either way, so
-        // the redirect only attributes the event to the primary.
-        let id = self.class_write_target(id)?;
-        self.guard_self(id)?;
-        self.guard_operator(id)?;
-        let reason = reason.trim();
-        if reason.is_empty() {
-            return Err(MemoryError::RetractionReasonRequired);
-        }
-        // Resolve a by-id-or-prefix reference against the class, like `supersede`, before the live check.
-        let entry = self.resolve_entry_ref(id, entry.into())?;
-        let live = self.live_class_entries(id)?;
-        let Some(target) = live.iter().find(|e| e.entry_id == entry) else {
-            return Err(MemoryError::UnknownEntry(entry.0.to_string()));
-        };
-        self.guard_foreign_confidence_supersede(target)?;
-        self.touched.insert(id);
-        self.buffer
-            .push(EventPayload::entry_retracted(id, entry, reason, None));
         Ok(())
     }
 
@@ -421,7 +384,7 @@ fn platform_qualified(name: &str) -> bool {
 /// its source) wins over everything, then `by_agent` (the agent's own observation), and otherwise the
 /// current speaker. Shared by `append` and `create_with_opts` so a created memory's first entry and a
 /// later append attribute identically.
-fn entry_teller(opts: &AppendOptions, speaker: &Teller) -> Teller {
+pub(super) fn entry_teller(opts: &AppendOptions, speaker: &Teller) -> Teller {
     opts.told_by.clone().unwrap_or_else(|| {
         if opts.by_agent {
             Teller::Agent

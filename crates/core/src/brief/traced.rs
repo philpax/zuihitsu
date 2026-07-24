@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    brief::{BriefError, BriefRequest, compose_packed, helpers::ranked_present},
     event::Visibility,
     graph::{Graph, MemoryView},
     ids::{MemoryId, MemoryName},
@@ -8,8 +9,6 @@ use crate::{
     visibility::{self, ClassOf, VisibilityDecision},
     vocabulary::TagName,
 };
-
-use crate::brief::{BriefError, BriefRequest, compose_packed, helpers::ranked_present};
 
 /// The composed brief plus its derivation: every memory the composer considered and, for each of
 /// their entries, the visibility verdict and whether it reached the brief. Re-derived (not stored),

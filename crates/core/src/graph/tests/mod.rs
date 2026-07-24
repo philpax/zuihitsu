@@ -2,26 +2,30 @@
 //! expected queryable state. The materializer is the one subsystem replay can't self-heal (a buggy
 //! handler reproduces faithfully), so it is exercised against materialized state (spec §Storage).
 
-use super::Graph;
 use crate::{
     event::{
         Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility,
         Volatility,
     },
+    graph::Graph,
     ids::{EntryId, MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::{RelationName, TagName},
 };
 
+mod attestation;
+mod consolidation;
 mod describe;
 mod designation;
+mod link_class;
 mod merge;
 mod occurrence;
 mod participants;
 mod projection;
 mod relations;
 mod replay;
+mod schema;
 mod search;
 
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.

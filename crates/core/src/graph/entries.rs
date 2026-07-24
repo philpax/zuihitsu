@@ -4,15 +4,25 @@ use crate::{
     db::{query_map_into, query_opt_into},
     event::Cardinality,
     graph::{
-        EntryView, Graph, GraphError, MemoryView, RecurringEntry, backend, parse_ulid,
-        timestamp_column,
+        AttestationView, EntryOrigin, EntryView, Graph, GraphError, MemoryView, RecurringEntry,
+        backend, parse_ulid, timestamp_column,
     },
     ids::{EntryId, MemoryId, Namespace},
     time::temporal::TemporalRef,
     vocabulary::RelationName,
 };
-use rusqlite::params;
-use std::collections::BTreeSet;
+use rusqlite::{params, params_from_iter};
+use std::collections::{BTreeSet, HashMap};
+
+/// Which attestations an entry read carries: the live set (every agent-facing and live console
+/// read), or the full set including withdrawn rows with their reasons (the history read, where the
+/// console renders a withdrawal struck-through). The visibility predicate and the chip engine skip
+/// withdrawn rows regardless, so the wider scope never changes what an agent-facing surface shows.
+#[derive(Clone, Copy)]
+pub(super) enum AttestationScope {
+    Live,
+    WithWithdrawn,
+}
 
 impl Graph {
     /// Every live entry across all memories that carries a recurrence rule, with the memory it belongs
@@ -53,7 +63,7 @@ impl Graph {
     pub fn entries_local(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries WHERE memory_id = ?1 AND superseded_by IS NULL ORDER BY seq",
             id,
         )
@@ -65,7 +75,7 @@ impl Graph {
     pub fn entries_local_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries WHERE memory_id = ?1 ORDER BY seq",
             id,
         )
@@ -80,7 +90,7 @@ impl Graph {
     pub fn class_entries(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
         self.collect_entries(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -132,9 +142,9 @@ impl Graph {
     /// As [`Graph::class_entries`], but including superseded entries — the class-wide history read
     /// for `mem:history()` and the console (spec §Visibility → superseded entries are not live).
     pub fn class_history(&self, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
-        self.collect_entries(
+        self.collect_entries_scoped(
             "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
-                    superseded_by, retracted_reason
+                    superseded_by, retracted_reason, origin_platform
              FROM content_entries
              WHERE memory_id IN (
                  SELECT id FROM memories
@@ -143,6 +153,7 @@ impl Graph {
              )
              ORDER BY seq",
             id,
+            AttestationScope::WithWithdrawn,
         )
     }
 
@@ -179,7 +190,8 @@ impl Graph {
     ) -> Result<Option<(MemoryView, EntryView)>, GraphError> {
         let stmt = self.conn.prepare(
             "SELECT entry_id, memory_id, asserted_at, occurred_sort, occurred_at, occurred_authored,
-                    text, told_by, told_in, visibility, superseded_by, retracted_reason
+                    text, told_by, told_in, visibility, superseded_by, retracted_reason,
+                    origin_platform
              FROM content_entries WHERE entry_id = ?1",
         )?;
         let mapped = query_opt_into(stmt, params![entry_id.0.to_string()], |row| {
@@ -187,20 +199,133 @@ impl Graph {
             let entry = entry_from_row(row)?;
             Ok::<_, GraphError>((memory_id, entry))
         })?;
-        let Some((memory_id, entry)) = mapped else {
+        let Some((memory_id, mut entry)) = mapped else {
             return Ok(None);
         };
+        self.attach_attestations(std::slice::from_mut(&mut entry), AttestationScope::Live)?;
         Ok(self
             .memory_by_id(MemoryId(parse_ulid(&memory_id)?))?
             .map(|m| (m, entry)))
+    }
+
+    /// Every entry id that begins with `prefix` (a full id matches itself), across all memories and
+    /// regardless of the owning memory's live state or the entry's own supersession — the resolution
+    /// primitive the operator's offline correction commands use to turn a typed id or unique prefix into
+    /// exactly one entry, erroring when the prefix is ambiguous. The prefix is matched
+    /// case-insensitively against the stored uppercase ULID, so an operator may paste either casing.
+    /// Ordered by id for a stable candidate listing.
+    pub fn entry_ids_with_prefix(&self, prefix: &str) -> Result<Vec<EntryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT entry_id FROM content_entries
+             WHERE entry_id LIKE ?1 || '%' ORDER BY entry_id",
+        )?;
+        let ids: Vec<String> = query_map_into(stmt, params![prefix.to_uppercase()], |row| {
+            Ok::<_, GraphError>(row.get("entry_id")?)
+        })?;
+        ids.iter().map(|id| Ok(EntryId(parse_ulid(id)?))).collect()
     }
 
     /// Run an entry query whose sole bound parameter is a memory id, mapping each row to an
     /// [`EntryView`] through [`entry_from_row`]. Shared by the live and history entry reads; each must
     /// select the columns [`entry_from_row`] reads.
     fn collect_entries(&self, sql: &str, id: MemoryId) -> Result<Vec<EntryView>, GraphError> {
+        self.collect_entries_scoped(sql, id, AttestationScope::Live)
+    }
+
+    /// As [`Graph::collect_entries`], with the attestation scope explicit — the history read carries
+    /// withdrawn attestations so the console can render them struck-through with their reasons, while
+    /// every live read stays live-only.
+    fn collect_entries_scoped(
+        &self,
+        sql: &str,
+        id: MemoryId,
+        scope: AttestationScope,
+    ) -> Result<Vec<EntryView>, GraphError> {
         let stmt = self.conn.prepare(sql)?;
-        query_map_into(stmt, params![id.0.to_string()], entry_from_row)
+        let mut entries = query_map_into(stmt, params![id.0.to_string()], entry_from_row)?;
+        self.attach_attestations(&mut entries, scope)?;
+        Ok(entries)
+    }
+
+    /// Fill in each entry's live attestation set from `entry_attestations` in one batched query over
+    /// the whole set — collect the entry ids, fetch every live attestation for them at once, and
+    /// attach each entry its own (founding first, then by commit order). One query for the read rather
+    /// than one per row, mirroring how the tag reads batch.
+    fn attach_attestations(
+        &self,
+        entries: &mut [EntryView],
+        scope: AttestationScope,
+    ) -> Result<(), GraphError> {
+        let ids: Vec<EntryId> = entries.iter().map(|entry| entry.entry_id).collect();
+        let mut by_entry = self.attestations_for(&ids, scope)?;
+        for entry in entries.iter_mut() {
+            entry.attestations = by_entry.remove(&entry.entry_id).unwrap_or_default();
+        }
+        Ok(())
+    }
+
+    /// The live attestations of every entry in `ids`, keyed by entry id and ordered founding first
+    /// then by commit order (`seq`). Only live attestations participate (`retracted_reason IS NULL`),
+    /// mirroring the live entry reads; a whole-entry or per-teller retraction drops its attestations
+    /// from this set. One query over the id set — the batched fetch the entry reads share.
+    pub(super) fn attestations_for(
+        &self,
+        ids: &[EntryId],
+        scope: AttestationScope,
+    ) -> Result<HashMap<EntryId, Vec<AttestationView>>, GraphError> {
+        let mut by_entry: HashMap<EntryId, Vec<AttestationView>> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(by_entry);
+        }
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        let withdrawn_filter = match scope {
+            AttestationScope::Live => " AND retracted_reason IS NULL",
+            AttestationScope::WithWithdrawn => "",
+        };
+        let sql = format!(
+            "SELECT entry_id, teller, told_in, asserted_at, posture, phrasing, source_entry, \
+                    retracted_reason, seq
+             FROM entry_attestations
+             WHERE entry_id IN ({placeholders}){withdrawn_filter}
+             ORDER BY entry_id, seq"
+        );
+        let stmt = self.conn.prepare(&sql)?;
+        let rows: Vec<(String, AttestationView)> = query_map_into(
+            stmt,
+            params_from_iter(ids.iter().map(|id| id.0.to_string())),
+            |row| {
+                let entry_id: String = row.get("entry_id")?;
+                Ok::<_, GraphError>((entry_id, attestation_from_row(row)?))
+            },
+        )?;
+        for (entry_id, attestation) in rows {
+            by_entry
+                .entry(EntryId(parse_ulid(&entry_id)?))
+                .or_default()
+                .push(attestation);
+        }
+        Ok(by_entry)
+    }
+
+    /// The source entries consolidated into `replacement` by an `EntriesConsolidated` event, in
+    /// commit order. Each source's `superseded_by` column points to the replacement (the same
+    /// mechanism `MemorySuperseded` uses), so this reads the materialized graph rather than
+    /// scanning the event log: it returns every tombstoned entry whose successor is `replacement`.
+    /// A history read uses this to show the consolidation relationship.
+    pub fn consolidation_sources(
+        &self,
+        replacement: EntryId,
+    ) -> Result<Vec<EntryView>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT entry_id, asserted_at, occurred_sort, occurred_at, occurred_authored, text, told_by, told_in, visibility,
+                    superseded_by, retracted_reason, origin_platform
+             FROM content_entries
+             WHERE superseded_by = ?1
+             ORDER BY seq",
+        )?;
+        let mut entries = query_map_into(stmt, params![replacement.0.to_string()], entry_from_row)?;
+        self.attach_attestations(&mut entries, AttestationScope::Live)?;
+        Ok(entries)
     }
 }
 
@@ -215,6 +340,7 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
     let visibility: String = row.get("visibility")?;
     let superseded_by: Option<String> = row.get("superseded_by")?;
     let occurred_at: Option<String> = row.get("occurred_at")?;
+    let origin_platform: Option<String> = row.get("origin_platform")?;
     Ok(EntryView {
         entry_id: EntryId(parse_ulid(&entry_id)?),
         asserted_at: timestamp_column(row.get("asserted_at")?, "asserted_at")?,
@@ -233,6 +359,36 @@ pub(super) fn entry_from_row(row: &rusqlite::Row<'_>) -> Result<EntryView, Graph
             .transpose()?,
         visibility: serde_json::from_str(&visibility)?,
         superseded_by: superseded_by
+            .map(|id| parse_ulid(&id).map(EntryId))
+            .transpose()?,
+        retracted_reason: row.get("retracted_reason")?,
+        origin: match origin_platform {
+            Some(platform) => EntryOrigin::PlatformConnector(platform),
+            None => EntryOrigin::Recorded,
+        },
+        // Populated by the batched attestation fetch after the row decode (see
+        // [`Graph::attach_attestations`]); a bare row read leaves it empty.
+        attestations: Vec::new(),
+    })
+}
+
+/// Decode one `entry_attestations` row into an [`AttestationView`], deserializing the structured
+/// `teller` / `told_in` / `posture` and parsing the `source_entry` id. The batched attestation
+/// fetch reads these columns by these names.
+pub(super) fn attestation_from_row(row: &rusqlite::Row<'_>) -> Result<AttestationView, GraphError> {
+    let teller: String = row.get("teller")?;
+    let told_in: Option<String> = row.get("told_in")?;
+    let posture: String = row.get("posture")?;
+    let source_entry: Option<String> = row.get("source_entry")?;
+    Ok(AttestationView {
+        teller: serde_json::from_str(&teller)?,
+        told_in: told_in
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?,
+        asserted_at: timestamp_column(row.get("asserted_at")?, "asserted_at")?,
+        posture: serde_json::from_str(&posture)?,
+        phrasing: row.get("phrasing")?,
+        source_entry: source_entry
             .map(|id| parse_ulid(&id).map(EntryId))
             .transpose()?,
         retracted_reason: row.get("retracted_reason")?,

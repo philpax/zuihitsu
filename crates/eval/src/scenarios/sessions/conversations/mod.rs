@@ -27,15 +27,14 @@ use crate::{
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
+    scenarios::sessions::conversations::{
+        a_reminder_comes_due::AReminderComesDue, a_week_with_the_team::AWeekWithTheTeam,
+        applies_a_remembered_preference::AppliesARememberedPreference,
+        attributed_conflicting_accounts::AttributedConflictingAccounts,
+        conflicting_accounts::ConflictingAccounts, getting_to_know_someone::GettingToKnowSomeone,
+        shifting_plans::ShiftingPlans,
+    },
     step::{EvalStep, Turn},
-};
-
-use crate::scenarios::sessions::conversations::{
-    a_reminder_comes_due::AReminderComesDue, a_week_with_the_team::AWeekWithTheTeam,
-    applies_a_remembered_preference::AppliesARememberedPreference,
-    attributed_conflicting_accounts::AttributedConflictingAccounts,
-    conflicting_accounts::ConflictingAccounts, getting_to_know_someone::GettingToKnowSomeone,
-    shifting_plans::ShiftingPlans,
 };
 
 /// This module's scenarios.

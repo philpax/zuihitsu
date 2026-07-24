@@ -1,4 +1,4 @@
-use super::*;
+use crate::http_server::tests::*;
 
 /// Build an app over a born agent that has run one scripted turn, wired to a fresh local metrics
 /// recorder so the `/control/metrics` scrape reads the turn's observations. The recorder and its

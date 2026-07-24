@@ -3,9 +3,8 @@
 //! the imprint interview. Exercised over the in-memory backends, since the property is a pure function
 //! of the folded log. The action reuses the operator-authority [`crate::memory::memory_block`] path, so
 //! these tests also guard that the edit honours `guard_self` for the operator rather than weakening it.
-use super::*;
 use crate::{
-    PersonId, SelfEditOutcome, TEST_PLATFORM,
+    Instance, PersonId, SelfEditOutcome, TEST_PLATFORM,
     clock::ManualClock,
     event::{EventPayload, Teller, Visibility},
     ids::EntryId,

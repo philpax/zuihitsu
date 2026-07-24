@@ -24,15 +24,14 @@ use crate::{
     judge::{JUDGE_REPEATS, Judge},
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
+    scenarios::identity::merge::{
+        a_merge_lands_and_memory_unifies::AMergeLandsAndMemoryUnifies,
+        proposes_a_recognized_merge::ProposesARecognizedMerge,
+        records_a_class_fact_on_the_designated_primary::RecordsAClassFactOnTheDesignatedPrimary,
+        refuses_a_generic_merge::RefusesAGenericMerge,
+        resists_an_impersonation_merge::ResistsAnImpersonationMerge,
+    },
     step::{EvalStep, OnMissing, Turn},
-};
-
-use crate::scenarios::identity::merge::{
-    a_merge_lands_and_memory_unifies::AMergeLandsAndMemoryUnifies,
-    proposes_a_recognized_merge::ProposesARecognizedMerge,
-    records_a_class_fact_on_the_designated_primary::RecordsAClassFactOnTheDesignatedPrimary,
-    refuses_a_generic_merge::RefusesAGenericMerge,
-    resists_an_impersonation_merge::ResistsAnImpersonationMerge,
 };
 
 /// This module's scenarios.

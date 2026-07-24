@@ -3,7 +3,7 @@
 //! direct append, detail reads, `memory.get`, the read-only field posture), plus the teachable errors
 //! for a missing embedder and an empty query.
 
-use super::*;
+use crate::search::{BlockOutcome, Harness, MemoryName, Namespace, TerminalCause};
 
 #[tokio::test]
 async fn memory_search_recalls_an_indexed_entry() {

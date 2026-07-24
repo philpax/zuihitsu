@@ -1,9 +1,8 @@
 //! The operator primary-designation control action: pinning which stub a `same_as` class resolves
 //! through, over the earliest-ULID default (spec §Cross-platform identity). Exercised over the
 //! in-memory backends, since the primary is a pure function of the folded log.
-use super::*;
 use crate::{
-    DesignateOutcome,
+    DesignateOutcome, Instance,
     clock::ManualClock,
     event::{EventPayload, EventSource, LinkPosture, LinkSource, Visibility},
     ids::{MemoryId, Namespace},

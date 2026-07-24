@@ -3,8 +3,7 @@
 //! leaves nothing in the log: it neither mints a conversation (unlike a live turn) nor records a
 //! `LuaExecuted`, so an operator's experiment never shifts the agent's history, and `context.current`
 //! is nil since the sandbox has no room.
-use super::*;
-use crate::{SeedSelf, clock::ManualClock, time::Timestamp};
+use crate::{Instance, SeedSelf, clock::ManualClock, time::Timestamp};
 
 /// A born instance whose `self` carries only its seeded persona entry — the state a console run reads.
 fn born_server() -> Instance {

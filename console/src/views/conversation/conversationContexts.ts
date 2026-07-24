@@ -33,6 +33,11 @@ export const ModelCalls = createContext<ContextDebug & { digestBySeq: Map<number
 /// resolves memory and participant ids) without drilling the map through the transcript.
 export const Names = createContext<Map<string, string>>(new Map());
 
+/// Memory id → the handle of its `same_as` class primary — the canonical identity a turn's speaker
+/// displays as, with the actually-recorded stub handle dimmed beside it. Falls back per-id to the
+/// memory's own name when it is classless (its own primary).
+export const CanonicalNames = createContext<Map<string, string>>(new Map());
+
 /// The conversation id → context memory name map at the cursor, so `ConversationRef` links in
 /// event detail panels can resolve the room name without a separate prop chain.
 export const ConversationNames = createContext<Map<string, string>>(new Map());

@@ -107,3 +107,21 @@ export function hasScopeChar(value: string): boolean {
 export function lastActivity(conversation: ConversationModel | null): number {
   return conversation ? conversation.turns.reduce((max, turn) => Math.max(max, turn.seq), 0) : 0;
 }
+
+/// The channel whose conversation was updated most recently — the one whose latest turn has the
+/// highest seq — or `null` when no channel carries a folded conversation yet (only pending or
+/// placeholder rooms). The default the Conversation view opens on, so a fresh visit lands on the room
+/// with the freshest activity.
+export function mostRecentlyUpdated(channels: Channel[]): Channel | null {
+  let best: Channel | null = null;
+  let bestSeq = -1;
+  for (const channel of channels) {
+    if (!channel.conversation) continue;
+    const seq = lastActivity(channel.conversation);
+    if (seq > bestSeq) {
+      best = channel;
+      bestSeq = seq;
+    }
+  }
+  return best;
+}

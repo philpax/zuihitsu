@@ -1,7 +1,7 @@
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { LinkSource } from "@zuihitsu/wire/types/LinkSource.ts";
-import { terminalCauseLabel } from "./labels.ts";
+import { tellerLabel, terminalCauseLabel } from "./labels.ts";
 
 /// The authoring authorities offered as an author filter in the Events view — genesis first, then
 /// the agent's turns, the operator's console actions, and the system's background work. A platform
@@ -55,7 +55,10 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "MemoryDeleted":
     case "MemoryContentAppended":
     case "MemorySuperseded":
+    case "EntriesConsolidated":
     case "EntryRetracted":
+    case "EntryAttested":
+    case "AttestationRetracted":
     case "EntryTemporalResolved":
     case "EntryTemporalResolveFailed":
     case "EntryDescriptionMirrored":
@@ -111,17 +114,26 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
 
 /// The event types the background passes emit — log-only audit records with no conversation or
 /// turn attribution. They surface in the Background view rather than the Conversation transcript.
+/// The type is derived from the set so the two cannot drift apart: adding a type to the set
+/// makes it a `BackgroundEventType`, and the exhaustive switches in `backgroundMemoryIds` and
+/// `passGroupId` fail the build until the new type is given a case.
 export const BACKGROUND_TYPES = new Set<EventPayload["type"]>([
   "MemoryDescriptionRegenerated",
   "EntryTemporalResolved",
   "EntryTemporalResolveFailed",
   "BeliefArbitrated",
   "LinksInferred",
+  "EntriesConsolidated",
 ]);
 
+/// The narrowed type of [`BACKGROUND_TYPES`] — the event types a background pass emits. Extracted
+/// from the set's contents so the type and the set are one source of truth.
+export type BackgroundEventType = typeof BACKGROUND_TYPES extends Set<infer T> ? T : never;
+
 /// Whether an event type is produced by a background pass (the describer, temporal extraction,
-/// belief arbitration, or link-inference), and so belongs in the Background view.
-export function isBackgroundEvent(type: EventPayload["type"]): boolean {
+/// belief arbitration, link-inference, or consolidation), and so belongs in the Background view.
+/// A type predicate so TypeScript narrows to `BackgroundEventType` after the check.
+export function isBackgroundEvent(type: EventPayload["type"]): type is BackgroundEventType {
   return BACKGROUND_TYPES.has(type);
 }
 
@@ -142,6 +154,7 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "MemoryRenamed":
     case "MemoryDeleted":
     case "MemorySuperseded":
+    case "EntriesConsolidated":
     case "EntryTemporalResolved":
     case "EntryTemporalResolveFailed":
     case "EntryDescriptionMirrored":
@@ -151,6 +164,8 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "MemoryContentAppended":
       return payload.id === memoryId;
     case "EntryRetracted":
+    case "EntryAttested":
+    case "AttestationRetracted":
     case "ScheduledJobFired":
     case "ScheduledItemSurfaced":
     case "BeliefArbitrated":
@@ -215,10 +230,18 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${ref(payload.id)} — ${quote(payload.text)}`;
     case "MemorySuperseded":
       return `${ref(payload.id)} — an entry replaced`;
+    case "EntriesConsolidated":
+      return `${ref(payload.id)} — consolidated ${payload.sources.length} ${payload.sources.length === 1 ? "entry" : "entries"}`;
     case "EntryRetracted":
       return `${ref(payload.memory)} — an entry retracted`;
+    case "EntryAttested":
+      return `${ref(payload.memory)} — attested by ${tellerLabel(payload.teller, nameById)}`;
+    case "AttestationRetracted":
+      return `${ref(payload.memory)} — ${tellerLabel(payload.teller, nameById)}'s attestation withdrawn`;
     case "EntryTemporalResolved":
-      return `${ref(payload.id)} — time resolved`;
+      return payload.occurred_at
+        ? `${ref(payload.id)} — time resolved`
+        : `${ref(payload.id)} — occurrence withdrawn`;
     case "EntryTemporalResolveFailed":
       return `${ref(payload.id)} — time resolution dropped`;
     case "EntryDescriptionMirrored":

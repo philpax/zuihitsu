@@ -7,10 +7,10 @@ mod common;
 use std::time::Duration;
 use zuihitsu::{
     CheckpointTrigger, Completion, ConcurrencySettings, ContextEntry, ConversationLocator,
-    Embedder, FakeEmbedder, GenerateRequest, GenerateResponse, GenerateStream, Graph,
-    InMemoryVectorIndex, ManualClock, MemoryId, MemoryName, MemoryStore, ModelClient, ModelError,
-    Namespace, ParticipantAttribute, PersonId, ScriptedModel, SeedSelf, Server, Store,
-    TEST_PLATFORM, ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
+    Embedder, GenerateRequest, GenerateResponse, GenerateStream, Graph, InMemoryVectorIndex,
+    ManualClock, MemoryId, MemoryName, MemoryStore, ModelClient, ModelError, Namespace,
+    ParticipantAttribute, PersonId, ScriptedModel, SeedSelf, Server, Store, TEST_PLATFORM,
+    ToolCall, TurnOutcome, TurnRole, Usage, VectorIndex,
     event::{EventPayload, EventSource, PromptTemplateName},
     genesis::{GenesisStatus, Rollout},
     stream_response,

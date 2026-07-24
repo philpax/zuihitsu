@@ -186,7 +186,7 @@ mod tests {
         },
         clock::ManualClock,
         event::{PromptTemplateName, Teller, Visibility},
-        graph::{EntryView, Graph},
+        graph::{EntryOrigin, EntryView, Graph},
         ids::EntryId,
         prompt::PromptSectionKind,
         store::MemoryStore,
@@ -273,6 +273,8 @@ mod tests {
             visibility: Visibility::default(),
             superseded_by: None,
             retracted_reason: None,
+            origin: EntryOrigin::Recorded,
+            attestations: Vec::new(),
         }
     }
 

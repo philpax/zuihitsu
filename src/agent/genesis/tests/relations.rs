@@ -4,13 +4,14 @@ use std::collections::BTreeSet;
 
 use crate::{
     InstanceFeatures,
-    agent::genesis,
+    agent::{
+        genesis,
+        genesis::tests::{clock, seed},
+    },
     event::EventPayload,
     ids::Seq,
     store::{MemoryStore, Store},
 };
-
-use super::{clock, seed};
 
 #[test]
 fn genesis_seeds_the_part_of_membership_relation() {

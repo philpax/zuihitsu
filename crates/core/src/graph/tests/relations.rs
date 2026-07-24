@@ -1,6 +1,6 @@
-use super::{materialized, mentor_relation};
 use crate::{
     event::{Cardinality, EventPayload, LinkPosture, LinkSource, Teller, Visibility},
+    graph::tests::{materialized, mentor_relation},
     ids::{EntryId, MemoryId, Namespace},
     time::Timestamp,
     vocabulary::RelationName,

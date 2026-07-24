@@ -1,4 +1,4 @@
-use super::*;
+use crate::{BlockOutcome, Harness, TerminalCause};
 
 #[tokio::test]
 async fn list_matches_a_stem_alphabetically() {

@@ -39,9 +39,10 @@ use auth::{require_control_key, require_platform_key};
 use console::{ShutdownFlag, console, ensure_parent_dir};
 use control::{
     arbitrations, confirm_merge, create_agent, designate_primary, edit_self, entries, env_config,
-    events, genesis, health, imprint, interactions, lua_api, memories, memory, merge_proposals,
-    metrics, recurring, register_prompt, retract_entry, run_lua, sessions, set_settings, settings,
-    snapshot as snapshot_handler, unmerge,
+    events, genesis, health, imprint, interactions, lua_api, maintenance_canonicalize,
+    maintenance_consolidate, maintenance_link_cleanup, memories, memory, merge_proposals, metrics,
+    prompt_status, recurring, register_prompt, retract_attestation, retract_entry, run_lua,
+    sessions, set_settings, settings, snapshot as snapshot_handler, unmerge,
 };
 use platform::{join, link, message, message_stream, project, roster, self_memory, write_context};
 
@@ -110,6 +111,12 @@ const SWEEP_TICK_SECONDS: u64 = 60;
 /// only bounds how quickly an eligible session is noticed, and an idle tick is cheap (per-live-session
 /// buffer reads, no model call).
 const CHECKPOINT_TICK_SECONDS: u64 = 30;
+
+/// How often the maintenance driver ticks (spec §Write path → maintenance passes). Each pass's own
+/// activity gate does the real rate-limiting; the tick only bounds how quickly a pass notices it
+/// has work, and an idle tick is cheap (a cursor compare, no model call). The actual tick interval
+/// is read from `MaintenanceSettings::tick_seconds` at runtime; this is the default.
+const MAINTENANCE_TICK_SECONDS: u64 = 60;
 
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
@@ -329,6 +336,26 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         })
     });
 
+    // The background maintenance driver runs consolidation, canonical-profile, and link-cleanup passes
+    // off the hot path (spec §Write path → maintenance passes). Spawned only when a model is
+    // configured; the synthesis calls need one.
+    let maintenance = arbiter.as_ref().map(|arbiter| {
+        tokio::spawn({
+            let server = server.clone();
+            let model = arbiter.background();
+            let shutdown = shutdown.clone();
+            async move {
+                server
+                    .run_maintenance(
+                        model,
+                        Duration::from_secs(MAINTENANCE_TICK_SECONDS),
+                        shutdown.wait(),
+                    )
+                    .await
+            }
+        })
+    });
+
     // The background idle sweep closes-with-flush sessions idle past the gap, so a conversation never
     // messaged again still has its working state consolidated (spec §Compaction → pre-compaction
     // flush). Spawned only when a model is configured; the flush turn needs one.
@@ -455,6 +482,9 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     if let Some(link_inference) = link_inference {
         let _ = link_inference.await;
     }
+    if let Some(maintenance) = maintenance {
+        let _ = maintenance.await;
+    }
     if let Some(sweeper) = sweeper {
         let _ = sweeper.await;
     }
@@ -502,9 +532,14 @@ fn router(state: AppState) -> Router {
         .route("/imprint", post(imprint))
         .route("/self", post(edit_self))
         .route("/retract", post(retract_entry))
+        .route("/retract-attestation", post(retract_attestation))
         .route("/lua", post(run_lua))
         .route("/lua-api", get(lua_api))
         .route("/prompt", post(register_prompt))
+        .route("/prompt-status", get(prompt_status))
+        .route("/maintenance/consolidate", post(maintenance_consolidate))
+        .route("/maintenance/canonicalize", post(maintenance_canonicalize))
+        .route("/maintenance/link-cleanup", post(maintenance_link_cleanup))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_control_key,

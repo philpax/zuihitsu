@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    Completion, EnvConfig, EventPayload, Harness, InstanceFeatures, Message, OpenAiClient,
+    PromptTemplateName, ScriptedModel, Seq, ToolChoice, TurnOutcome, TurnReport, TurnRole,
+    buffer_turns, count_agent_turns, genesis, run_lua_call, run_turn, seed,
+};
 #[tokio::test]
 async fn agent_turns_record_their_provenance() {
     let mut h = Harness::new();
@@ -48,7 +52,23 @@ async fn agent_turns_record_their_provenance() {
         .expect("the agent turn records its provenance");
     assert_eq!(provenance.model_id, "scripted-model");
     assert_eq!(provenance.template_name, PromptTemplateName::Scaffold);
-    assert_eq!(provenance.template_version, 23);
+    // The version is whatever the build registered — asserted dynamically against the log, so a
+    // template bump never breaks this test; the property is that provenance names the registered
+    // scaffold, not any particular number.
+    let registered = h
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            EventPayload::PromptTemplateRegistered {
+                name: PromptTemplateName::Scaffold,
+                version,
+                ..
+            } => Some(version),
+            _ => None,
+        })
+        .max()
+        .expect("genesis registers a scaffold");
+    assert_eq!(provenance.template_version, registered);
 }
 
 #[tokio::test]

@@ -1,4 +1,10 @@
-use super::*;
+use crate::{
+    Arc, Authority, BlockContext, BlockOutcome, Clock, ConversationLocator, ConversationRef,
+    Engine, EventPayload, EventSource, Graph, Harness, InstanceFeatures, MILLIS_PER_DAY,
+    ManualClock, MemoryId, MemoryName, MemoryStore, Namespace, STALE_HIGH_DAYS, Session, Store,
+    TEST_BLOCK_TIMEOUT, TEST_MAX_BLOCK_ATTEMPTS, TEST_MAX_ENTRY_CHARS, TEST_PLATFORM, TagName,
+    Teller, TerminalCause, TurnId, Visibility, common, resolve_or_mint_conversation,
+};
 
 #[tokio::test]
 async fn append_carries_teller_context_and_default_visibility() {

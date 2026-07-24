@@ -132,6 +132,8 @@ Project platform attributes onto a scoped memory as ordinary public entries: a p
 
 Each attribute either records a new value or clears one, and the platform connector holds the entry id a prior projection returned for it, so a changed value **supersedes** that entry and a cleared one **retracts** it, with no attribute keying on the server. The connector sends an attribute only when its value changed, tracking the last-seen value and returned id per `(subject, attribute)` (a nickname per guild, since it varies by server).
 
+A clear withdraws only the connector's *own* account of the attribute, not the fact outright. When a human has independently corroborated the projected value — attested the same entry as a further teller (see [ContentEntry → Attestation](data-model.md#attestation)) — the clear retracts the connector's attestation alone and the fact stands on the human's, exactly as per-attester retraction leaves a corroborated entry live. Only when no other teller stands behind it does clearing the connector's projection retire the entry. So a display name a participant also confirmed in conversation survives the connector dropping it, attributed now to the human who vouched for it rather than to the platform.
+
 **Request body:**
 
 ```json

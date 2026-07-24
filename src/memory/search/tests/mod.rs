@@ -1,4 +1,3 @@
-use super::{SALIENCE_CAP, SearchHit, SearchQuery, recency_bonus, search};
 use crate::{
     InstanceFeatures,
     agent::genesis::{self, SeedSelf},
@@ -9,20 +8,20 @@ use crate::{
     },
     graph::Graph,
     ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace, Seq},
-    memory::memory_block::LinkDirection,
+    memory::{
+        memory_block::LinkDirection,
+        search::{SALIENCE_CAP, SearchHit, SearchQuery, recency_bonus, search},
+    },
     model::{
-        embed::{Embedder, FakeEmbedder},
+        embed::{CpuEmbedder, Embedder},
         index::Indexer,
     },
     settings::{SearchSettings, Settings},
     store::{MemoryStore, Store},
-    time::{CivilDate, TemporalRef, Timestamp},
-    vector::InMemoryVectorIndex,
+    time::{CivilDate, MILLIS_PER_DAY, TemporalRef, Timestamp},
+    vector::{InMemoryVectorIndex, VectorIndex},
     vocabulary::{RelationName, TagName},
 };
-
-const DAY: i64 = 86_400_000;
-const DIMS: usize = 32;
 
 fn event(seq: u64, payload: EventPayload) -> Event {
     Event {
@@ -74,11 +73,11 @@ fn bonus(graph: &Graph, id: MemoryId, now_ms: i64) -> f32 {
 
 #[test]
 fn occurrence_time_drives_decay_not_assertion_time() {
-    let now = 20_000 * DAY;
+    let now = 20_000 * MILLIS_PER_DAY;
     // Written "today" but about a decade ago: it must decay like a decade-old memory.
     let (about_past, past_id) = graph_with_entry(
         Some(TemporalRef::Instant(Timestamp::from_millis(
-            now - 3650 * DAY,
+            now - 3650 * MILLIS_PER_DAY,
         ))),
         now,
     );
@@ -96,8 +95,8 @@ fn occurrence_time_drives_decay_not_assertion_time() {
 
 #[test]
 fn falls_back_to_assertion_time_without_an_occurrence() {
-    let now = 20_000 * DAY;
-    let (graph, id) = graph_with_entry(None, now - 3650 * DAY);
+    let now = 20_000 * MILLIS_PER_DAY;
+    let (graph, id) = graph_with_entry(None, now - 3650 * MILLIS_PER_DAY);
     assert!(bonus(&graph, id, now) < 0.01);
 }
 
@@ -105,8 +104,8 @@ fn falls_back_to_assertion_time_without_an_occurrence() {
 fn higher_volatility_decays_faster_at_the_same_age() {
     // The volatility-aware part: at the *same* age, the decay rate is keyed by the memory's
     // volatility through τ — High (τ=90d) decays far faster than Medium (τ=365d) than Low (τ=3650d).
-    let now = 20_000 * DAY;
-    let one_year_ago = now - 365 * DAY;
+    let now = 20_000 * MILLIS_PER_DAY;
+    let one_year_ago = now - 365 * MILLIS_PER_DAY;
     let bonus_for = |volatility| {
         let (mut graph, id) = graph_with_entry(
             Some(TemporalRef::Instant(Timestamp::from_millis(one_year_ago))),
@@ -150,24 +149,24 @@ fn higher_volatility_decays_faster_at_the_same_age() {
 
 #[test]
 fn a_future_occurrence_does_not_decay() {
-    let now = 20_000 * DAY;
+    let now = 20_000 * MILLIS_PER_DAY;
     let (graph, id) = graph_with_entry(
         Some(TemporalRef::Instant(Timestamp::from_millis(
-            now + 100 * DAY,
+            now + 100 * MILLIS_PER_DAY,
         ))),
         now,
     );
     assert!(bonus(&graph, id, now) > 0.99);
 }
 
-/// A write + index harness for the multi-signal blend. The fake embedder isn't semantic, but it
-/// is deterministic — the same text embeds to the same vector — so querying a memory's exact
-/// description gives it cosine 1, which exercises the semantic signal without a real model.
+/// A write + index harness for the multi-signal blend. The CPU embedder produces real semantic
+/// vectors — querying a memory's exact description gives it cosine ~1.0, which exercises the
+/// semantic signal, while semantically distinct texts embed to distinct vectors.
 struct Corpus {
     store: MemoryStore,
     graph: Graph,
     index: InMemoryVectorIndex,
-    embedder: FakeEmbedder,
+    embedder: std::sync::Arc<CpuEmbedder>,
 }
 
 impl Corpus {
@@ -176,7 +175,7 @@ impl Corpus {
             store: MemoryStore::new(),
             graph: Graph::open_in_memory().unwrap(),
             index: InMemoryVectorIndex::new(),
-            embedder: FakeEmbedder::new(DIMS),
+            embedder: CpuEmbedder::shared(),
         }
     }
 
@@ -187,7 +186,7 @@ impl Corpus {
             .append(Timestamp::from_millis(at_ms), EventSource::Agent, events)
             .unwrap();
         self.graph.materialize_from(&self.store).unwrap();
-        Indexer::new(&self.embedder, &mut self.index)
+        Indexer::new(&*self.embedder, &mut self.index)
             .catch_up(&self.store)
             .await
             .unwrap();
@@ -431,3 +430,46 @@ mod merging;
 mod occurrences;
 mod privacy;
 mod ranking;
+
+#[tokio::test]
+async fn search_ignores_entry_contextual_vectors() {
+    // Search should return hits from the Entry space but silently drop EntryContextual hits.
+    // Both spaces are populated with identical text (via the indexer with a resolver), so the
+    // search query matches both — but only the Entry hit should surface.
+    let mut corpus = Corpus::new();
+    let id = corpus
+        .add("topic/test", "A test memory", "a searchable fact", 0)
+        .await;
+
+    // Manually insert an EntryContextual vector using the same embedding as the raw Entry
+    // vector, so the only reason it doesn't surface is the explicit drop arm (not a low score).
+    let entry_id = EntryId::generate();
+    let raw_embedding = corpus
+        .embedder
+        .embed(&["a searchable fact".to_owned()])
+        .await
+        .unwrap()[0]
+        .clone();
+    corpus
+        .index
+        .upsert(crate::vector::VectorRecord {
+            id: crate::model::index::VectorKey::EntryContextual(entry_id).to_vector_id(),
+            embedding: raw_embedding,
+            model_id: corpus.embedder.model_id().into(),
+        })
+        .unwrap();
+
+    // Search for "a searchable fact" — the Entry hit should surface, but the
+    // EntryContextual hit should be silently dropped.
+    let hits = corpus.query("a searchable fact", 0, 10).await;
+    assert!(
+        !hits.is_empty(),
+        "search should return the Entry hit for the memory",
+    );
+    assert_eq!(
+        hits.len(),
+        1,
+        "search should not surface the EntryContextual hit"
+    );
+    assert_eq!(hits[0], id);
+}

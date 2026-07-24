@@ -4,9 +4,13 @@
 
 use std::collections::HashSet;
 
-use super::{corpus, topic};
 use crate::{
-    agent::turn::ambient::{MAX_URLS, ambient_recall, render::render, url::extract_urls},
+    agent::turn::ambient::{
+        MAX_URLS, ambient_recall,
+        render::render,
+        tests::{corpus, topic},
+        url::extract_urls,
+    },
     ids::{MemoryId, TurnId},
     settings::AmbientSettings,
     turn_ref,

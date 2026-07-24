@@ -31,7 +31,7 @@ pub use zuihitsu_core::{
 
 // The TypeScript wire-contract types live in `zuihitsu-frontend-types` (a separate crate that
 // depends only on `zuihitsu-core`, avoiding a build cycle with the main crate's `build.rs`).
-pub use zuihitsu_frontend_types::{BackendHealth, CircuitState};
+pub use zuihitsu_frontend_types::{BackendHealth, CircuitState, TemplateStatus};
 pub use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
 
 // The agent-creation entry point, re-exported at the crate root so the operator CLI drives genesis
@@ -62,7 +62,7 @@ pub use model::{
     Completion, FlakyModel, GenerateDelta, GenerateRequest, GenerateResponse, GenerateStream,
     Message, ModelArbiter, ModelClient, ModelError, ResponseSchema, Role, ScriptedModel, ToolCall,
     ToolChoice, ToolSpec, Usage,
-    embed::{Embedder, Embedding, FakeEmbedder},
+    embed::{Embedder, Embedding},
     extract_json_object,
     index::{IndexError, Indexer},
     parse_structured,
@@ -71,13 +71,13 @@ pub use model::{
 };
 pub use settings::{
     AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings,
-    ConcurrencySettings, ObservabilitySettings, RecencySettings, SchedulerSettings, SearchSettings,
-    Settings, TauDays, TurnSettings, WebSettings,
+    ConcurrencySettings, MaintenanceSettings, ObservabilitySettings, RecencySettings,
+    SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings, WebSettings,
 };
 pub use store::{MemoryStore, Store, StoreError};
 pub use time::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
-    Timestamp,
+    Timestamp, format_occurrence,
 };
 pub use vector::{
     InMemoryVectorIndex, ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord,
@@ -100,8 +100,8 @@ pub use graph::{EntryView, Graph, GraphError, LinkView, MemoryView, RelationView
 pub use instance::{
     Arbitration, CheckpointTrigger, ContextEntry, Control, DesignateOutcome, Instance,
     InstanceError, LinkError, LinkNode, LuaConsoleOutcome, MergeProposal, MessageInput, ModelCall,
-    ParticipantAttribute, ProjectOutcome, RetractOutcome, RosterResync, SelfEditOutcome,
-    SnapshotSchedule, UnmergeOutcome,
+    ParticipantAttribute, ProjectOutcome, RetractAttestationOutcome, RetractOutcome, RosterResync,
+    SelfEditOutcome, SnapshotSchedule, UnmergeOutcome,
 };
 pub use mcp::{
     ContentBlock, FakeMcpHost, FakeServer, McpError, McpHost, McpInstance, McpOutput,

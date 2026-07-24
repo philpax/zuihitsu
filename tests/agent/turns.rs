@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    Completion, Event, EventPayload, Harness, InstanceFeatures, Namespace, PromptTemplateName,
+    ScriptedModel, SynthesizeReply, TerminalCause, TurnOutcome, TurnReport, TurnRole,
+    count_agent_turns, genesis, run_lua_call, run_turn, seed, synthesize_call,
+};
 #[tokio::test]
 async fn tool_call_then_reply_commits_and_replies() {
     let mut h = Harness::new();
@@ -169,7 +173,22 @@ async fn descriptions_regenerate_after_a_turn() {
         produced_by.template_name,
         PromptTemplateName::DescriptionRegen
     );
-    assert_eq!(produced_by.template_version, 1);
+    // Dynamic against the log: the property is that provenance names the registered template's
+    // version, not any particular number.
+    let registered = h
+        .events()
+        .into_iter()
+        .filter_map(|e| match e.payload {
+            EventPayload::PromptTemplateRegistered {
+                name: PromptTemplateName::DescriptionRegen,
+                version,
+                ..
+            } => Some(version),
+            _ => None,
+        })
+        .max()
+        .expect("genesis registers the description template");
+    assert_eq!(produced_by.template_version, registered);
 }
 
 #[tokio::test]

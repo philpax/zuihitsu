@@ -1,19 +1,20 @@
 //! Link and relation operations: registering, creating, removing, and traversing links.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::{
     event::{EventPayload, LinkPosture, LinkSource, MergeProposalSource, Teller, Visibility},
     graph::{Graph, RelationView},
     ids::MemoryId,
-    memory::visibility::link_visible,
+    memory::{
+        memory_block::{
+            Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock,
+            MemoryError, RelationSpec, parse_cardinality, reconcile_forced_visibility,
+        },
+        visibility::link_visible,
+    },
     time::TemporalRef,
     vocabulary::RelationName,
-};
-
-use crate::memory::memory_block::{
-    Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock, MemoryError,
-    RelationSpec, parse_cardinality, reconcile_forced_visibility,
 };
 
 impl MemoryBlock {
@@ -85,6 +86,7 @@ impl MemoryBlock {
         if from == to {
             return Err(MemoryError::MergeProposalInvalid);
         }
+        self.guard_self_merge(from, to)?;
         self.touched.insert(from);
         self.touched.insert(to);
         self.buffer.push(EventPayload::merge_proposed(
@@ -159,6 +161,12 @@ impl MemoryBlock {
             let class_of = |mid| graph.class_id(mid).map(|class| class.unwrap_or(mid));
             let audience = !self.present_set.is_empty();
             let mut refs = Vec::new();
+            // Collapse edges that canonicalize onto one far identity: the queried class can carry the
+            // same external relationship from more than one of its stubs, and a neighbour attached to
+            // both a platform stub and its canonical profile is one relationship, not two. Keyed on the
+            // far class primary, so the survivor is deterministic — the first edge in `class_links`'
+            // order wins.
+            let mut seen: HashSet<(RelationName, bool, MemoryId)> = HashSet::new();
             for edge in graph.class_links(id)? {
                 let (direction, other_id) =
                     match (class.contains(&edge.from), class.contains(&edge.to)) {
@@ -167,6 +175,15 @@ impl MemoryBlock {
                         // Within-class (both ends in the identity) or unrelated: not a relationship.
                         _ => continue,
                     };
+                // Resolve the far endpoint to its own class primary, so a relationship attached to a raw
+                // platform stub renders under its canonical readable identity.
+                let far_primary = class_of(other_id)?;
+                // An edge whose far endpoint canonicalizes back into the queried class is identity
+                // plumbing reached through a different raw endpoint, not a relationship pointing out of
+                // the identity.
+                if class.contains(&far_primary) {
+                    continue;
+                }
                 // Visibility filter: when an audience is present, filter private links.
                 if audience {
                     let symmetric = graph
@@ -177,24 +194,36 @@ impl MemoryBlock {
                         continue;
                     }
                 }
-                let Some(other) = graph.memory_by_id(other_id)? else {
+                // Dedupe after the visibility filter, so a hidden parallel edge never claims the slot a
+                // visible one to the same neighbour would fill.
+                if !seen.insert((
+                    edge.relation.clone(),
+                    matches!(direction, LinkDirection::Incoming),
+                    far_primary,
+                )) {
+                    continue;
+                }
+                let Some(other) = graph.memory_by_id(far_primary)? else {
                     continue;
                 };
                 // Resolve the teller's label off the held guard (teller_label re-locks the graph and
-                // would deadlock here); a participant teller is a committed person memory.
+                // would deadlock here); a participant teller is a committed person memory, resolved
+                // through its own class primary so a stub teller reads under its canonical name.
                 let told_by = match &edge.told_by {
                     None => None,
                     Some(Teller::Agent) => Some("you".to_owned()),
                     Some(Teller::Bootstrap) => Some("genesis".to_owned()),
                     Some(Teller::Participant(teller_id)) => Some(
                         graph
-                            .memory_by_id(*teller_id)?
+                            .memory_by_id(class_of(*teller_id)?)?
                             .map(|memory| memory.name.as_str().to_owned())
                             .unwrap_or_else(|| "someone".to_owned()),
                     ),
                 };
-                // The far memory's freshest dated fact, so a link to a dated event carries *when*.
-                // Committed state only and not visibility-filtered, mirroring the link read itself.
+                // The far memory's freshest dated fact, so a link to a dated event carries *when*. Read
+                // against the canonical primary the ref now carries; `class_entries` folds the whole
+                // identity, so member and primary yield the same date. Committed state only and not
+                // visibility-filtered, mirroring the link read itself.
                 let occurred_at = latest_dated_occurrence(&graph, other.id)?;
                 refs.push(LinkRef {
                     relation: edge.relation,
@@ -254,21 +283,46 @@ impl MemoryBlock {
         // so a create routes to the proposal path (an inert `MergeProposed` the operator confirms)
         // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
         // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
-        if relation == RelationName::SameAs && self.authority == Authority::Platform {
-            if create {
-                return self.propose_merge(from, to, None);
+        if relation == RelationName::SameAs {
+            // A `same_as` naming `self` is refused under every authority, ahead of the free-merge and
+            // proposal routing below: the agent is not a person, so binding it into an identity class
+            // is a category error that would corrupt class resolution, not a permissions question.
+            self.guard_self_merge(from, to)?;
+            match self.authority {
+                Authority::Platform => {
+                    if create {
+                        return self.propose_merge(from, to, None);
+                    }
+                    return Err(MemoryError::MergeForbidden);
+                }
+                // The agent's own free-merge rule (issue #89): an `Authority::Agent` `same_as` asserts
+                // directly only when it binds a freshly-minted empty profile — one with no live entries
+                // of its own — since no visibility collapses when the bound node carries nothing. This is
+                // exactly the canonical-profile pass's mint-and-bind. Otherwise the assertion would merge
+                // two populated identities, collapsing their visibility classes, so it routes to the same
+                // inert `MergeProposed` machinery a platform turn's `same_as` produces — the merge waits
+                // for the operator. The rule lives in the guard, not the caller, so every `Agent`
+                // `same_as` is held to it.
+                Authority::Agent
+                    if create && !self.is_empty_profile(from)? && !self.is_empty_profile(to)? =>
+                {
+                    return self.propose_merge(from, to, None);
+                }
+                _ => {}
             }
-            return Err(MemoryError::MergeForbidden);
         }
-        // A link from or to `self` modifies the self model — barred outside the console.
-        self.guard_self(from)?;
-        self.guard_self(to)?;
-        // Operator-authored links carry operator provenance; the agent's own carry `Agent`. (The
-        // merging `same_as` is authored by the operator's console merge directly, not through a block,
-        // so it never reaches this seam — it carries `LinkSource::Operator`.)
+        // A link touching `self` is an ordinary relationship (`self knows person/rowan`), not a
+        // self-model content write, so it is permitted under every authority — `guard_self` gates
+        // content writes only. The one identity-touching exception, a `same_as` naming `self`, is
+        // refused above by `guard_self_merge`.
+        // Operator-authored links carry operator provenance; the agent's own (a platform turn or a
+        // maintenance pass) carry `Agent`. (The merging `same_as` is authored by the operator's console
+        // merge directly, not through a block, so it never reaches this seam — it carries
+        // `LinkSource::Operator`. The `Agent` authority's `same_as` assertion reaches here and carries
+        // `Agent` provenance.)
         let source = match self.authority {
             Authority::Operator => LinkSource::Operator,
-            Authority::Platform => LinkSource::Agent,
+            Authority::Platform | Authority::Agent => LinkSource::Agent,
         };
         let (visibility, told_in) = if create {
             let from_name = self.resolve_name(from)?;
@@ -322,6 +376,34 @@ impl MemoryBlock {
         };
         self.buffer.push(event);
         Ok(())
+    }
+
+    /// Designate `id` as its `same_as` class's primary (or release it when `designated` is false) —
+    /// the id class-level facts and reads resolve through (spec §Cross-platform identity). The
+    /// canonical-profile pass uses this to pin a bare profile as the readable identity for a platform
+    /// stub. Buffers a `ClassPrimaryDesignated` and touches the memory; the flag persists on the log
+    /// and survives a later unmerge. A `self` designation is barred like the block's other `self`
+    /// writes.
+    pub(crate) fn designate_primary(
+        &mut self,
+        id: MemoryId,
+        designated: bool,
+    ) -> Result<(), MemoryError> {
+        self.guard_self(id)?;
+        self.touched.insert(id);
+        self.buffer
+            .push(EventPayload::class_primary_designated(id, designated));
+        Ok(())
+    }
+
+    /// Whether `id` is an empty profile: a memory with no live entries of its own `same_as` class. A
+    /// freshly-minted canonical profile is exactly this — a bare node with no facts — so binding it to
+    /// a stub collapses no visibility, which is what lets an `Authority::Agent` `same_as` assert it
+    /// directly rather than routing to the merge-proposal machinery. Reads committed state, so a
+    /// profile created earlier in this same block (not yet materialized) reads as empty, which is the
+    /// correct answer for the mint-and-bind case.
+    fn is_empty_profile(&self, id: MemoryId) -> Result<bool, MemoryError> {
+        Ok(self.engine.graph.lock().class_entries(id)?.is_empty())
     }
 }
 
@@ -420,7 +502,7 @@ mod tests {
         graph
             .apply(&event(
                 4,
-                EventPayload::entry_temporal_resolved(id, extracted, june.clone(), None),
+                EventPayload::entry_temporal_resolved(id, extracted, Some(june.clone()), None),
             ))
             .unwrap();
 
@@ -458,7 +540,7 @@ mod tests {
         graph
             .apply(&event(
                 3,
-                EventPayload::entry_temporal_resolved(only, entry, june.clone(), None),
+                EventPayload::entry_temporal_resolved(only, entry, Some(june.clone()), None),
             ))
             .unwrap();
         assert_eq!(

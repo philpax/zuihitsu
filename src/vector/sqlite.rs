@@ -10,6 +10,7 @@ use sqlite_vec::sqlite3_vec_init;
 use crate::{
     db::query_map_into,
     ids::Seq,
+    model::embed::Embedding,
     vector::{ScoredHit, VectorError, VectorId, VectorIndex, VectorRecord},
 };
 
@@ -83,6 +84,33 @@ impl VectorIndex for SqliteVectorIndex {
             .execute("DELETE FROM vectors WHERE id = ?1", params![id.0.as_str()])
             .map_err(backend)?;
         Ok(())
+    }
+
+    fn get(&self, id: &VectorId) -> Result<Option<Embedding>, VectorError> {
+        let blob: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT embedding FROM vectors WHERE id = ?1",
+                params![id.0.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some(blob) = blob else {
+            return Ok(None);
+        };
+        // vec0 returns a float32 vector as a little-endian byte blob; decode it back to the embedding.
+        if blob.len() % 4 != 0 {
+            return Err(VectorError::Backend(format!(
+                "stored vector has {} bytes, not a whole number of 4-byte floats",
+                blob.len()
+            )));
+        }
+        let embedding = blob
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            .collect();
+        Ok(Some(embedding))
     }
 
     fn len(&self) -> Result<usize, VectorError> {
@@ -171,20 +199,20 @@ fn backend(error: impl std::fmt::Display) -> VectorError {
 #[cfg(test)]
 mod tests {
     //! The sqlite-vec backend: nearest-neighbour ranking, upsert-replaces semantics, and the
-    //! dimension-mismatch guard. Uses the deterministic fake embedder so no model is needed.
+    //! dimension-mismatch guard. Uses the CPU embedder so identical text embeds identically.
     use crate::{
         ids::Seq,
-        model::embed::{Embedder, FakeEmbedder},
+        model::embed::{CpuEmbedder, Embedder},
         vector::{SqliteVectorIndex, VectorError, VectorId, VectorIndex, VectorRecord},
     };
 
-    const DIMS: usize = 32;
+    const DIMS: usize = 384;
 
-    async fn vector(embedder: &FakeEmbedder, text: &str) -> Vec<f32> {
+    async fn vector(embedder: &CpuEmbedder, text: &str) -> Vec<f32> {
         embedder.embed(&[text.to_owned()]).await.unwrap().remove(0)
     }
 
-    async fn record(embedder: &FakeEmbedder, id: &str, text: &str) -> VectorRecord {
+    async fn record(embedder: &CpuEmbedder, id: &str, text: &str) -> VectorRecord {
         VectorRecord {
             id: VectorId::new(id),
             embedding: vector(embedder, text).await,
@@ -194,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     async fn ranks_nearest_first_and_replaces_on_reinsert() {
-        let embedder = FakeEmbedder::new(DIMS);
+        let embedder = CpuEmbedder::shared();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
         assert!(index.is_empty().unwrap());
 
@@ -229,13 +257,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_reads_back_the_stored_vector_and_reports_a_missing_key() {
+        // The consolidation pass reads an already-indexed vector back rather than re-embedding it, so
+        // the decoded vector must round-trip the stored one within f32 round-trip error.
+        let embedder = CpuEmbedder::shared();
+        let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
+        let embedding = vector(&embedder, "climbing gym").await;
+        index
+            .upsert(VectorRecord {
+                id: VectorId::new("entry:a"),
+                embedding: embedding.clone(),
+                model_id: embedder.model_id().into(),
+            })
+            .unwrap();
+
+        let read_back = index.get(&VectorId::new("entry:a")).unwrap().unwrap();
+        assert_eq!(read_back.len(), embedding.len());
+        assert!(
+            read_back
+                .iter()
+                .zip(&embedding)
+                .all(|(a, b)| (a - b).abs() < 1e-6)
+        );
+        assert_eq!(index.get(&VectorId::new("entry:missing")).unwrap(), None);
+    }
+
+    #[tokio::test]
     async fn rejects_a_wrong_dimensioned_embedding() {
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
         let wrong = vec![0.0_f32; DIMS + 1];
         let record = VectorRecord {
             id: VectorId::new("x"),
             embedding: wrong.clone(),
-            model_id: "fake-embedder".into(),
+            model_id: "all-MiniLM-L6-v2-cpu".into(),
         };
         assert!(matches!(
             index.upsert(record),
@@ -254,7 +308,7 @@ mod tests {
     async fn model_id_reads_back_the_stored_model_and_clear_resets_the_index() {
         // The boot-time embedding-swap detection turns on these two against the live vec0 backend: the
         // model the stored vectors carry, and clearing them for a re-embed (spec §Storage → vector store).
-        let embedder = FakeEmbedder::new(DIMS);
+        let embedder = CpuEmbedder::shared();
         let mut index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
 
         // An empty index identifies no model and sits at the start of the log.

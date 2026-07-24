@@ -72,9 +72,22 @@ pub(crate) struct TurnLedger {
     conversations: Mutex<HashMap<ConversationId, ConversationTurns>>,
 }
 
+/// How a holder left the slot. A ticket dropped before it ever admitted is distinguished from an
+/// admitted turn's exit, because only an admitted turn was counted as in flight and only an
+/// admission can have been superseded.
+enum Exit {
+    /// A ticket dropped before it admitted — never counted as an in-flight turn, and prunes its
+    /// arrival as a completion would.
+    Ticket,
+    /// An admitted turn exited. `superseded` leaves the burst anchor in place for the batch that
+    /// overtook it; a completed turn prunes its arrival and re-anchors.
+    Admission { superseded: bool },
+}
+
 /// One conversation's shared turn state: the deli-counter serving the slot in epoch order, the watch
 /// carrying its latest arrival epoch, the next epoch to hand out, the count of live holders, the
-/// epochs that exited ahead of their turn, and the arrivals not yet answered by a completed turn.
+/// count of admitted turns in flight, the epochs that exited ahead of their turn, and the arrivals
+/// not yet answered by a completed turn.
 struct ConversationTurns {
     /// The epoch currently entitled to the slot. A ticket admits when this reaches its own epoch; on
     /// exit a holder advances it past its epoch (and past any consecutive already-`finished` epochs),
@@ -91,6 +104,12 @@ struct ConversationTurns {
     /// [`arrive`](TurnLedger::arrive), decremented by every exit. The entry is removed only when this
     /// reaches zero, so no holder ever outlives its conversation's slot.
     outstanding: usize,
+    /// Admitted turns currently in flight — a batch past [`admit`](TurnTicket::admit) whose
+    /// [`TurnAdmission`] has not yet dropped. Bumped when a turn admits, decremented when it exits, so
+    /// [`has_admitted_turn`](TurnLedger::has_admitted_turn) can tell the checkpoint sweep a conversation
+    /// is mid-turn. Orthogonal to the deli-counter's ordering state — it never gates admission — and
+    /// always `≤ outstanding`, so the entry is never removed while a turn is in flight.
+    admitted: usize,
     /// Epochs whose holder exited *before* `serving` reached them — a ticket dropped while an earlier
     /// epoch still ran. Drained as `serving` advances over the consecutive run at its front, so the
     /// counter never stalls waiting on a holder that has already left. Bounded by `outstanding`.
@@ -148,17 +167,34 @@ impl TurnLedger {
         }
     }
 
+    /// Whether `conversation` currently has an admitted, unexited turn — a batch past
+    /// [`admit`](TurnTicket::admit) whose [`TurnAdmission`] has not yet dropped. The checkpoint sweep
+    /// consults this to skip a conversation whose turn is mid-generation: flushing then would snapshot
+    /// the live buffer between an inbound message and its not-yet-committed reply. Reads only the
+    /// admitted count, so it never perturbs the deli counter's ordering state.
+    pub(crate) fn has_admitted_turn(&self, conversation: ConversationId) -> bool {
+        self.conversations
+            .lock()
+            .get(&conversation)
+            .is_some_and(|entry| entry.admitted > 0)
+    }
+
     /// The shared exit protocol for every holder — a completed or superseded admission, or a ticket
-    /// dropped before it admitted. Run under the map lock. It decrements the live-holder count,
-    /// advances the deli counter past this epoch (draining any later epochs that already finished
-    /// ahead of their turn), prunes this holder's arrival and every older one unless the turn was
-    /// superseded, and removes the conversation's entry once no holder remains.
-    fn exit(&self, conversation: ConversationId, epoch: u64, superseded: bool) {
+    /// dropped before it admitted. Run under the map lock. It decrements the live-holder count (and the
+    /// in-flight count for an admission), advances the deli counter past this epoch (draining any later
+    /// epochs that already finished ahead of their turn), prunes this holder's arrival and every older
+    /// one unless the turn was superseded, and removes the conversation's entry once no holder remains.
+    fn exit(&self, conversation: ConversationId, epoch: u64, exit: Exit) {
+        let superseded = matches!(exit, Exit::Admission { superseded: true });
         let mut map = self.conversations.lock();
         let Some(entry) = map.get_mut(&conversation) else {
             return;
         };
         entry.outstanding -= 1;
+        // An admission is no longer in flight once it exits; a bare ticket was never counted.
+        if matches!(exit, Exit::Admission { .. }) {
+            entry.admitted -= 1;
+        }
 
         // Advance the counter if this holder was the one being served, skipping the consecutive run of
         // epochs that already finished ahead of their turn; otherwise remember that this epoch is done
@@ -199,6 +235,7 @@ impl ConversationTurns {
             supersede,
             next_epoch: 0,
             outstanding: 0,
+            admitted: 0,
             finished: BTreeSet::new(),
             arrivals: Vec::new(),
         }
@@ -253,13 +290,21 @@ impl<'a> TurnTicket<'a> {
                 .expect("the serving sender outlives every holder of its conversation");
         }
         let burst_started_at = {
-            let map = self.ledger.conversations.lock();
-            map.get(&self.conversation)
-                .and_then(|entry| entry.arrivals.first())
-                .map(|arrival| arrival.arrived_at)
-                // The ticket's own arrival is outstanding until it exits, so the front always exists;
-                // fall back to this batch's own arrival if it somehow does not.
-                .unwrap_or(self.arrived_at)
+            let mut map = self.ledger.conversations.lock();
+            match map.get_mut(&self.conversation) {
+                Some(entry) => {
+                    // Count this turn as in flight until its `TurnAdmission` exits, so the checkpoint
+                    // sweep can skip a conversation whose turn is mid-generation.
+                    entry.admitted += 1;
+                    // The ticket's own arrival is outstanding until it exits, so the front always
+                    // exists; fall back to this batch's own arrival if it somehow does not.
+                    entry
+                        .arrivals
+                        .first()
+                        .map_or(self.arrived_at, |arrival| arrival.arrived_at)
+                }
+                None => self.arrived_at,
+            }
         };
         self.defused = true;
         TurnAdmission {
@@ -280,7 +325,8 @@ impl Drop for TurnTicket<'_> {
         // it and hands the exit to the `TurnAdmission`. A never-admitted ticket exits like a completion
         // — it advances the counter and prunes its arrival.
         if !self.defused {
-            self.ledger.exit(self.conversation, self.epoch, false);
+            self.ledger
+                .exit(self.conversation, self.epoch, Exit::Ticket);
         }
     }
 }
@@ -331,8 +377,13 @@ impl Drop for TurnAdmission<'_> {
         // completed (or errored, or panicking) turn answered its batch and every older one, so it
         // prunes them and re-anchors the burst at the oldest remaining waiter. Either way the exit
         // advances the deli counter to the next epoch, so the next batch admits.
-        self.ledger
-            .exit(self.conversation, self.epoch, self.superseded);
+        self.ledger.exit(
+            self.conversation,
+            self.epoch,
+            Exit::Admission {
+                superseded: self.superseded,
+            },
+        );
     }
 }
 

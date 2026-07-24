@@ -143,6 +143,25 @@ pub enum RetractOutcome {
     EmptyReason,
 }
 
+/// The outcome of an operator per-attestation retraction ([`Control::retract_attestation`]): one
+/// teller's account was withdrawn from an entry, or the reason the request named nothing withdrawable.
+/// The console's lever for withdrawing a single teller's endorsement while the fact stands on the rest
+/// — or tombstoning the entry when it was the last account behind it.
+#[derive(Debug)]
+pub enum RetractAttestationOutcome {
+    /// The named teller's attestation was withdrawn. If it was the last live attestation, the entry is
+    /// tombstoned; otherwise the fact stands on the remaining tellers. The graph was re-materialized.
+    Retracted,
+    /// The memory name does not resolve to a live memory, so there is nothing to withdraw from.
+    UnknownMemory,
+    /// The entry id is not a live entry of the named memory (or its `same_as` class).
+    UnknownEntry(EntryId),
+    /// The named teller does not attest the entry, so there is no account to withdraw.
+    UnknownAttestation,
+    /// The reason was empty or whitespace only; a retraction must be auditable.
+    EmptyReason,
+}
+
 /// Order a merge pair so `(a, b)` and `(b, a)` coalesce — `same_as` is symmetric, so a proposal keys on
 /// the same canonical pair regardless of which stub each named first.
 pub(super) fn canonical_pair(from: MemoryId, to: MemoryId) -> (MemoryId, MemoryId) {

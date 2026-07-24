@@ -2,9 +2,9 @@
 //! through, overriding the earliest-ULID default. Exercised against materialized state, since the
 //! primary is derived by the class recompute the materializer runs on every `same_as` change.
 
-use super::materialized;
 use crate::{
     event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Visibility},
+    graph::tests::materialized,
     ids::{MemoryId, Namespace},
     store::{MemoryStore, Store},
     time::Timestamp,

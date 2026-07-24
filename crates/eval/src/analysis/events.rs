@@ -151,6 +151,50 @@ pub fn recurring_memory_names(events: &[Event]) -> Vec<String> {
         .collect()
 }
 
+/// Whether any entry on a memory whose name contains `subject` acquired a recurring occurrence — either
+/// stamped inline on the append or resolved later by the turn-end extraction. Both paths produce a
+/// `{"recurring":…}` reference; matching is case-insensitive and substring-based, so it reads the
+/// occurrence however the run cased or prefixed the handle. The structural gate for "a third party's
+/// cadence was scheduled as the agent's own".
+pub fn recurring_occurrence_on(events: &[Event], subject: &str) -> bool {
+    let names = memory_names(events);
+    let subject = subject.to_lowercase();
+    let on_subject = |id: &MemoryId| {
+        names
+            .get(id)
+            .is_some_and(|name| name.to_lowercase().contains(&subject))
+    };
+    events.iter().any(|event| match &event.payload {
+        EventPayload::MemoryContentAppended {
+            id,
+            occurred_at: Some(TemporalRef::Recurring(_)),
+            ..
+        }
+        | EventPayload::EntryTemporalResolved {
+            id,
+            occurred_at: Some(TemporalRef::Recurring(_)),
+            ..
+        } => on_subject(id),
+        _ => false,
+    })
+}
+
+/// Whether any wake-up fired for an entry on a memory whose name contains `subject` — a
+/// `ScheduledJobFired` targeting that memory. The complement to [`recurring_occurrence_on`]: even if a
+/// recurrence slipped through, the end-to-end harm is a wake-up firing for someone else's routine, so
+/// this is the gate an after-the-advance assessment checks. Matching is case-insensitive and
+/// substring-based.
+pub fn scheduled_job_fired_on(events: &[Event], subject: &str) -> bool {
+    let names = memory_names(events);
+    let subject = subject.to_lowercase();
+    events.iter().any(|event| match &event.payload {
+        EventPayload::ScheduledJobFired { memory, .. } => names
+            .get(memory)
+            .is_some_and(|name| name.to_lowercase().contains(&subject)),
+        _ => false,
+    })
+}
+
 /// Every durable content entry written in the run, with the memory it landed on and its visibility.
 pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
     let names = memory_names(events);
@@ -176,15 +220,69 @@ pub fn entries(events: &[Event]) -> Vec<EntryFacts> {
         .collect()
 }
 
-/// The set of entry ids that have been superseded, from `MemorySuperseded` events.
-pub fn superseded_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
+/// One explicit attestation recorded in the run — a further teller standing behind an entry's fact
+/// (spec §Visibility → attestations). The founding attestation is derived at materialization from the
+/// entry's own append and is never logged, so this reads only the `EntryAttested` events an
+/// auto-attest corroboration, a tier-1 cross-teller merge, or a tier-2 absorb-and-attest emitted:
+/// which entry was endorsed, by which teller, and at what posture.
+pub struct AttestationFacts {
+    pub entry: EntryId,
+    pub teller: Teller,
+    pub posture: Visibility,
+}
+
+/// Every explicit `EntryAttested` the run recorded, in event order — the endorsements a corroboration
+/// or a consolidation left on an entry, distinct from the founding attestation the fold derives.
+pub fn attestations(events: &[Event]) -> Vec<AttestationFacts> {
     events
         .iter()
         .filter_map(|event| match &event.payload {
-            EventPayload::MemorySuperseded { entry, .. } => Some(*entry),
+            EventPayload::EntryAttested {
+                entry,
+                teller,
+                posture,
+                ..
+            } => Some(AttestationFacts {
+                entry: *entry,
+                teller: teller.clone(),
+                posture: posture.clone(),
+            }),
             _ => None,
         })
         .collect()
+}
+
+/// Whether `text` names `word` as a whole word (case-insensitive) — the identity-leak primitive for a
+/// gate that must catch a handle stem rendered on a surface (`Frank`, `person/frank`, `Frank's`) without
+/// false-positiving on a longer word that merely contains it (`frankly`, `graceful`). Tokenizes on any
+/// non-alphanumeric boundary, so a stem embedded in a handle or a possessive still matches while a stem
+/// buried inside an unrelated word does not.
+pub fn mentions_word(text: &str, word: &str) -> bool {
+    let word = word.to_lowercase();
+    !word.is_empty()
+        && text
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .any(|token| token == word)
+}
+
+/// The set of entry ids that have been superseded, from `MemorySuperseded` events and
+/// `EntriesConsolidated` source lists (both tombstone entries via the graph's `superseded_by`
+/// column).
+pub fn superseded_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
+    let mut ids = BTreeSet::new();
+    for event in events {
+        match &event.payload {
+            EventPayload::MemorySuperseded { entry, .. } => {
+                ids.insert(*entry);
+            }
+            EventPayload::EntriesConsolidated { sources, .. } => {
+                ids.extend(sources.iter().copied());
+            }
+            _ => {}
+        }
+    }
+    ids
 }
 
 /// The set of entry ids withdrawn by a retraction (`EntryRetracted`) — hidden from every live surface
@@ -197,6 +295,42 @@ pub fn retracted_entry_ids(events: &[Event]) -> BTreeSet<EntryId> {
             _ => None,
         })
         .collect()
+}
+
+/// Whether a live entry on a memory whose name contains `subject` has text that *exactly* matches
+/// `needle` (case-insensitive). Unlike [`live_entry_on`], this does not match substrings — the
+/// replacement entry from a consolidation may contain overlapping words, so an exact match is
+/// needed to check whether a specific source entry is still live.
+pub fn live_entry_exact(events: &[Event], subject: &str, needle: &str) -> bool {
+    let hidden: BTreeSet<EntryId> = superseded_entry_ids(events)
+        .union(&retracted_entry_ids(events))
+        .copied()
+        .collect();
+    let subject = subject.to_lowercase();
+    let needle = needle.trim().to_lowercase();
+    entries(events).into_iter().any(|entry| {
+        entry.memory.to_lowercase().contains(&subject)
+            && entry.text.trim().to_lowercase() == needle
+            && !hidden.contains(&entry.entry_id)
+    })
+}
+
+/// Whether a live entry on a memory whose name contains `subject` has text *containing* `needle`
+/// (case-insensitive) — the information-survival check under the absorption doctrine: a fact folded
+/// into a consolidation's synthesis still counts as held, so long as its content survives on a live
+/// entry.
+pub fn live_entry_containing(events: &[Event], subject: &str, needle: &str) -> bool {
+    let hidden: BTreeSet<EntryId> = superseded_entry_ids(events)
+        .union(&retracted_entry_ids(events))
+        .copied()
+        .collect();
+    let subject = subject.to_lowercase();
+    let needle = needle.trim().to_lowercase();
+    entries(events).into_iter().any(|entry| {
+        entry.memory.to_lowercase().contains(&subject)
+            && entry.text.to_lowercase().contains(&needle)
+            && !hidden.contains(&entry.entry_id)
+    })
 }
 
 /// Whether the run retracted an entry with a stated (non-empty) reason — the structured, auditable
@@ -374,7 +508,7 @@ pub fn has_recurring_occurrence(events: &[Event]) -> bool {
                 occurred_at: Some(TemporalRef::Recurring(_)),
                 ..
             } | EventPayload::EntryTemporalResolved {
-                occurred_at: TemporalRef::Recurring(_),
+                occurred_at: Some(TemporalRef::Recurring(_)),
                 ..
             }
         )

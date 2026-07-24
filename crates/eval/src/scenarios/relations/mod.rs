@@ -37,14 +37,13 @@ use crate::{
     judge::Judge,
     package::{Bar, Category, ScenarioMeta, Verdict, VerdictKind, verdict_from_judge_outcome},
     scenario::Scenario,
+    scenarios::relations::{
+        attributes_relationship_to_teller::AttributesRelationshipToTeller,
+        distinguishes_mentor_direction::DistinguishesMentorDirection,
+        infers_link_from_content::InfersLinkFromContent, knows::Knows,
+        recalls_connections::RecallsConnections,
+    },
     step::{EvalStep, Turn},
-};
-
-use crate::scenarios::relations::{
-    attributes_relationship_to_teller::AttributesRelationshipToTeller,
-    distinguishes_mentor_direction::DistinguishesMentorDirection,
-    infers_link_from_content::InfersLinkFromContent, knows::Knows,
-    recalls_connections::RecallsConnections,
 };
 
 /// This module's scenarios.

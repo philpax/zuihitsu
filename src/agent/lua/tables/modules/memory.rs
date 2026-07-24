@@ -236,6 +236,8 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
     )?;
     // memory.list(prefix) — the live memories whose handle begins with `prefix`, alphabetical, as
     // lightweight handles (name/description read lazily, full methods, the list printing as its lines).
+    // A `same_as` identity spanning a canonical profile and its platform stubs collapses to one row
+    // under the class primary, so a person lists once rather than as several near-identical stubs.
     // Discovery by stem — which spellings of a name already exist — where memory.search is recall by
     // meaning; reach for it before minting a handle so an existing one is reused, not duplicated under a
     // guessed variant. The prefix is required and matched literally (its `%`/`_` do not wildcard); a
@@ -264,18 +266,20 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                         return Err(ListError::EmptyPrefix.into());
                     }
                     check_interpolated("name prefix", &prefix)?;
-                    let ids = api
+                    let rows = api
                         .block
                         .lock()
                         .list_by_prefix(&prefix)
                         .map_err(|error| route_error(error, &mut api.infra.lock()))?;
-                    let total = ids.len();
-                    let capped: Vec<_> = ids.into_iter().take(LIST_CAP).collect();
+                    let total = rows.len();
+                    let capped: Vec<_> = rows.into_iter().take(LIST_CAP).collect();
                     let more = total.saturating_sub(capped.len());
                     // Lock the handles the list hands back, like the calendar readers: the query read
-                    // them and each is actionable, so a concurrent write serializes on them.
-                    api.lock_all(capped.iter().copied()).await;
-                    make_capped_handle_list(&lua, capped, more, &metatable, &list_metatable)
+                    // them and each is actionable, so a concurrent write serializes on them. A collapsed
+                    // class locks on its primary, the id the row's handle carries.
+                    let ids: Vec<_> = capped.iter().map(|row| row.id).collect();
+                    api.lock_all(ids).await;
+                    make_capped_listed_handle_list(&lua, capped, more, &metatable, &list_metatable)
                 }
             }
         })?,

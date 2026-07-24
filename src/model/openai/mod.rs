@@ -33,13 +33,14 @@ use async_trait::async_trait;
 use reqwest::StatusCode;
 use serde::Serialize;
 
-use crate::config::{EmbeddingConfig, ModelConfig};
-
 use futures_util::StreamExt;
 
-use crate::model::{
-    GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError, ToolChoice,
-    embed::{Embedder, Embedding},
+use crate::{
+    config::{EmbeddingConfig, ModelConfig},
+    model::{
+        GenerateDelta, GenerateRequest, GenerateStream, ModelClient, ModelError, ToolChoice,
+        embed::{Embedder, Embedding},
+    },
 };
 
 pub(crate) use request::{ChatRequest, to_messages, to_tools};
