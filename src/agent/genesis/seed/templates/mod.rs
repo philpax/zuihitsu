@@ -35,7 +35,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
-            version: 4,
+            version: 5,
             body: flush_template_body(),
         },
         TemplateDef {

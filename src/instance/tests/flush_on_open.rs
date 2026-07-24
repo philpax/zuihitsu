@@ -100,6 +100,98 @@ fn participant_turn_seq(server: &Instance, text: &str) -> Seq {
 }
 
 #[tokio::test]
+async fn an_in_flight_turn_defers_the_checkpoint_flush() {
+    let server = born_server(ManualClock::new(Timestamp::from_millis(1_000)));
+    // Substance passes for room A, cooldown is nil; `flush_on_open` is off so room B's own open does
+    // not sweep room A — the sweep is driven explicitly below to compare the two triggers directly.
+    tune_checkpoint(&server, 50, 0, false);
+
+    let room_a = ConversationLocator::new(TEST_PLATFORM, "room-a");
+    let room_b = ConversationLocator::new(TEST_PLATFORM, "room-b");
+    // Call 0: room A's substantive turn. Call 1: room B's light greeting (a live audience for A's
+    // timer sweep, itself below substance). Call 2: room A's deferred flush, once its turn exits.
+    let model = ScriptedModel::new([
+        Completion::Reply("noted, all three".to_owned()),
+        Completion::Reply("hi dave".to_owned()),
+        Completion::Reply("flushed room A".to_owned()),
+    ]);
+
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_a,
+            &PersonId::new(TEST_PLATFORM, "dave"),
+            SUBSTANTIVE,
+            &[PersonId::new(TEST_PLATFORM, "dave")],
+        )
+        .await
+        .unwrap();
+    server
+        .platform()
+        .route_message(
+            &model,
+            &room_b,
+            &PersonId::new(TEST_PLATFORM, "erin"),
+            "hi",
+            &[PersonId::new(TEST_PLATFORM, "erin")],
+        )
+        .await
+        .unwrap();
+
+    // Simulate a turn in flight for room A: register an arrival and admit it, holding the admission
+    // unexited so the ledger reports room A as mid-turn.
+    let a_conversation = conversation_of(&server, &room_a);
+    let admission = server
+        .turns
+        .arrive(a_conversation, server.engine.clock.now())
+        .admit(std::time::Duration::from_secs(60))
+        .await;
+
+    // Both triggers skip room A while its turn is in flight — the timer sweep (which sees substance and
+    // room B's audience) and a fresh session open (which waives audience and cooldown) alike.
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        0,
+        "the timer sweep defers a conversation whose turn is in flight",
+    );
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(
+                &model,
+                CheckpointTrigger::SessionOpen(ConversationId::generate()),
+            )
+            .await
+            .unwrap(),
+        0,
+        "a session-open sweep also defers an in-flight conversation",
+    );
+    assert!(
+        flush_turn_seqs(&server).is_empty(),
+        "no flush landed while room A's turn was in flight",
+    );
+
+    // Once the turn exits, the deferred delta flushes on the next sweep.
+    drop(admission);
+    assert_eq!(
+        server
+            .checkpoint_live_sessions(&model, CheckpointTrigger::Timer)
+            .await
+            .unwrap(),
+        1,
+        "room A flushes normally once its in-flight turn exits",
+    );
+    assert_eq!(
+        flush_turn_seqs(&server).len(),
+        1,
+        "exactly one flush landed, after the turn exited",
+    );
+}
+
+#[tokio::test]
 async fn a_new_conversation_flushes_the_prior_one_before_its_first_turn() {
     let server = born_server(ManualClock::new(Timestamp::from_millis(1_000)));
     tune_checkpoint(&server, 50, 0, true);

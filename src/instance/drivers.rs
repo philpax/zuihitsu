@@ -274,6 +274,13 @@ impl Instance {
     ///   audience are waived, since the opener is the audience and is not yet in the live map for the
     ///   audience check to see.
     ///
+    /// A conversation whose turn is currently in flight is skipped — checked both in the cheap
+    /// pre-check and again under the lifecycle lock, since the race can open between those two points.
+    /// A turn past `ensure_session` does not hold the lifecycle lock while it generates, so without
+    /// this the sweep could snapshot that conversation's buffer mid-turn — an inbound message with its
+    /// reply not yet committed — and flush an unanswered question into memory. Deferring the candidate
+    /// loses nothing: the substance gate finds the same delta on the next tick once the turn exits.
+    ///
     /// An eligible candidate is flushed under its conversation's lifecycle lock, with the gates
     /// re-validated there, so a message arriving mid-flush waits in `ensure_session` (on its own
     /// conversation's flush only — the flush is delta-sized) and the idle sweep's close of the same
@@ -300,6 +307,12 @@ impl Instance {
             if trigger.skips(conversation) {
                 continue;
             }
+            // Skip a conversation whose turn is in flight: it does not hold the lifecycle lock while it
+            // generates, so flushing now could snapshot its buffer mid-turn (an inbound with no reply).
+            // The delta is not lost — the next tick's substance gate finds it once the turn exits.
+            if self.turns.has_admitted_turn(conversation) {
+                continue;
+            }
             // A cheap pre-check without the lock, so the lifecycle lock is taken only for a real
             // candidate rather than serializing every live conversation each tick.
             if self
@@ -318,6 +331,11 @@ impl Instance {
                 .get(conversation)
                 .is_none_or(|current| current.id != open.id)
             {
+                continue;
+            }
+            // Re-check the in-flight guard under the lock: a turn can have admitted between the
+            // pre-check above and here (the lifecycle lock and the turn slot are distinct locks).
+            if self.turns.has_admitted_turn(conversation) {
                 continue;
             }
             let Some(delta) =

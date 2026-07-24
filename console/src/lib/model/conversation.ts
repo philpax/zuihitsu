@@ -108,6 +108,10 @@ export interface TurnModel {
   /// joins): the same content `text` holds as rendered markup, kept as data so the transcript renders
   /// a proper entrance treatment rather than the raw markup. `null` for every other turn.
   brief: Brief | null;
+  /// True when this agent turn was produced by the checkpoint/end-of-session flush (its `produced_by`
+  /// names the `Flush` template) — an internal bookkeeping turn that writes working state to memory
+  /// and is delivered to no participant. Surfaced so the transcript marks it as internal at a glance.
+  checkpoint: boolean;
 }
 
 /// One graph-mutating event a turn produced, summarized for the transcript and carrying the full
@@ -191,6 +195,7 @@ export function emptyTurn(turnId: string, seq: number): TurnModel {
     entrance: false,
     wakeup: null,
     brief: null,
+    checkpoint: false,
   };
 }
 
@@ -303,6 +308,7 @@ export function buildConversations(
         model.speaker = name(payload.participant);
         model.initiation = payload.initiation;
         model.brief = payload.brief;
+        model.checkpoint = payload.produced_by?.template_name === "flush";
         // Outcomes belong to the agent's response cycle; an inbound or system turn closes the prior
         // one so its post-reply synthesis attributes correctly and later setup does not.
         currentTurnId = payload.role === "Agent" ? payload.turn_id : null;

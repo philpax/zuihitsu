@@ -3,11 +3,11 @@ use crate::{
     clock::ManualClock,
     engine::Engine,
     event::{
-        Cardinality, EventPayload, EventSource, Initiation, LinkPosture, LinkSource, TurnRole,
-        Visibility,
+        Cardinality, EventPayload, EventSource, Initiation, LinkPosture, LinkSource, ProducedBy,
+        PromptTemplateName, TurnRole, Visibility,
     },
     graph::Graph,
-    ids::{ConversationId, MemoryId, Namespace, SessionId, TurnId},
+    ids::{ConversationId, MemoryId, Namespace, Seq, SessionId, TurnId},
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,
@@ -123,6 +123,114 @@ fn an_unmerged_direct_stub_is_refused_as_a_different_person() {
     let (engine, direct, turn_id) = chat_moment(false);
     let resolution = resolve_turn(&engine, &[direct], turn_id, 2, 2).unwrap();
     assert!(matches!(resolution, TurnResolution::AudienceMismatch));
+}
+
+#[test]
+fn a_nonempty_flush_reply_is_marked_undelivered_in_the_buffer() {
+    // A checkpoint flush that misbehaved and answered conversationally leaves a non-empty agent turn
+    // in the log; on replay it must be marked as an internal note that reached no participant, while
+    // an ordinary reply and a well-behaved empty flush stay unmarked.
+    let conversation = ConversationId::generate();
+    let session = SessionId::generate();
+    let flush_provenance = Some(ProducedBy {
+        model_id: "test-model".into(),
+        template_name: PromptTemplateName::Flush,
+        template_version: 5,
+    });
+    let flush_turn = TurnId::generate();
+    let reply_turn = TurnId::generate();
+    let empty_flush_turn = TurnId::generate();
+
+    let mut store = MemoryStore::new();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            EventSource::Agent,
+            vec![
+                EventPayload::session_started(
+                    conversation,
+                    session,
+                    vec![],
+                    Timestamp::from_millis(1_000),
+                    None,
+                    "",
+                ),
+                EventPayload::conversation_turn(
+                    conversation,
+                    TurnId::generate(),
+                    TurnRole::Participant,
+                    "what's 2+2?",
+                    None,
+                    Initiation::Responding,
+                    None,
+                ),
+                EventPayload::conversation_turn(
+                    conversation,
+                    flush_turn,
+                    TurnRole::Agent,
+                    "It's 4!",
+                    None,
+                    Initiation::Initiated,
+                    flush_provenance.clone(),
+                ),
+                EventPayload::conversation_turn(
+                    conversation,
+                    reply_turn,
+                    TurnRole::Agent,
+                    "noted",
+                    None,
+                    Initiation::Responding,
+                    None,
+                ),
+                EventPayload::conversation_turn(
+                    conversation,
+                    empty_flush_turn,
+                    TurnRole::Agent,
+                    "",
+                    None,
+                    Initiation::Initiated,
+                    flush_provenance,
+                ),
+            ],
+        )
+        .unwrap();
+
+    let buffer = crate::agent::buffer_turns(&store, conversation, Seq::ZERO).unwrap();
+
+    // The non-empty flush reply is immediately followed by a system marker naming it undelivered.
+    let flush_idx = buffer
+        .iter()
+        .position(|turn| turn.turn_id == flush_turn && turn.role == TurnRole::Agent)
+        .expect("the flush reply is in the buffer");
+    let marker = &buffer[flush_idx + 1];
+    assert_eq!(marker.role, TurnRole::System);
+    assert!(
+        marker.text.contains("not delivered to any participant"),
+        "the flush reply is marked undelivered: {:?}",
+        marker.text,
+    );
+
+    // Exactly one marker exists — neither the ordinary reply nor the empty flush contributes one.
+    let markers = buffer
+        .iter()
+        .filter(|turn| {
+            turn.role == TurnRole::System && turn.text.contains("internal checkpoint note")
+        })
+        .count();
+    assert_eq!(markers, 1, "only the non-empty flush reply is marked");
+
+    // The ordinary agent reply is not marked.
+    let reply_idx = buffer
+        .iter()
+        .position(|turn| turn.turn_id == reply_turn && turn.role == TurnRole::Agent)
+        .expect("the ordinary reply is in the buffer");
+    assert!(
+        buffer
+            .get(reply_idx + 1)
+            .is_none_or(|turn| turn.role != TurnRole::System
+                || !turn.text.contains("internal checkpoint note")),
+        "an ordinary agent reply must not be marked undelivered",
+    );
 }
 
 /// A `LuaExecuted` event for `conversation` that touched `touched`, the shape [`recent_touched`]

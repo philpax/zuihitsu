@@ -3,6 +3,14 @@
 
 use crate::agent::turn::*;
 
+/// The seam note marking a non-empty flush reply as undelivered when it replays into a later turn's
+/// buffer. A checkpoint flush is internal bookkeeping — its reply reaches no participant — but a
+/// non-empty flush reply is an ordinary agent `ConversationTurn` in the log, so on replay it reads as
+/// a sent message. Labelling it in place keeps the recorded content visible while telling the next
+/// turn it was never delivered, so the agent does not act on having "said" something no one received.
+const UNDELIVERED_FLUSH_NOTE: &str =
+    "The agent reply just above was an internal checkpoint note, not delivered to any participant.";
+
 /// One tool-call step within an agent turn: the `run_lua` script the model asked to run and the
 /// result it saw back. Reconstructed from `LuaExecuted` events so the next turn's buffer carries the
 /// full tool-interaction history — the model sees what it already fetched, searched, or computed
@@ -86,6 +94,19 @@ pub fn buffer_turns(
                 } else {
                     Vec::new()
                 };
+                // A non-empty agent reply produced by the flush path is an internal checkpoint note
+                // that reached no participant, yet on replay it is an ordinary agent turn
+                // indistinguishable from a sent message. The `Flush` provenance is the tight signal —
+                // the same field the flush watermark keys on ([`flushed_up_to`]) — and stricter than
+                // `Initiation::Initiated`, which also covers agent-initiated turns that *are*
+                // delivered. Mark it undelivered so the next turn does not "remember saying" it; an
+                // empty flush reply already replays silently (`buffer_messages` emits no assistant
+                // message for empty text) and needs no marker.
+                let is_undelivered_flush = role == TurnRole::Agent
+                    && !text.is_empty()
+                    && produced_by
+                        .as_ref()
+                        .is_some_and(|p| p.template_name == PromptTemplateName::Flush);
                 turns.push(TurnView {
                     seq: event.seq,
                     turn_id,
@@ -96,6 +117,20 @@ pub fn buffer_turns(
                     steps,
                     produced_by,
                 });
+                // The marker rides right after the flush reply as a system note, in the same style as
+                // the supersession seam hint — recorded content stays visible, honestly labelled.
+                if is_undelivered_flush {
+                    turns.push(TurnView {
+                        seq: event.seq,
+                        turn_id,
+                        role: TurnRole::System,
+                        text: UNDELIVERED_FLUSH_NOTE.to_owned(),
+                        participant: None,
+                        recorded_at: event.recorded_at,
+                        steps: Vec::new(),
+                        produced_by: None,
+                    });
+                }
             }
             // The supersession seam hint replays as a system turn at its log position — right after
             // the interrupting participant turn — so the successor is told the earlier message was

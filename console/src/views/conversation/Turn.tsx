@@ -102,12 +102,21 @@ export function TurnItem({
         >
           {isAgent ? "the agent" : (turn.speaker ?? "someone")}
         </span>
-        {turn.initiation === "Initiated" &&
+        {/* A flush turn is internal bookkeeping delivered to no one; mark it as such in faint ink
+            rather than the generic "unprompted", so an operator scanning the room sees at a glance
+            it was never sent. */}
+        {turn.checkpoint ? (
+          <span className="font-mono text-2xs text-ink-faint">
+            · internal checkpoint · not sent
+          </span>
+        ) : (
+          turn.initiation === "Initiated" &&
           (turn.wakeup ? (
             <span className="font-mono text-2xs text-clay">· woke up · {turn.wakeup}</span>
           ) : (
             <span className="font-mono text-2xs text-ink-faint">· unprompted</span>
-          ))}
+          ))
+        )}
         {turn.recordedAt > 0 && (
           <span className="ml-auto shrink-0">
             <TurnTimeAnchor roomKey={roomKey} turnId={turn.turnId} recordedAt={turn.recordedAt} />
