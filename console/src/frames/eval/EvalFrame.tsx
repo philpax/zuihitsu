@@ -63,8 +63,8 @@ export function EvalFrame({
   useDocumentTitle("eval", view);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-304 flex-col px-4 sm:px-8">
-      <header className="border-b border-line py-4 sm:py-6">
+    <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
+      <header className="shrink-0 border-b border-line py-4 sm:py-6">
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <span className="font-serif text-xl text-ink">zuihitsu</span>

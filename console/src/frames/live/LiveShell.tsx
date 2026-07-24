@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { LiveConnection, LiveStatus } from "../../lib/api/live.ts";
 import { useLiveLog } from "../../lib/api/live.ts";
@@ -53,8 +53,8 @@ export function LiveShell({
   }, [connection]);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-304 flex-col px-4 sm:px-8">
-      <header className="border-b border-line py-4 sm:py-6">
+    <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
+      <header className="shrink-0 border-b border-line py-4 sm:py-6">
         <div className="flex items-baseline justify-between gap-3">
           <div className="flex items-baseline gap-3">
             <span className="font-serif text-xl text-ink">zuihitsu</span>
@@ -89,15 +89,21 @@ export function LiveShell({
       {isDegraded(backend) && <BackendBanner health={backend} />}
 
       {!log.replica ? (
-        <Pending status={log.status} />
+        <ShellBody>
+          <Pending status={log.status} />
+        </ShellBody>
       ) : genesis === "loading" ? (
-        <Pending status={log.status} />
+        <ShellBody>
+          <Pending status={log.status} />
+        </ShellBody>
       ) : genesis === "Empty" || genesis === "Incomplete" ? (
-        <GenesisGate
-          connection={connection}
-          resuming={genesis === "Incomplete"}
-          onCreated={() => setGenesis("Complete")}
-        />
+        <ShellBody>
+          <GenesisGate
+            connection={connection}
+            resuming={genesis === "Incomplete"}
+            onCreated={() => setGenesis("Complete")}
+          />
+        </ShellBody>
       ) : (
         <StreamWorkspace
           replica={log.replica}
@@ -125,6 +131,13 @@ export function LiveShell({
       )}
     </div>
   );
+}
+
+/// The scrolling fill region for a shell body that is not the stream workspace — the connecting
+/// notice or the genesis gate. The workspace brings its own well; these single-child states scroll
+/// within this flex-1 region so a tall genesis form is reachable under the fixed header.
+function ShellBody({ children }: { children: ReactNode }) {
+  return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
 }
 
 function ConnectionBadge({ status }: { status: LiveStatus }) {

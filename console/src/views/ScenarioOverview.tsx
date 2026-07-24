@@ -27,7 +27,7 @@ export function ScenarioOverview() {
   const waiting = isLive && done === 0 && liveRuns.size === 0;
 
   return (
-    <main className="flex-1 py-7">
+    <main className="min-h-0 flex-1 overflow-y-auto py-7">
       {waiting && (
         <p className="mb-4 font-mono text-xs text-ink-faint">
           <span className="animate-pulse">waiting for the first run to start…</span>

@@ -8,6 +8,7 @@ import type { LiveConnection } from "../lib/api/live.ts";
 import { STREAM_VIEWS, type AgentViewId, type ViewId } from "../lib/nav/streamViews.ts";
 import type { InFlightGeneration } from "../lib/model/inflight.ts";
 import { DockContext } from "../lib/nav/dock.ts";
+import { ScrollContainer } from "../lib/nav/scrollContainer.ts";
 import {
   designatePrimary,
   editSelf,
@@ -170,6 +171,10 @@ export function StreamWorkspace({
   // The bottom dock a view can float its controls into (the conversation composer), held as state
   // rather than a ref so the provider re-renders its consumers once the element lands.
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
+  // The scrolling content well — the `<main>` below, offered to the views that manage their own
+  // scroll (the Conversation transcript and the Events virtualizer). Held as state, not a ref, so a
+  // consumer's effects re-run once the element mounts and the context value changes from null to it.
+  const [well, setWell] = useState<HTMLElement | null>(null);
   // Which way the next view slides: +1 from the right when moving rightward along the tabs, -1 from
   // the left when moving leftward. Computed at the switch (not from a lagging ref) so it stays within
   // the Rules of React; reduced-motion flattens the slide to a quick fade.
@@ -197,8 +202,8 @@ export function StreamWorkspace({
   }
 
   return (
-    <>
-      <nav className="flex gap-7 overflow-x-auto border-b border-line text-sm">
+    <ScrollContainer.Provider value={well}>
+      <nav className="flex shrink-0 gap-7 overflow-x-auto border-b border-line text-sm">
         {[...STREAM_VIEWS, ...extraViews].map((entry) => (
           <button
             key={entry.id}
@@ -215,7 +220,7 @@ export function StreamWorkspace({
         ))}
       </nav>
 
-      <main className="relative flex-1 overflow-x-clip py-4">
+      <main ref={setWell} className="relative min-h-0 flex-1 overflow-x-clip overflow-y-auto py-4">
         <Names.Provider value={names}>
           <ConversationNames.Provider value={convNames}>
             <TurnRefs.Provider value={refTargets}>
@@ -314,14 +319,16 @@ export function StreamWorkspace({
         </Names.Provider>
       </main>
 
-      {/* The sticky bottom chrome: the dock (a view's floating controls) stacked over the global
-          timeline, in one region so they never fight for the same edge. */}
-      <footer className="sticky bottom-0 z-10 bg-paper/95 backdrop-blur-sm">
+      {/* The fixed bottom chrome: the dock (a view's floating controls, the conversation composer)
+          stacked over the global timeline, in one region so they never fight for the same edge. It
+          sits below the scrolling well as a non-shrinking flex child, so it stays put while the view
+          scrolls between it and the nav. */}
+      <footer className="shrink-0 border-t border-line bg-paper/95 backdrop-blur-sm">
         <div ref={setDock} />
         {head > 0 && !extra && (
           <Timeline head={head} seq={cursor} events={events} onScrub={scrub} onReset={reset} />
         )}
       </footer>
-    </>
+    </ScrollContainer.Provider>
   );
 }

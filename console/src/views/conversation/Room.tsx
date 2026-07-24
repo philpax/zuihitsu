@@ -18,6 +18,7 @@ import { warmthAggregate } from "../../lib/model/contextDebug.ts";
 import { type Channel, hasScopeChar } from "./channelUtilities.ts";
 import { turnTokens } from "./turnUtilities.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
+import { ScrollContainer } from "../../lib/nav/scrollContainer.ts";
 import { useTranscriptScroll } from "./useTranscriptScroll.ts";
 
 /// One conversation, open: its header, sessions, and transcript, plus — live and at the head — a
@@ -150,6 +151,10 @@ export function Room({
   const turns = channel.conversation?.turns ?? [];
   const focusTurn = search.turn ?? null;
   const focusIndex = focusTurn ? turns.findIndex((turn) => turn.turnId === focusTurn) : -1;
+  // The scrolling well the transcript lives in, from the workspace. The scroll hook drives this
+  // element (not the window), so the document stays fixed while the transcript scrolls between the
+  // nav and the docked composer.
+  const container = useContext(ScrollContainer);
   const scroll = useTranscriptScroll({
     mode: participate ? "live" : "review",
     active: atHead,
@@ -157,6 +162,7 @@ export function Room({
     focusIndex: focusIndex >= 0 ? focusIndex : null,
     footSignal: `${cursor}|${optimistic !== null}|${thinking}|${inflightSignal}`,
     inflightActive: inflight != null,
+    container,
   });
 
   return (
@@ -295,11 +301,12 @@ function UnknownTurnNotice() {
 /// A floating jump-to-latest indicator, shown when the reader has scrolled up off the foot while new
 /// activity lands at the tail — a quiet pill in the transcript's register (faint ink on paper, a
 /// hairline border), with the count of unseen turns in clay. Clicking it snaps the window back to the
-/// tail and re-pins the follow. Sits above the docked composer; the wrapper passes clicks through its
-/// empty margins so only the pill itself is interactive.
+/// tail and re-pins the follow. Sticky to the foot of the scrolling well, so it floats just above the
+/// docked composer (which is fixed chrome below the well); the wrapper passes clicks through its empty
+/// margins so only the pill itself is interactive.
 function JumpToLatest({ count, onClick }: { count: number; onClick: () => void }) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-20 flex justify-center">
+    <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center">
       <button
         onClick={onClick}
         className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-paper/95 px-3.5 py-1.5 font-mono text-2xs text-ink-soft shadow-sm backdrop-blur-sm transition-colors hover:text-ink"

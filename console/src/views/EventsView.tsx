@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
@@ -18,6 +18,7 @@ import { buildStepMarkers, type StepMarker } from "../lib/model/stepJournal.ts";
 import { nameById } from "../lib/model/labels.ts";
 import { formatDateTime, formatTime } from "../lib/format/format.ts";
 import { useStream } from "../lib/nav/useStreamLocation.ts";
+import { ScrollContainer } from "../lib/nav/scrollContainer.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "../components/EventDetail.tsx";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
@@ -109,21 +110,27 @@ export function EventsView({
     setActiveSources(next);
   }
 
-  // A run's log is thousands of rows, so only the visible window is rendered. The list scrolls with
-  // the page (window virtualizer), so `scrollMargin` tracks the list's offset from the top of the
-  // document — re-measured when the layout above it changes (the verdict panel collapsing, a resize).
-  // Rows measure their own height, so an expanded row's detail is accounted for without a fixed size.
+  // A run's log is thousands of rows, so only the visible window is rendered. The list scrolls within
+  // the workspace well (the shared scroll container), so `scrollMargin` tracks the list's offset from
+  // the top of that container's scrolled content — the filter rows above it — re-measured when that
+  // layout changes (a filter rewrapping, a resize). The well is positioned (`relative`), so the list's
+  // `offsetTop` is measured against it. Rows measure their own height, so an expanded row's detail is
+  // accounted for without a fixed size.
+  const container = useContext(ScrollContainer);
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   useLayoutEffect(() => {
     const measure = () => listRef.current && setScrollMargin(listRef.current.offsetTop);
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(document.body);
+    // Observe the well's scrolled content (its first child), not the well itself: the well's own box
+    // is fixed, so only its content growing or the filters above rewrapping move the list's offset.
+    observer.observe(container?.firstElementChild ?? document.body);
     return () => observer.disconnect();
-  }, []);
-  const virtualizer = useWindowVirtualizer({
+  }, [container]);
+  const virtualizer = useVirtualizer({
     count: rows.length,
+    getScrollElement: () => container,
     estimateSize: () => 37,
     overscan: 12,
     scrollMargin,

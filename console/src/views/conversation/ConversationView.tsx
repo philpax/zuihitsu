@@ -102,7 +102,7 @@ export function ConversationView({
   // switch, and moves with browser back and forward like the rest of the stream's state (each room
   // switch is a `push`). `?turn` stays a query — it is a highlight, not a room selection.
   const navigate = useNavigate();
-  const { selection: selectedKey, search, seq, link } = useStream();
+  const { selection: selectedKey, search, seq, link, view } = useStream();
   const [draftRoom, setDraftRoom] = useState("");
   // A room the operator named but has not sent to yet — held as its own locator rather than packed
   // into a key, so it survives until its first message creates it on the log.
@@ -172,8 +172,13 @@ export function ConversationView({
   // fallback above, so this only rewrites the URL — no blank redirect frame — and once it lands the
   // selection drives the view (so a later message to another room no longer moves the reader). No
   // conversations yet ⇒ no target ⇒ the empty state stands.
+  // Gated on this being the *active* view: AnimatePresence keeps an exiting view mounted through its
+  // fade, during which the URL already belongs to the next tab — selection reads null and an ungated
+  // redirect would immediately bounce the reader back here.
   const defaultRoom =
-    selectedKey === null && linkedTurnId === null && mostRecent ? mostRecent : null;
+    view === "conversation" && selectedKey === null && linkedTurnId === null && mostRecent
+      ? mostRecent
+      : null;
 
   // The rooms with a generation in flight, marked in the channel list (the pulse in the sidebar,
   // text in the mobile dropdown) so a stable selection still shows where the agent is working.
