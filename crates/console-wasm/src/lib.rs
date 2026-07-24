@@ -473,7 +473,7 @@ impl Replica {
         // One-offs are finite, so they have no upper bound — a far-future event stays on the agenda.
         for (memory, entry) in self
             .graph
-            .occurrences_in_window(from, Timestamp::from_millis(i64::MAX))
+            .occurrences_in_window(from, Timestamp::MAX)
             .map_err(graph_error)?
         {
             items.push(AgendaItem {

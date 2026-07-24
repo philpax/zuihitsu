@@ -29,6 +29,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct Timestamp(#[cfg_attr(feature = "ts", ts(type = "number"))] jiff::Timestamp);
 
 impl Timestamp {
+    /// The far end of jiff's representable range — the sentinel for an unbounded upper window (an
+    /// open-ended occurrence query, say). `Timestamp::from_millis(i64::MAX)` panics well before this,
+    /// so an "effectively forever" bound must be this constant, never a hand-rolled maximum.
+    pub const MAX: Timestamp = Timestamp(jiff::Timestamp::MAX);
+
     /// Wrap an epoch-millisecond value trusted to be within jiff's representable range (year -9999
     /// to 9999). Panics on an out-of-range input, so this is for trusted internal arithmetic (clock
     /// advances, day-window math) — route untrusted input (deserialized wire values, Lua temporal

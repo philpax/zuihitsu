@@ -317,3 +317,30 @@ fn recurring_entries_lists_live_recurring_entries_by_memory() {
     assert_eq!(by_memory.get(&mem_a).copied(), Some("FREQ=WEEKLY"));
     assert_eq!(by_memory.get(&mem_b).copied(), Some("FREQ=MONTHLY"));
 }
+
+#[test]
+fn an_unbounded_window_uses_the_max_sentinel() {
+    // The console's agenda queries one-off occurrences with no upper bound. The sentinel for
+    // "effectively forever" is `Timestamp::MAX` — `Timestamp::from_millis(i64::MAX)` panics outside
+    // jiff's representable range (observed live: the agenda view crashed the wasm replica) — and an
+    // occurrence anywhere in the representable future must fall inside it.
+    let a = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        created(a, Namespace::Event.with_name("far_future")),
+        appended(
+            a,
+            EntryId::generate(),
+            Some(TemporalRef::Instant(Timestamp::from_millis(
+                4_102_444_800_000,
+            ))),
+        ),
+    ]);
+    let hits = graph
+        .occurrences_in_window(Timestamp::from_millis(0), Timestamp::MAX)
+        .unwrap();
+    assert_eq!(
+        hits.len(),
+        1,
+        "the far-future occurrence is inside the unbounded window"
+    );
+}
