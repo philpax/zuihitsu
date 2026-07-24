@@ -148,8 +148,10 @@ pub(super) fn entries() -> Vec<ApiEntry> {
                  spellings already exist: pass \"{person}dav\" to see {person}dave and {person}david \
                  before assuming a handle. Reach for it in identity work before you create or propose — \
                  list the stem to reuse an existing handle rather than minting a variant that splits \
-                 the referent. Each result is a memory handle (read m.name, m.description, or call its \
-                 methods); the list is capped, the remainder noted when a broad prefix matches more."
+                 the referent. A merged identity lists once, under its primary handle, rather than as \
+                 each of its platform stubs. Each result is a memory handle (read m.name, \
+                 m.description, or call its methods); the list is capped, the remainder noted when a \
+                 broad prefix matches more."
             ),
         )
         .required(

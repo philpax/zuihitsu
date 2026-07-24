@@ -15,7 +15,7 @@ use crate::{
     },
     graph::RelationView,
     ids::MemoryId,
-    memory::memory_block::MemoryDetails,
+    memory::memory_block::{ListedMemory, MemoryDetails},
 };
 use ulid::Ulid;
 
@@ -60,22 +60,28 @@ pub(crate) fn make_handle_list(
     Ok(Value::Table(list))
 }
 
-/// Wrap a capped list of memory ids as a Lua sequence of handles — the `memory.list` return shape.
-/// The value stays a plain sequence the agent can iterate (each element a handle, `handle.name`
-/// readable), so `for _, m in ipairs(memory.list("person/")) do … end` works; the truncation note
-/// rides only the *rendered* form, through the list metatable's `__tostring` reading the `more`
-/// field this stores when matches were elided past the cap. So the returned value is unadorned data
-/// while printing or returning it shows the `(+N more — narrow the prefix)` hint.
-pub(crate) fn make_capped_handle_list(
+/// Wrap a capped list of collapsed `memory.list` rows as a Lua sequence of memory handles — the
+/// class-unified `memory.list` return shape. Each handle is minted from its class primary's id, so
+/// `name` and `description` read lazily under the primary and `ipairs` walks the handles as before. A
+/// row carrying a resolved description override (a collapsed class whose primary is undescribed but a
+/// member is not) stamps it as a raw `description` field, which the handle's `__tostring` and a
+/// `handle.description` read find ahead of the lazy `__index`, so the row never lists as a blank line.
+/// The truncation note rides the rendered form only, through the list metatable's `__tostring` reading
+/// the `more` field this stores when matches were elided past the cap.
+pub(crate) fn make_capped_listed_handle_list(
     lua: &Lua,
-    ids: Vec<MemoryId>,
+    rows: Vec<ListedMemory>,
     more: usize,
     metatable: &Table,
     list_metatable: &Table,
 ) -> mlua::Result<Value> {
     let list = lua.create_table()?;
-    for (index, id) in ids.into_iter().enumerate() {
-        list.set(index + 1, make_handle(lua, id, metatable)?)?;
+    for (index, row) in rows.into_iter().enumerate() {
+        let handle = make_handle(lua, row.id, metatable)?;
+        if let Some(description) = row.description {
+            handle.raw_set("description", description)?;
+        }
+        list.set(index + 1, handle)?;
     }
     if more > 0 {
         list.set("more", more as i64)?;

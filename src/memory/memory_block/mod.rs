@@ -256,6 +256,17 @@ pub struct LinkRef {
     pub occurred_at: Option<TemporalRef>,
 }
 
+/// One row of a `memory.list` result, after `same_as` classes are collapsed. A lone memory lists as
+/// itself; a multi-member identity lists once, under its class primary (`id`), at the position its
+/// first-encountered member held. `description` is a resolved override the Lua layer stamps on the
+/// handle — `Some` only when the primary's own description is empty but a member has one, so a
+/// freshly-minted, undescribed canonical profile still lists under the stub's description rather than a
+/// blank line. `None` means read the primary's own description lazily, the common path.
+pub struct ListedMemory {
+    pub id: MemoryId,
+    pub description: Option<String>,
+}
+
 /// A memory's whole record, assembled for `mem:details` — the one-render read that licenses "I don't
 /// hold that" after a single look. It carries the memory's header (its current name, its description,
 /// and any handles it used to go by), its live entries across the merged identity, every link out of

@@ -7,6 +7,7 @@ mod consolidation;
 mod content_limit;
 mod free_merge;
 mod link_class;
+mod list_class;
 mod mutation_guards;
 mod writes;
 

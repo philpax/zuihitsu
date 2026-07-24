@@ -13,7 +13,7 @@ pub(crate) use link::{
     render_neighborhood, render_salient_relations, resolve_exclude,
 };
 pub(crate) use memory::{
-    HandleSelf, handle_id, make_capped_handle_list, make_handle, make_handle_list,
+    HandleSelf, handle_id, make_capped_listed_handle_list, make_handle, make_handle_list,
     make_relation_result, readonly_newindex, render_details,
 };
 pub(crate) use search::{
