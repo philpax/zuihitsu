@@ -49,6 +49,7 @@ export function EventsView({
   journal?: readonly StepRecord[];
   resumedFromStep?: number | null;
 }) {
+  "use no memo"; // The virtualizer (@tanstack/react-virtual) is incompatible with the React Compiler.
   const names = nameById(replica.memories(""));
   const convNames = conversationNameById(replica.conversations());
   const { search: streamSearch, patchSearch } = useStream();
@@ -128,6 +129,7 @@ export function EventsView({
     observer.observe(container?.firstElementChild ?? document.body);
     return () => observer.disconnect();
   }, [container]);
+  // eslint-disable-next-line react-hooks/incompatible-library -- the "use no memo" opt-out above makes the skipped compilation deliberate.
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => container,
