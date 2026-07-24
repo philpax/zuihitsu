@@ -49,9 +49,9 @@ async fn each_turn_carries_its_own_recorded_time() {
     assert_eq!(
         turn2,
         vec![
-            "[Mon 2026-06-08 00:00 UTC] dave: first message",
+            "[Mon 2026-06-08 00:00 UTC] person/dave@chat: first message",
             "morning",
-            "[Mon 2026-06-08 00:10 UTC] dave: second message",
+            "[Mon 2026-06-08 00:10 UTC] person/dave@chat: second message",
         ]
     );
 }

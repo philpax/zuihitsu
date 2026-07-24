@@ -778,12 +778,17 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     assert_eq!(seen.len(), 2);
     // Turn 1's prompt is just the inbound message, stamped with who spoke and the time it was recorded
     // (test_now(); the clock does not advance in this test). The agent reads it, so it carries a
-    // speaker-and-time prefix that lets it attribute the turn in a multi-party room.
+    // speaker-and-time prefix that lets it attribute the turn in a multi-party room. The speaker label
+    // is the participant's full canonical handle (here the classless stub's own `person/dave@chat`),
+    // so it is a directly usable `memory.get` operand.
     let turn1: Vec<&str> = seen[0]
         .iter()
         .map(|message| message.content.as_str())
         .collect();
-    assert_eq!(turn1, vec!["[Mon 2026-06-08 00:00 UTC] dave: hello there"]);
+    assert_eq!(
+        turn1,
+        vec!["[Mon 2026-06-08 00:00 UTC] person/dave@chat: hello there"]
+    );
     // Turn 2 replays the live buffer — turn 1's participant and agent turns — then the new inbound.
     // The participant turns it reads are speaker-and-time-stamped; the agent's own reply is left
     // unstamped (its `assistant` role already identifies it).
@@ -794,9 +799,9 @@ async fn the_live_buffer_is_replayed_to_the_model_on_later_turns() {
     assert_eq!(
         turn2,
         vec![
-            "[Mon 2026-06-08 00:00 UTC] dave: hello there",
+            "[Mon 2026-06-08 00:00 UTC] person/dave@chat: hello there",
             "first reply",
-            "[Mon 2026-06-08 00:00 UTC] dave: and again",
+            "[Mon 2026-06-08 00:00 UTC] person/dave@chat: and again",
         ]
     );
 }

@@ -138,14 +138,19 @@ impl Graph {
         id.map(|id| parse_ulid(&id).map(MemoryId)).transpose()
     }
 
-    /// Resolve a teller to the display name a marker shows (a participant's handle, or a fixed label
-    /// for the agent and genesis). Shared by search and brief composition.
+    /// Resolve a teller to the display name a marker shows (a participant's full canonical handle, or
+    /// a fixed label for the agent and genesis). A participant is canonicalized through its `same_as`
+    /// class to the class primary before rendering, so a brief's "told by person/philpax" and a buffer
+    /// turn's "person/philpax:" name the same person the same way (see `participant_names`). Shared by
+    /// search and brief composition.
     pub fn teller_display(&self, teller: &Teller) -> Result<String, GraphError> {
         Ok(match teller {
-            Teller::Participant(id) => self
-                .memory_by_id(*id)?
-                .map(|memory| memory.name.as_str().to_owned())
-                .unwrap_or_else(|| "someone".to_owned()),
+            Teller::Participant(id) => {
+                let primary = self.class_id(*id)?.unwrap_or(*id);
+                self.memory_by_id(primary)?
+                    .map(|memory| memory.name.as_str().to_owned())
+                    .unwrap_or_else(|| "someone".to_owned())
+            }
             Teller::Agent => "the agent".to_owned(),
             Teller::Bootstrap => "genesis".to_owned(),
         })

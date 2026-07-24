@@ -1,5 +1,7 @@
 use crate::{
-    agent::turn::{TurnResolution, recording::reply_leaks_special_tokens, resolve_turn},
+    agent::turn::{
+        TurnResolution, participant_names, recording::reply_leaks_special_tokens, resolve_turn,
+    },
     clock::ManualClock,
     engine::Engine,
     event::{
@@ -230,6 +232,69 @@ fn a_nonempty_flush_reply_is_marked_undelivered_in_the_buffer() {
             .is_none_or(|turn| turn.role != TurnRole::System
                 || !turn.text.contains("internal checkpoint note")),
         "an ordinary agent reply must not be marked undelivered",
+    );
+}
+
+#[test]
+fn a_participant_label_is_the_canonical_class_primary_handle() {
+    // A platform stub bound `same_as` a designated canonical primary stamps the primary's complete
+    // handle, so the speaker label is a directly usable `memory.get` operand rather than an opaque
+    // snowflake; a classless participant stamps its own full handle, still a valid operand.
+    let primary = MemoryId::generate();
+    let stub = MemoryId::generate();
+    let classless = MemoryId::generate();
+
+    let mut store = MemoryStore::new();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            EventSource::Agent,
+            vec![
+                EventPayload::LinkTypeRegistered {
+                    name: RelationName::SameAs,
+                    inverse: RelationName::SameAs,
+                    from_card: Cardinality::Many,
+                    to_card: Cardinality::Many,
+                    symmetric: true,
+                    reflexive: false,
+                    description: String::new(),
+                },
+                EventPayload::memory_created(primary, Namespace::Person.with_name("rowan")),
+                EventPayload::memory_created(
+                    stub,
+                    Namespace::Person.with_name("201689218030895104@discord"),
+                ),
+                EventPayload::memory_created(classless, Namespace::Person.with_name("wren@direct")),
+                EventPayload::link_created(
+                    stub,
+                    primary,
+                    RelationName::SameAs,
+                    LinkPosture {
+                        source: LinkSource::Operator,
+                        told_by: None,
+                        told_in: None,
+                        visibility: Visibility::Public,
+                    },
+                ),
+                EventPayload::class_primary_designated(primary, true),
+            ],
+        )
+        .unwrap();
+    let mut graph = Graph::open_in_memory().unwrap();
+    graph.materialize_from(&store).unwrap();
+    let engine = Engine::new(
+        Box::new(store),
+        graph,
+        Box::new(ManualClock::new(Timestamp::from_millis(2_000))),
+    );
+
+    let names = participant_names(&engine, &[], &[stub, classless]);
+    // The stub canonicalizes to its class primary and renders the primary's complete handle.
+    assert_eq!(names.get(&stub).map(String::as_str), Some("person/rowan"));
+    // A classless participant renders its own full handle, no prefix or platform stripping.
+    assert_eq!(
+        names.get(&classless).map(String::as_str),
+        Some("person/wren@direct"),
     );
 }
 
