@@ -1,6 +1,6 @@
 //! Link and relation operations: registering, creating, removing, and traversing links.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use crate::{
     event::{EventPayload, LinkPosture, LinkSource, MergeProposalSource, Teller, Visibility},
@@ -160,6 +160,12 @@ impl MemoryBlock {
             let class_of = |mid| graph.class_id(mid).map(|class| class.unwrap_or(mid));
             let audience = !self.present_set.is_empty();
             let mut refs = Vec::new();
+            // Collapse edges that canonicalize onto one far identity: the queried class can carry the
+            // same external relationship from more than one of its stubs, and a neighbour attached to
+            // both a platform stub and its canonical profile is one relationship, not two. Keyed on the
+            // far class primary, so the survivor is deterministic — the first edge in `class_links`'
+            // order wins.
+            let mut seen: HashSet<(RelationName, bool, MemoryId)> = HashSet::new();
             for edge in graph.class_links(id)? {
                 let (direction, other_id) =
                     match (class.contains(&edge.from), class.contains(&edge.to)) {
@@ -168,6 +174,15 @@ impl MemoryBlock {
                         // Within-class (both ends in the identity) or unrelated: not a relationship.
                         _ => continue,
                     };
+                // Resolve the far endpoint to its own class primary, so a relationship attached to a raw
+                // platform stub renders under its canonical readable identity.
+                let far_primary = class_of(other_id)?;
+                // An edge whose far endpoint canonicalizes back into the queried class is identity
+                // plumbing reached through a different raw endpoint, not a relationship pointing out of
+                // the identity.
+                if class.contains(&far_primary) {
+                    continue;
+                }
                 // Visibility filter: when an audience is present, filter private links.
                 if audience {
                     let symmetric = graph
@@ -178,24 +193,36 @@ impl MemoryBlock {
                         continue;
                     }
                 }
-                let Some(other) = graph.memory_by_id(other_id)? else {
+                // Dedupe after the visibility filter, so a hidden parallel edge never claims the slot a
+                // visible one to the same neighbour would fill.
+                if !seen.insert((
+                    edge.relation.clone(),
+                    matches!(direction, LinkDirection::Incoming),
+                    far_primary,
+                )) {
+                    continue;
+                }
+                let Some(other) = graph.memory_by_id(far_primary)? else {
                     continue;
                 };
                 // Resolve the teller's label off the held guard (teller_label re-locks the graph and
-                // would deadlock here); a participant teller is a committed person memory.
+                // would deadlock here); a participant teller is a committed person memory, resolved
+                // through its own class primary so a stub teller reads under its canonical name.
                 let told_by = match &edge.told_by {
                     None => None,
                     Some(Teller::Agent) => Some("you".to_owned()),
                     Some(Teller::Bootstrap) => Some("genesis".to_owned()),
                     Some(Teller::Participant(teller_id)) => Some(
                         graph
-                            .memory_by_id(*teller_id)?
+                            .memory_by_id(class_of(*teller_id)?)?
                             .map(|memory| memory.name.as_str().to_owned())
                             .unwrap_or_else(|| "someone".to_owned()),
                     ),
                 };
-                // The far memory's freshest dated fact, so a link to a dated event carries *when*.
-                // Committed state only and not visibility-filtered, mirroring the link read itself.
+                // The far memory's freshest dated fact, so a link to a dated event carries *when*. Read
+                // against the canonical primary the ref now carries; `class_entries` folds the whole
+                // identity, so member and primary yield the same date. Committed state only and not
+                // visibility-filtered, mirroring the link read itself.
                 let occurred_at = latest_dated_occurrence(&graph, other.id)?;
                 refs.push(LinkRef {
                     relation: edge.relation,

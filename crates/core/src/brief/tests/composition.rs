@@ -305,6 +305,76 @@ fn a_same_as_class_collapses_to_a_single_block() {
 }
 
 #[test]
+fn a_hidden_parallel_edge_does_not_shadow_a_visible_one_in_the_brief() {
+    // Regression for the relationships dedup order: a far identity (erin, the designated primary of a
+    // class holding a platform stub) is reached through two parallel edges — an older public one to the
+    // stub and a newer teller-private one to the primary. The block's relationship dedup collapses the
+    // pair only *after* the visibility filter, so with the teller absent the public edge survives and
+    // the relationship renders once, under the far primary's canonical name. A dedup before the filter
+    // would keep the newer private edge, filter it away, and lose the relationship entirely.
+    let rowan = MemoryId::generate();
+    let erin = MemoryId::generate();
+    let erin_stub = MemoryId::generate();
+    let maya = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+            description: String::new(),
+        },
+        register_relation("knows", "known_by"),
+        created(rowan, "person/rowan"),
+        created(erin, "person/erin"),
+        created(erin_stub, "person/9001@testplat"),
+        created(maya, "person/maya"),
+        EventPayload::link_created(
+            erin,
+            erin_stub,
+            RelationName::SameAs,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ),
+        EventPayload::class_primary_designated(erin, true),
+        // The older public edge hangs off the stub; the newer parallel edge to the primary is Maya's
+        // private aside, hidden from anyone but her.
+        linked(rowan, erin_stub, "knows"),
+        EventPayload::link_created(
+            rowan,
+            erin,
+            RelationName::new("knows"),
+            LinkPosture {
+                source: LinkSource::Agent,
+                told_by: Some(Teller::Participant(maya)),
+                told_in: None,
+                visibility: Visibility::PrivateToTeller,
+            },
+        ),
+    ]);
+    let settings = Settings::default().brief;
+
+    // Rowan is present and Maya is not, so the private edge is filtered — yet the relationship
+    // survives via the public stub edge, rendered once under the far primary's name.
+    let out = compose_at_epoch(&graph, &settings, &[rowan], None, &[]);
+    assert_eq!(
+        out.matches("person/rowan → knows → person/erin").count(),
+        1,
+        "the parallel edges collapse to one visible relationship: {out}",
+    );
+    assert!(
+        !out.contains("9001@testplat"),
+        "the stub snowflake never renders: {out}",
+    );
+}
+
+#[test]
 fn the_present_set_cap_does_not_narrow_the_predicate() {
     // Scenario 21: with the present-set cap set to 1, Dave is present but ranks below the cap (only a
     // name-only entry, no full block). A fact on Marcus (in the cap, rendered) excludes Dave; the

@@ -13,7 +13,7 @@
 //! surviving private entry attaches the inline teller-private marker. The real sqlite-vec backend
 //! follows.
 
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, HashSet, btree_map::Entry};
 
 use crate::{
     decay,
@@ -345,6 +345,13 @@ fn salient_relations(
                 .unwrap_or(false)
         });
     }
+    // Collapse parallel edges that reach one far identity through different raw members — after the
+    // visibility filter, so a hidden parallel edge never claims the slot a visible one would fill. The
+    // read is ordered most-recently-created first, so the surviving edge is the most recent visible one.
+    let mut seen: HashSet<(RelationName, bool, MemoryId)> = HashSet::new();
+    neighbors.retain(|neighbor| {
+        seen.insert((neighbor.relation.clone(), neighbor.incoming, neighbor.other))
+    });
     // `class_neighbor_links` already orders most-recently-created first; a *stable* sort then floats
     // person far ends ahead without disturbing that recency order within each group.
     neighbors.sort_by_key(|neighbor| !neighbor.other_name.as_str().starts_with(person));

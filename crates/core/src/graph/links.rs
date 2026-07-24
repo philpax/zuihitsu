@@ -150,38 +150,72 @@ impl Graph {
         to: MemoryId,
         relation: &RelationName,
     ) -> Result<Option<LinkPosture>, GraphError> {
-        let (from_id, to_id, relation) = self.canonical_edge(from, to, relation)?;
-        let stmt = self.conn.prepare(
+        let (from_id, to_id, canonical) = self.canonical_edge(from, to, relation)?;
+        // The exact-endpoint row wins when it exists: a re-link against the same endpoints upserts that
+        // row, so its posture is exactly what a caller compares a would-be write against, and a
+        // differing-posture re-link folds onto it in place (unchanged behaviour).
+        let exact = self.conn.prepare(
             "SELECT source, told_by, told_in, visibility
              FROM links WHERE from_id = ?1 AND to_id = ?2 AND relation = ?3",
         )?;
-        query_opt_into(stmt, params![from_id, to_id, relation], |row| {
-            let source: String = row.get("source")?;
-            let told_by: Option<String> = row.get("told_by")?;
-            let told_in: Option<String> = row.get("told_in")?;
-            let visibility: String = row.get("visibility")?;
-            Ok::<LinkPosture, GraphError>(LinkPosture {
-                source: source.parse().map_err(|()| {
-                    GraphError::Malformed(format!("unknown link source {source:?}"))
-                })?,
-                told_by: told_by
-                    .map(|json| serde_json::from_str(&json))
-                    .transpose()?,
-                told_in: told_in
-                    .map(|json| serde_json::from_str(&json))
-                    .transpose()?,
-                visibility: serde_json::from_str(&visibility)?,
-            })
-        })
+        if let Some(posture) =
+            query_opt_into(exact, params![from_id, to_id, canonical], posture_from_row)?
+        {
+            return Ok(Some(posture));
+        }
+        // No exact row, but the relationship may already be recorded against a *different* member of one
+        // (or both) endpoints' `same_as` class — the same edge stored against a platform stub and asked
+        // for against its canonical profile, say. That class-equivalent edge is the collision the caller
+        // weighs: a re-link writing the identical posture is then recognised as redundant and folds away,
+        // so the class does not accrue a parallel edge for each member it is re-asserted against. A
+        // differing-posture re-link still writes — the fold upserts the exact endpoints it names, leaving
+        // the other member's edge intact, since silently rewriting an edge stored against an endpoint the
+        // caller did not name would reach past the write it asked for. Endpoints are matched at class
+        // granularity; a symmetric relation is unordered, so either class may hold either end. Soft-
+        // deleted endpoints are not filtered, matching the exact lookup.
+        let symmetric = self
+            .relation(&canonical)?
+            .map(|r| r.symmetric)
+            .unwrap_or(false);
+        let class_equivalent = self.conn.prepare(
+            "SELECT source, told_by, told_in, visibility
+             FROM links
+             WHERE relation = ?3
+               AND (
+                     (from_id IN (SELECT id FROM memories
+                                  WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1))
+                      AND to_id IN (SELECT id FROM memories
+                                    WHERE class_id = (SELECT class_id FROM memories WHERE id = ?2)))
+                  OR (?4 = 1
+                      AND from_id IN (SELECT id FROM memories
+                                      WHERE class_id = (SELECT class_id FROM memories WHERE id = ?2))
+                      AND to_id IN (SELECT id FROM memories
+                                    WHERE class_id = (SELECT class_id FROM memories WHERE id = ?1)))
+                   )
+             ORDER BY from_id, to_id
+             LIMIT 1",
+        )?;
+        query_opt_into(
+            class_equivalent,
+            params![from_id, to_id, canonical, symmetric as i64],
+            posture_from_row,
+        )
     }
 
     /// Every edge leaving `id`'s whole `same_as` class — oriented against the class, carrying the far
-    /// memory's resolved name, ordered most-recently created first (by the link's insertion `rowid`) —
-    /// the raw neighbor set a search hit distills into its salient-relations line. Edges internal to the
-    /// class (both endpoints class members) are dropped: those are the `same_as` plumbing within an
-    /// identity, not a relationship pointing out of it. Committed state; visibility-filtered through
-    /// `link_visible` when an audience is present, mirroring the content entry reads.
+    /// endpoint resolved to *its* class primary (id and name), ordered most-recently created first (by
+    /// the link's insertion `rowid`) — the raw neighbor set a search hit distills into its
+    /// salient-relations line. Edges internal to the class (both endpoints class members) are dropped:
+    /// those are the `same_as` plumbing within an identity, not a relationship pointing out of it.
+    ///
+    /// Parallel edges reaching one far identity through different raw members are **not** deduplicated
+    /// here: each carries its own visibility, and a caller must filter through `link_visible` *before*
+    /// collapsing, or a hidden edge could claim the slot a visible parallel one would fill. Every
+    /// consumer dedupes on `(relation, direction, other)` after its visibility filter. Committed state.
     pub fn class_neighbor_links(&self, id: MemoryId) -> Result<Vec<NeighborLinkView>, GraphError> {
+        // The far endpoint resolves to its class primary (the `class_id` column is the primary's own
+        // id), so a relationship carried by a raw platform stub renders under the neighbour's canonical
+        // readable identity.
         let stmt = self.conn.prepare(
             "WITH cls AS (
                  SELECT id FROM memories
@@ -190,10 +224,8 @@ impl Graph {
              )
              SELECT l.relation AS relation,
                     (l.from_id NOT IN (SELECT id FROM cls)) AS incoming,
-                    CASE WHEN l.from_id IN (SELECT id FROM cls) THEN l.to_id ELSE l.from_id END
-                        AS other_id,
-                    CASE WHEN l.from_id IN (SELECT id FROM cls) THEN mt.name ELSE mf.name END
-                        AS other_name,
+                    mo.class_id AS other_id,
+                    (SELECT name FROM memories WHERE id = mo.class_id) AS other_name,
                     l.from_id AS from_id,
                     l.to_id AS to_id,
                     l.told_by AS told_by,
@@ -202,6 +234,8 @@ impl Graph {
              FROM links l
              JOIN memories mf ON mf.id = l.from_id AND mf.deleted = 0
              JOIN memories mt ON mt.id = l.to_id   AND mt.deleted = 0
+             JOIN memories mo
+               ON mo.id = CASE WHEN l.from_id IN (SELECT id FROM cls) THEN l.to_id ELSE l.from_id END
              WHERE (l.from_id IN (SELECT id FROM cls) OR l.to_id IN (SELECT id FROM cls))
                AND NOT (l.from_id IN (SELECT id FROM cls) AND l.to_id IN (SELECT id FROM cls))
              ORDER BY l.rowid DESC",
@@ -233,4 +267,26 @@ impl Graph {
             })
         })
     }
+}
+
+/// Decode a link's overwritable posture (`source`, `told_by`, `told_in`, `visibility`) from a row — the
+/// shared row shape [`Graph::link_between`] reads from both its exact-endpoint and its class-equivalent
+/// lookups.
+fn posture_from_row(row: &rusqlite::Row<'_>) -> Result<LinkPosture, GraphError> {
+    let source: String = row.get("source")?;
+    let told_by: Option<String> = row.get("told_by")?;
+    let told_in: Option<String> = row.get("told_in")?;
+    let visibility: String = row.get("visibility")?;
+    Ok(LinkPosture {
+        source: source
+            .parse()
+            .map_err(|()| GraphError::Malformed(format!("unknown link source {source:?}")))?,
+        told_by: told_by
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?,
+        told_in: told_in
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?,
+        visibility: serde_json::from_str(&visibility)?,
+    })
 }

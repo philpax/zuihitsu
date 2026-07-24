@@ -197,16 +197,17 @@ fn relationships(
     let mut ranked: Vec<RankedRelationship> = Vec::new();
     let mut seen: HashSet<(RelationName, MemoryId)> = HashSet::new();
     for link in graph.class_neighbor_links(id)? {
-        // One relationship per (relation, neighbour): a class can carry the same external edge from
-        // more than one of its stubs, and the collapsed block shows it once.
-        if !seen.insert((link.relation.clone(), link.other)) {
-            continue;
-        }
         let symmetric = graph
             .relation(link.relation.as_str())?
             .map(|r| r.symmetric)
             .unwrap_or(false);
         if !visibility::link_visible(&link.link_vis(), symmetric, present_set, class_of)? {
+            continue;
+        }
+        // One relationship per (relation, neighbour): a class can carry the same external edge from
+        // more than one of its stubs, and the collapsed block shows it once. Collapsed only after the
+        // visibility filter, so a hidden parallel edge never claims the slot a visible one would fill.
+        if !seen.insert((link.relation.clone(), link.other)) {
             continue;
         }
         let Some(memory) = graph.memory_by_id(link.other)? else {

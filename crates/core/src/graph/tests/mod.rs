@@ -18,6 +18,7 @@ mod attestation;
 mod consolidation;
 mod describe;
 mod designation;
+mod link_class;
 mod merge;
 mod occurrence;
 mod participants;
