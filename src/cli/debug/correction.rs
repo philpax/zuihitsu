@@ -149,7 +149,12 @@ fn resolve_entry(graph: &Graph, target: &str) -> Result<ResolvedEntry, String> {
 
 /// Open the event log read-write, failing (with a running-agent hint) when the single-writer lock is
 /// already held. `wrap` builds the command's own error variant so the context prefix stays correct.
-fn open_store(config: &EnvConfig, wrap: fn(String) -> CliError) -> Result<SqliteStore, CliError> {
+/// Shared with the sibling identity commands ([`crate::cli::debug::identity`]), the other write
+/// exceptions that take the single-writer lock.
+pub(super) fn open_store(
+    config: &EnvConfig,
+    wrap: fn(String) -> CliError,
+) -> Result<SqliteStore, CliError> {
     let log_path = config.storage.event_log();
     SqliteStore::open(&log_path).map_err(|source| {
         wrap(format!(
@@ -159,8 +164,12 @@ fn open_store(config: &EnvConfig, wrap: fn(String) -> CliError) -> Result<Sqlite
     })
 }
 
-/// Materialise a scratch graph from the log, so the target entry resolves against current state.
-fn materialize(store: &SqliteStore, wrap: fn(String) -> CliError) -> Result<Graph, CliError> {
+/// Materialise a scratch graph from the log, so the target resolves against current state. Shared with
+/// the sibling identity commands ([`crate::cli::debug::identity`]).
+pub(super) fn materialize(
+    store: &SqliteStore,
+    wrap: fn(String) -> CliError,
+) -> Result<Graph, CliError> {
     let mut graph = Graph::open_in_memory()
         .map_err(|source| wrap(format!("could not open a scratch graph: {source}")))?;
     graph

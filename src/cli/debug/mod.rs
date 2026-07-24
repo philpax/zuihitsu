@@ -3,12 +3,13 @@
 //! catalogue. These read either the running server (arbitrations, interactions) or the config-selected
 //! store and servers (events, brief, revert, mcp), so the dispatch takes both a client and a config.
 //!
-//! Most commands are read-only, but five write: `revert` and `delete-memory` (documented on their own
-//! variants), the two operator corrections `retract` and `clear-occurrence`, and `upgrade-prompts`. The
-//! corrections append one forward, operator-sourced event each — a retraction, or an occurrence
-//! withdrawal — and `upgrade-prompts` re-registers stale build-default templates (see
-//! [`upgrade_prompts`]); each needs the single-writer log lock, so the agent must be stopped first (see
-//! [`correction`]).
+//! Most commands are read-only, but seven write: `revert` and `delete-memory` (documented on their own
+//! variants), the two operator corrections `retract` and `clear-occurrence`, the two identity commands
+//! `designate-primary` and `merge` (see [`identity`]), and `upgrade-prompts`. The corrections append one
+//! forward, operator-sourced event each — a retraction, or an occurrence withdrawal — the identity
+//! commands append one operator-sourced batch each — a designation, or a `same_as` link — and
+//! `upgrade-prompts` re-registers stale build-default templates (see [`upgrade_prompts`]); each needs
+//! the single-writer log lock, so the agent must be stopped first (see [`correction`]).
 
 use clap::Subcommand;
 use zuihitsu::config::EnvConfig;
@@ -20,6 +21,7 @@ mod correction;
 mod delete_memory;
 mod embed;
 mod events;
+mod identity;
 mod markdown_fetch;
 mod mcp;
 mod reindex;
@@ -112,6 +114,33 @@ pub(crate) enum DebugCommand {
         #[arg(long)]
         entry: String,
     },
+    /// Designate a memory the primary of its `same_as` identity class, so its relationships render
+    /// under that handle. Releases any incumbent designation in the same operator-sourced batch — the
+    /// recompute breaks a tie by earliest ULID, so a bare designation without the release would
+    /// silently keep an earlier incumbent. Designating a lone memory is legal and reported as such.
+    /// Appends forward rather than rewriting history. It opens the log read-write, so the agent must
+    /// be stopped first.
+    DesignatePrimary {
+        /// The memory to designate: its exact name (e.g. `person/rowan`) or a unique id prefix.
+        #[arg(long)]
+        memory: String,
+        /// Only release this memory's own designation, designating nothing new.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Merge two memories into one identity: append one operator-asserted `same_as` link binding them
+    /// (public, no teller). Refuses a cross-namespace merge and reports a no-op when the two already
+    /// share a class. This is an operator assertion, always within the operator's authority, so it
+    /// bypasses the block layer's merge-proposal guards deliberately. Appends forward rather than
+    /// rewriting history. It opens the log read-write, so the agent must be stopped first.
+    Merge {
+        /// The first memory: its exact name or a unique id prefix.
+        #[arg(long)]
+        a: String,
+        /// The second memory: its exact name or a unique id prefix.
+        #[arg(long)]
+        b: String,
+    },
     /// List the recorded model interactions (per-call request, deliberation, tokens, and latency).
     Interactions,
     /// List the recorded belief arbitrations.
@@ -203,6 +232,10 @@ pub(crate) fn dispatch(
         }
         DebugCommand::Retract { entry, reason } => correction::retract(config, entry, reason),
         DebugCommand::ClearOccurrence { entry } => correction::clear_occurrence(config, entry),
+        DebugCommand::DesignatePrimary { memory, release } => {
+            identity::designate_primary(config, memory, *release)
+        }
+        DebugCommand::Merge { a, b } => identity::merge(config, a, b),
         DebugCommand::Interactions => print_json(&client.interactions()?),
         DebugCommand::Arbitrations => print_json(&client.arbitrations()?),
         DebugCommand::Mcp => mcp::mcp(config),
