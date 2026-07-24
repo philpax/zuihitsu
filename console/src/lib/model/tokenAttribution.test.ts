@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import { call, message } from "./callFixtures.ts";
+import type { CacheVerdict } from "./cachePath.ts";
 import { deriveCachePaths } from "./cachePath.ts";
 import type { ModelInteraction } from "./interactions.ts";
 import { attributeTokens, estimateTokens } from "./tokenAttribution.ts";
@@ -41,6 +42,30 @@ function warmChain(basePrompt: number, nextPrompt: number, completion: number | 
     record: "continuation",
     messages: [...base.messages, toolCall, toolResult],
     appendedFrom: 1,
+    usage: usage(nextPrompt),
+  });
+  return [base, next];
+}
+
+/// A base call followed by a warm `Base` call: a single-step turn re-sends the full prompt (the prior
+/// call's messages verbatim, plus one appended user message), so it records as a `Base` with
+/// `appendedFrom = 0` yet derives a warm verdict — the case the message-count boundary must handle.
+function warmBaseChain(basePrompt: number, nextPrompt: number) {
+  const priorMessages: Message[] = [
+    message("user", "the quick brown fox jumps over the lazy dog again and again"),
+    message("assistant", "acknowledged, noted at length for the record and archives"),
+  ];
+  const base = call({
+    seq: 1,
+    messages: priorMessages,
+    usage: usage(basePrompt),
+  });
+  const next = call({
+    seq: 2,
+    record: "base",
+    // Warm: the prior messages are a verbatim prefix, with one short message appended.
+    messages: [...priorMessages, message("user", "ok")],
+    appendedFrom: 0,
     usage: usage(nextPrompt),
   });
   return [base, next];
@@ -116,6 +141,67 @@ describe("attributeTokens", () => {
         }
       });
     }
+  });
+
+  it("routes a warm Base call's prefix mass to the prefix rows, not across every message", () => {
+    const [, next] = attribution(warmBaseChain(28000, 28200));
+    expect(next.total).toBe(28200);
+    expect(next.totalProvenance).toBe("measured");
+
+    // The prior messages and the system sections share the ~28k prefix; only the appended message
+    // carries the 200-token delta — the delta is not sprayed across all messages at 1–2 tokens each.
+    const prefix = next.rows.filter(
+      (row) => row.messageIndex === undefined || row.messageIndex < 2,
+    );
+    expect(prefix.reduce((sum, row) => sum + row.tokens, 0)).toBe(28000);
+    const priorMessages = next.rows.filter(
+      (row) => row.messageIndex !== undefined && row.messageIndex < 2,
+    );
+    expect(priorMessages.every((row) => row.tokens > 2)).toBe(true);
+
+    const appended = next.rows.filter(
+      (row) => row.messageIndex !== undefined && row.messageIndex >= 2,
+    );
+    expect(appended.reduce((sum, row) => sum + row.tokens, 0)).toBe(200);
+  });
+
+  it("keeps the warm Continuation path on its recorded appendedFrom boundary", () => {
+    const [, next] = attribution(warmChain(1000, 1180, 120));
+    // The Continuation branch is untouched by the Base fix: the prefix is the prior total and the
+    // delta lands on the appended messages (the assistant pinned by the prior completion).
+    const prefix = next.rows.filter(
+      (row) => row.messageIndex === undefined || row.messageIndex < 1,
+    );
+    expect(prefix.reduce((sum, row) => sum + row.tokens, 0)).toBe(1000);
+    const appended = next.rows.filter(
+      (row) => row.messageIndex !== undefined && row.messageIndex >= 1,
+    );
+    expect(appended.reduce((sum, row) => sum + row.tokens, 0)).toBe(180);
+  });
+
+  it("falls back to the lump path when a warm Base call's messages shrank", () => {
+    const prior = call({
+      seq: 1,
+      messages: [message("user", "a"), message("user", "b"), message("user", "c")],
+      usage: usage(1000),
+    });
+    const shrunk = call({
+      seq: 2,
+      record: "base",
+      messages: [message("user", "a")],
+      appendedFrom: 0,
+      usage: usage(1100),
+    });
+    // A warm verdict the structural derivation would never emit for shrinking messages, forged to
+    // reach the defensive guard directly.
+    const verdicts: CacheVerdict[] = [{ path: "cold", cause: "first-call" }, { path: "warm" }];
+    const [, next] = attributeTokens([prior, shrunk], verdicts);
+    // The lump path apportions the full measured total across every row, rather than a prefix/appended
+    // split the shrunk messages cannot support (which would leave the rows summing to the prefix only).
+    expect(next.total).toBe(1100);
+    expect(next.totalProvenance).toBe("measured");
+    expect(next.rows.reduce((sum, row) => sum + row.tokens, 0)).toBe(1100);
+    expect(next.rows.every((row) => row.provenance === "apportioned")).toBe(true);
   });
 
   it("drops to estimates on a non-positive delta rather than showing negative rows", () => {
