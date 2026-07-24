@@ -151,8 +151,8 @@ function ScenarioRail({
 }) {
   const runsPlanned = pkg.meta.runs_per_scenario;
   return (
-    <aside className="hidden w-48 shrink-0 lg:block">
-      <div className="sticky top-4 flex flex-col">
+    <aside className="hidden w-48 shrink-0 overflow-y-auto lg:block">
+      <div className="flex flex-col pb-7">
         <Eyebrow>scenarios</Eyebrow>
         <nav className="mt-3 flex flex-col gap-0.5">
           {groupScenariosByCategory(pkg.scenarios).map((group) => (
