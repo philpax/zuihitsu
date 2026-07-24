@@ -55,6 +55,9 @@ impl Platform<'_> {
             id
         };
 
+        // Connector-authored: these entries commit under `EventSource::PlatformConnector` and belong on
+        // the exact stub the connector holds ids against, so they must not follow an agent write's
+        // redirect to the class primary (see `MemoryBlock::class_write_target`).
         let mut block = MemoryBlock::new(
             engine.clone(),
             Teller::Agent,
@@ -63,7 +66,8 @@ impl Platform<'_> {
             None,
             Vec::new(),
             usize::MAX,
-        )?;
+        )?
+        .authored_by_connector();
         for entry in entries {
             let opts = AppendOptions {
                 visibility: Some(VisibilityChoice::Public),
@@ -118,6 +122,9 @@ impl Platform<'_> {
         }
 
         // No conversation to attribute to — a projection is about the subject, not a room.
+        // Connector-authored: these entries commit under `EventSource::PlatformConnector` and belong on
+        // the exact stub the connector holds ids against, so they must not follow an agent write's
+        // redirect to the class primary (see `MemoryBlock::class_write_target`).
         let mut block = MemoryBlock::new(
             engine.clone(),
             Teller::Agent,
@@ -126,7 +133,8 @@ impl Platform<'_> {
             None,
             Vec::new(),
             usize::MAX,
-        )?;
+        )?
+        .authored_by_connector();
         let mut results = Vec::with_capacity(attributes.len());
         for attribute in attributes {
             match &attribute.text {

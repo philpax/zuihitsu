@@ -150,6 +150,14 @@ pub struct MemoryBlock {
     told_in: Option<ConversationRef>,
     /// Whether `told_in` carries the `#confidential` tag — content here defaults private.
     confidential_context: bool,
+    /// Whether this block's writes commit under
+    /// [`EventSource::PlatformConnector`](crate::event::EventSource::PlatformConnector) — a connector
+    /// maintaining a participant's platform attributes on the exact stub, holding the entry ids it
+    /// supersedes and retracts. Set via [`MemoryBlock::authored_by_connector`], it exempts every write
+    /// from the class-primary redirect in [`MemoryBlock::class_write_target`], so a connector attribute
+    /// stays on the binding it addressed rather than following the agent-write redirect to the class
+    /// primary.
+    connector_authored: bool,
     /// Who is present in the conversation — the set `memory.search` filters its hits against (spec
     /// §Visibility). Carried so the read path can reach it; writes do not use it.
     present_set: Vec<MemoryId>,
@@ -508,6 +516,7 @@ impl MemoryBlock {
             context_memory,
             told_in,
             confidential_context,
+            connector_authored: false,
             present_set,
             max_entry_chars,
             buffer: Vec::new(),
@@ -516,6 +525,17 @@ impl MemoryBlock {
             skip: None,
             open_default_seeds: BTreeSet::new(),
         })
+    }
+
+    /// Mark this block as connector-authored: its writes commit under
+    /// [`EventSource::PlatformConnector`](crate::event::EventSource::PlatformConnector) and maintain a
+    /// participant's platform attributes on the exact
+    /// stub, so [`MemoryBlock::class_write_target`] must not redirect them to the class primary the way
+    /// an agent write is redirected. Used by the platform projection path, which builds the block and
+    /// then appends the connector's attribute entries.
+    pub(crate) fn authored_by_connector(mut self) -> Self {
+        self.connector_authored = true;
+        self
     }
 }
 

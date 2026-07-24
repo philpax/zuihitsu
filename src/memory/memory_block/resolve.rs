@@ -410,15 +410,24 @@ impl MemoryBlock {
             .map(|memory| memory.id))
     }
 
-    /// The memory a class-level content write on `id` lands on. A platform-agnostic handle
-    /// (`person/dave`) addresses a merged identity's whole `same_as` class, so a class-level fact
-    /// belongs on the class's primary stub — the id reads already resolve through — not on whichever
-    /// member the clean name happens to resolve to. This widens such a write to the primary; every other
-    /// case returns `id` unchanged, so the write stays exactly where it was aimed:
+    /// The memory a class-level content write on `id` lands on. A handle that names any member of a
+    /// merged `same_as` class addresses the whole class, so a class-level fact belongs on the class's
+    /// primary stub — the id reads already resolve through — not on whichever member the caller happened
+    /// to hold. This widens such a write to the primary; every other case returns `id` unchanged, so the
+    /// write stays exactly where it was aimed:
     ///
-    /// - A **platform-qualified** handle (`person/dave@discord`) names one specific platform binding, so
-    ///   a fact deliberately scoped to that binding is left on its exact stub.
-    /// - A memory **created this block** is not yet committed, so it has no class: `memory_by_id` finds
+    /// - A **platform-qualified** stub handle (`person/dave@discord`) redirects exactly like a bare one.
+    ///   Stub handles are the default operands the agent holds — the present set, the brief, and search
+    ///   all hand it the platform stub keyed by an opaque platform id — and a fact about a person belongs
+    ///   on the person, not funnelled onto a single platform binding. A genuinely binding-scoped write is
+    ///   the connector's own, recorded under connector provenance on a different path and exempted next,
+    ///   never an agent write through here.
+    /// - A **connector-authored** block (its events commit under
+    ///   [`EventSource::PlatformConnector`](crate::event::EventSource::PlatformConnector)) is
+    ///   never redirected: the connector maintains a participant's platform attributes (username, display
+    ///   name) on the exact stub, holding the entry ids to supersede and retract, so its writes stay on
+    ///   the stub they addressed. Keyed on the block's provenance, not the handle's shape.
+    /// - A memory **created this block** is not yet committed, so it has no class: `class_id` finds
     ///   nothing and the write stays on the fresh stub (its class forms only once the create commits).
     /// - The **no-op** case where `id` already is its class's primary (an unmerged memory is its own
     ///   class) needs no redirect.
@@ -430,17 +439,15 @@ impl MemoryBlock {
     /// - A **soft-deleted** primary (a designated stub later deleted) is not a live write target, so the
     ///   write stays on the addressed member.
     ///
-    /// It reads the committed name and `class_id`, so the target is a deterministic function of the log
-    /// (a designation is a committed `ClassPrimaryDesignated`), and it is the redirect target the write
-    /// guards apply to, not the addressed handle.
+    /// It reads the committed `class_id` — the earliest-ULID designated member, or the earliest member
+    /// overall when none is designated (the pass that designates primaries is separate machinery) — so
+    /// the target is a deterministic function of the log, and it is the redirect target the write guards
+    /// apply to, not the addressed handle.
     pub(super) fn class_write_target(&self, id: MemoryId) -> Result<MemoryId, MemoryError> {
-        let graph = self.engine.graph.lock();
-        let Some(memory) = graph.memory_by_id(id)? else {
-            return Ok(id);
-        };
-        if memory.name.is_platform_qualified() {
+        if self.connector_authored {
             return Ok(id);
         }
+        let graph = self.engine.graph.lock();
         let Some(primary) = graph.class_id(id)? else {
             return Ok(id);
         };

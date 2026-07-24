@@ -16,7 +16,6 @@ mod visibility;
 
 pub(super) use crate::memory::memory_block::tests::{
     AppendOptions, Authority, MemoryError, VisibilityChoice, block, block_with_retrieval,
-    graph_with_merged_pair,
 };
 use crate::{
     event::{Cardinality, EventPayload, EventSource, LinkPosture, LinkSource, Teller, Visibility},
@@ -63,6 +62,42 @@ pub(super) fn designated_primary_seed() -> (Vec<EventPayload>, MemoryId, MemoryI
         EventPayload::class_primary_designated(later, true),
     ];
     (events, earliest, later)
+}
+
+/// The seed events for a `same_as` class binding a platform-qualified stub (`person/9001@testplat`) to
+/// a clean profile (`person/rowan`) the operator designated the class primary — the shape a connector
+/// stub takes once its person has a canonical profile. Returns the seed events, the stub, and the
+/// designated primary. The designation, not ULID order, decides the primary, so the two ids need no
+/// sorting.
+pub(super) fn designated_primary_stub_seed() -> (Vec<EventPayload>, MemoryId, MemoryId) {
+    let stub = MemoryId::generate();
+    let profile = MemoryId::generate();
+    let events = vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+            description: String::new(),
+        },
+        EventPayload::memory_created(profile, Namespace::Person.with_name("rowan")),
+        EventPayload::memory_created(stub, Namespace::Person.with_name("9001@testplat")),
+        EventPayload::link_created(
+            profile,
+            stub,
+            RelationName::SameAs,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ),
+        EventPayload::class_primary_designated(profile, true),
+    ];
+    (events, stub, profile)
 }
 
 /// Materialize a set of seed events into a fresh in-memory graph — the committed state a block resolves

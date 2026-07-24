@@ -1,6 +1,7 @@
-//! The class-spanning write redirect: a clean, platform-agnostic handle lands its class-level writes on
-//! the class primary — the earliest-ULID stub, or the operator-designated one — while a
-//! platform-qualified handle, a same-block create, and the operator anchor are each left untouched.
+//! The class-spanning write redirect: a class-level write through any member of a merged class — a
+//! clean, platform-agnostic handle or a platform-qualified stub alike — lands on the class primary (the
+//! earliest-ULID stub, or the operator-designated one), while a same-block create, a stub with no live
+//! primary, and the operator anchor are each left untouched.
 
 use crate::{
     clock::ManualClock,
@@ -8,7 +9,8 @@ use crate::{
     graph::Graph,
     ids::{MemoryId, Namespace},
     memory::memory_block::tests::writes::{
-        AppendOptions, Authority, VisibilityChoice, block, designated_primary_seed, graph_from,
+        AppendOptions, Authority, VisibilityChoice, block, designated_primary_seed,
+        designated_primary_stub_seed, graph_from,
     },
     store::{MemoryStore, Store},
     time::Timestamp,
@@ -145,17 +147,104 @@ fn class_handle_write_redirects_to_the_designated_primary() {
 }
 
 #[test]
-fn a_platform_qualified_handle_write_stays_on_its_exact_stub() {
-    // `person/quinn@chat` names one specific platform binding; a fact deliberately scoped to it stays
-    // on that stub even though its class primary (`person/quinn`) is another member — the redirect is for
-    // the clean, class-spanning handle only.
-    let (graph, quinn, quinn_chat) = super::graph_with_merged_pair();
+fn a_platform_stub_write_redirects_to_the_designated_primary() {
+    // A platform-qualified stub (`person/9001@testplat`) is the default operand the agent holds — the
+    // present set, the brief, and search all hand it the stub keyed by its opaque platform id. An
+    // agent-authored fact about that person told through the stub belongs on the class's designated
+    // primary (`person/rowan`), exactly as a bare handle redirects, not funnelled onto the one binding.
+    let (seed, stub, primary) = designated_primary_stub_seed();
     let clock = ManualClock::new(Timestamp::from_millis(2_000));
-    let mut block = block(graph, clock, Teller::Agent, Authority::Platform);
+    let mut block = block(graph_from(seed), clock, Teller::Agent, Authority::Platform);
 
     block
         .append(
-            quinn_chat,
+            stub,
+            "official animal is the lyrebird",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    // It composes across the class: a live read from the primary surfaces the fact appended via the stub.
+    let from_primary = block.entries(primary).unwrap();
+    assert!(
+        from_primary
+            .iter()
+            .any(|entry| entry.text == "official animal is the lyrebird"),
+        "the fact should surface for the whole class"
+    );
+
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        landed_on,
+        vec![primary],
+        "the stub write should redirect to the designated primary, not land on the stub {stub:?}"
+    );
+}
+
+#[test]
+fn a_connector_authored_write_to_a_stub_stays_on_the_stub() {
+    // The connector maintains a participant's platform attributes on the exact stub, holding the entry
+    // ids it supersedes and retracts, so a connector-authored block is exempt from the redirect even
+    // when the class has a designated primary — the exemption is keyed on provenance, not handle shape.
+    let (seed, stub, primary) = designated_primary_stub_seed();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block =
+        block(graph_from(seed), clock, Teller::Agent, Authority::Platform).authored_by_connector();
+
+    block
+        .append(
+            stub,
+            "handle: rowan_9001",
+            AppendOptions {
+                visibility: Some(VisibilityChoice::Public),
+                ..AppendOptions::default()
+            },
+        )
+        .unwrap();
+
+    let landed_on: Vec<MemoryId> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MemoryContentAppended { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        landed_on,
+        vec![stub],
+        "a connector attribute stays on the binding, never redirecting to the primary {primary:?}"
+    );
+}
+
+#[test]
+fn a_platform_stub_write_with_no_class_stays_on_the_stub() {
+    // A lone platform-qualified stub with no `same_as` class is its own class primary, so a write
+    // through it has nowhere to redirect and stays on the stub — the connector's first contact, before
+    // any canonical profile exists to merge onto.
+    let stub = MemoryId::generate();
+    let seed = vec![EventPayload::memory_created(
+        stub,
+        Namespace::Person.with_name("9001@testplat"),
+    )];
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph_from(seed), clock, Teller::Agent, Authority::Platform);
+
+    block
+        .append(
+            stub,
             "logs in from the Berlin office",
             AppendOptions {
                 visibility: Some(VisibilityChoice::Public),
@@ -175,8 +264,8 @@ fn a_platform_qualified_handle_write_stays_on_its_exact_stub() {
         .collect();
     assert_eq!(
         landed_on,
-        vec![quinn_chat],
-        "a platform-qualified handle keeps its write, never widening to the class primary {quinn:?}"
+        vec![stub],
+        "an unmerged stub is its own class, so its write stays put"
     );
 }
 
@@ -308,4 +397,40 @@ fn supersede_and_set_volatility_redirect_to_the_designated_primary() {
     });
     assert_eq!(superseded_on, Some(marcus));
     assert_eq!(volatility_on, Some(marcus));
+}
+
+#[test]
+fn supersede_addressed_via_a_platform_stub_resolves_against_the_class() {
+    // A supersede told through the platform stub redirects like an append: the entries are resolved
+    // against the whole class (`live_class_entries` gathers across it), and the `MemorySuperseded` is
+    // attributed to the designated primary, not the stub the agent happened to hold.
+    let (seed, stub, primary) = designated_primary_stub_seed();
+    let clock = ManualClock::new(Timestamp::from_millis(2_000));
+    let mut block = block(graph_from(seed), clock, Teller::Agent, Authority::Platform);
+
+    let opts = || AppendOptions {
+        visibility: Some(VisibilityChoice::Public),
+        ..AppendOptions::default()
+    };
+    let old = block
+        .append(stub, "official animal is the kiwi", opts())
+        .unwrap();
+    let new = block
+        .append(stub, "official animal is the lyrebird", opts())
+        .unwrap();
+    block.supersede(stub, old, new).unwrap();
+
+    let superseded_on = block
+        .into_effects()
+        .events
+        .into_iter()
+        .find_map(|event| match event {
+            EventPayload::MemorySuperseded { id, .. } => Some(id),
+            _ => None,
+        });
+    assert_eq!(
+        superseded_on,
+        Some(primary),
+        "the supersede should attribute to the designated primary"
+    );
 }
