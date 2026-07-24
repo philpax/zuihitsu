@@ -1,6 +1,6 @@
 //! The `run` command: drives the scenario suite, writes the package, and serves the live view.
 
-use std::{net::SocketAddr, path::Path, sync::Arc};
+use std::{mem::take, net::SocketAddr, path::Path, sync::Arc};
 
 use zuihitsu::{Embedder, EnvConfig, ModelClient, OpenAiClient, OpenAiEmbedder};
 
@@ -226,8 +226,9 @@ async fn run(
     );
 
     // The scenarios that will actually run; the manifest and the live log's scenario indices are over
-    // this list.
-    let active = crate::harness::active_scenarios(scenarios, deps.embedder.is_some());
+    // this list. A resume realigns it to the resumed manifest's order below, so the indices already
+    // on disk keep naming the same scenarios even if the registry's order has changed since.
+    let mut active = crate::harness::active_scenarios(scenarios, deps.embedder.is_some());
     let scenario_metas: Vec<ScenarioMeta> = active.iter().map(|scenario| scenario.meta()).collect();
 
     let started_at_ms = live::now_ms();
@@ -265,6 +266,7 @@ async fn run(
     let sink = match resume_source(resume, sidecar.exists(), out.exists()) {
         ResumeSource::Sidecar => {
             let mut state = live::read_sidecar(&sidecar)?;
+            active = live::align_to_manifest(take(&mut active), &state.scenarios, &sidecar)?;
             // With `--retry-infra-failed`, drop the infrastructure-poisoned runs from the seeded set so
             // the harness re-drives them; their fresh records supersede the poisoned ones in the
             // sidecar. The kept runs — including every oracle-failed one, which is legitimate data —
@@ -285,6 +287,7 @@ async fn run(
             // and the healthy runs verbatim — so a crash mid-heal leaves a resumable sidecar rather than
             // losing the runs that are not being re-driven.
             let mut state = live::resume_state_from_package(crate::analyze::load(out)?);
+            active = live::align_to_manifest(take(&mut active), &state.scenarios, out)?;
             let retried = live::take_infra_failed(&mut state.completed);
             report_infra_retries(true, &retried, &state.scenarios);
             tracing::info!(

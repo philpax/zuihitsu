@@ -19,12 +19,14 @@ use std::{
     fs::File,
     io::{BufRead, BufReader},
     path::Path,
+    sync::Arc,
 };
 
 use crate::{
     error::EvalError,
     live::LiveEvent,
     package::{EvalPackage, RunMeta, RunRecord, ScenarioMeta},
+    scenario::Scenario,
 };
 
 /// An interrupted run folded from its sidecar: the manifest it began with, and the runs that finished.
@@ -127,6 +129,48 @@ pub fn resume_state_from_package(package: EvalPackage) -> ResumeState {
     }
 }
 
+/// Align the active scenario list to a resumed manifest's order, so the `(scenario, run)` indices
+/// already on disk keep naming the same scenarios even when the registry's order has changed since
+/// the run began. The two sets must match exactly by name: the sidecar's package is indexed by its
+/// manifest, so a manifest scenario missing from the current suite — or a current scenario the
+/// manifest lacks — has no coherent slot, and the resume refuses rather than silently
+/// misattributing the completed runs. `artifact` names the sidecar or package the manifest came
+/// from, for the error's context.
+pub fn align_to_manifest(
+    active: Vec<Arc<dyn Scenario>>,
+    manifest: &[ScenarioMeta],
+    artifact: &Path,
+) -> Result<Vec<Arc<dyn Scenario>>, EvalError> {
+    let mut by_name: BTreeMap<String, Arc<dyn Scenario>> = active
+        .into_iter()
+        .map(|scenario| (scenario.meta().name, scenario))
+        .collect();
+    let mut aligned = Vec::with_capacity(manifest.len());
+    for meta in manifest {
+        let Some(scenario) = by_name.remove(meta.name.as_str()) else {
+            return Err(EvalError::ResumeSidecar {
+                path: artifact.to_path_buf(),
+                reason: format!(
+                    "the manifest scenario `{}` is not in the current suite (renamed, removed, or excluded by --scenario?)",
+                    meta.name
+                ),
+            });
+        };
+        aligned.push(scenario);
+    }
+    if !by_name.is_empty() {
+        let extra: Vec<String> = by_name.into_keys().collect();
+        return Err(EvalError::ResumeSidecar {
+            path: artifact.to_path_buf(),
+            reason: format!(
+                "the current suite has scenarios the manifest lacks: {} (start a fresh run to include them)",
+                extra.join(", ")
+            ),
+        });
+    }
+    Ok(aligned)
+}
+
 /// Whether a completed run's record bears an infrastructure-failure signature. Two shapes qualify,
 /// both read structurally from the record — never from prose or an error string:
 ///
@@ -173,24 +217,31 @@ pub fn take_infra_failed(completed: &mut Vec<(u32, RunRecord)>) -> Vec<(u32, u32
 #[cfg(test)]
 mod tests {
     use std::{
+        path::Path,
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use async_trait::async_trait;
     use zuihitsu::{
-        Completion, FlakyModel, InstanceFeatures, ModelClient, ScriptedModel, Seq, TEST_PLATFORM,
+        Completion, Event, FlakyModel, InstanceFeatures, ModelClient, ScriptedModel, Seq,
+        TEST_PLATFORM,
     };
 
-    use super::{infra_failed, read_sidecar, resume_state_from_package, take_infra_failed};
+    use super::{
+        align_to_manifest, infra_failed, read_sidecar, resume_state_from_package, take_infra_failed,
+    };
     use crate::{
         context::{RunContext, RunDeps},
         executor::{StepRecord, execute},
         harness,
+        judge::Judge,
         live::EvalSink,
         package::{
             Bar, Category, EvalPackage, RunMeta, RunMetrics, RunRecord, ScenarioMeta,
             ScenarioReport, Verdict,
         },
+        scenario::Scenario,
         step::{EvalStep, Turn},
     };
 
@@ -249,7 +300,7 @@ mod tests {
             index,
             started_at_ms: 0,
             finished_at_ms: 0,
-            events: vec![zuihitsu::Event {
+            events: vec![Event {
                 seq: Seq(1),
                 recorded_at: zuihitsu::Timestamp::from_millis(0),
                 source: zuihitsu::EventSource::Bootstrap,
@@ -664,6 +715,73 @@ mod tests {
             state.completed.len(),
             before,
             "every run seeds the package unchanged"
+        );
+    }
+
+    /// A named do-nothing scenario, enough for the alignment tests — only `meta().name` matters there.
+    struct Named(&'static str);
+
+    #[async_trait]
+    impl Scenario for Named {
+        fn meta(&self) -> ScenarioMeta {
+            scenario_meta(self.0)
+        }
+
+        fn steps(&self) -> Vec<EvalStep> {
+            Vec::new()
+        }
+
+        async fn assess(&self, _events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+            Vec::new()
+        }
+    }
+
+    fn named(names: &[&'static str]) -> Vec<Arc<dyn Scenario>> {
+        names
+            .iter()
+            .map(|name| Arc::new(Named(name)) as Arc<dyn Scenario>)
+            .collect()
+    }
+
+    /// A registry whose order changed since the sidecar was written realigns to the manifest's order,
+    /// so the `(scenario, run)` indices on disk keep naming the same scenarios.
+    #[test]
+    fn alignment_restores_the_manifest_order() {
+        let manifest = vec![scenario_meta("b"), scenario_meta("a")];
+        let aligned = align_to_manifest(named(&["a", "b"]), &manifest, Path::new("test.jsonl"))
+            .expect("matching sets align");
+        let names: Vec<String> = aligned.iter().map(|s| s.meta().name).collect();
+        assert_eq!(names, vec!["b".to_owned(), "a".to_owned()]);
+    }
+
+    /// A manifest scenario absent from the current suite has no coherent slot, so the resume refuses
+    /// rather than misattributing its completed runs.
+    #[test]
+    fn alignment_refuses_a_missing_scenario() {
+        let manifest = vec![scenario_meta("a"), scenario_meta("gone")];
+        let Err(error) = align_to_manifest(named(&["a"]), &manifest, Path::new("test.jsonl"))
+        else {
+            panic!("a missing scenario refuses");
+        };
+        assert!(
+            error.to_string().contains("gone"),
+            "the error names it: {error}"
+        );
+    }
+
+    /// A current scenario the manifest lacks would drive into a package slot that does not exist, so
+    /// the resume refuses and points at a fresh run instead.
+    #[test]
+    fn alignment_refuses_an_extra_scenario() {
+        let manifest = vec![scenario_meta("a")];
+        let Err(error) =
+            align_to_manifest(named(&["a", "new"]), &manifest, Path::new("test.jsonl"))
+        else {
+            panic!("an extra scenario refuses");
+        };
+        assert!(
+            error.to_string().contains("new"),
+            "the error names it: {error}"
         );
     }
 }

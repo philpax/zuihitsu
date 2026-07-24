@@ -36,7 +36,9 @@ use crate::{
 
 pub use helpers::now_ms;
 use helpers::{flush, write};
-pub use resume::{ResumeState, read_sidecar, resume_state_from_package, take_infra_failed};
+pub use resume::{
+    ResumeState, align_to_manifest, read_sidecar, resume_state_from_package, take_infra_failed,
+};
 pub use zuihitsu_frontend_types::LiveEvent;
 
 const BROADCAST_CAPACITY: usize = 8192;
