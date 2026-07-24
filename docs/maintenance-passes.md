@@ -65,7 +65,7 @@ Maintenance passes run under a new `Authority::Agent` authority tier, which is n
 
 - **Clears the foreign-confidence supersede guard**: the guard blocks a platform turn from retiring another participant's confidence, but tier-2 dedup is the deliberate exception — it retires a private copy only when the same fact is already attested by an all-audience entry at the stricter dedup threshold, so nothing is suppressed that was not already visible at least as widely. `Authority::Agent` clears the guard for this case; the pass's superset-audience check is what makes clearing it sound.
 - **Permits free `same_as` assertion**: the canonical-profile pass asserts `same_as` directly without routing to a merge proposal (the `same_as`-routes-to-proposal gate fires only under Platform authority).
-- **Blocks `self` writes**: `guard_self` blocks all non-Operator authority, so no maintenance pass can touch the self model.
+- **Blocks `self`-model writes**: `guard_self` blocks all non-Operator authority from writing `self`'s content — an append, supersede, retract, attest, or rename — so no maintenance pass can rewrite the self model. Links touching `self` are ordinary relationships, not self-model content, and are permitted; the sole identity-touching exception is a `same_as` naming `self`, refused under every authority (the agent is not a person, so merging it into an identity class is a category error).
 
 ## Settings
 

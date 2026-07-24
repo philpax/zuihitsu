@@ -86,6 +86,7 @@ impl MemoryBlock {
         if from == to {
             return Err(MemoryError::MergeProposalInvalid);
         }
+        self.guard_self_merge(from, to)?;
         self.touched.insert(from);
         self.touched.insert(to);
         self.buffer.push(EventPayload::merge_proposed(
@@ -283,6 +284,10 @@ impl MemoryBlock {
         // rather than crashing the block and rolling back its innocent sibling writes. A retraction stays
         // operator-only: the agent can neither assert nor undo a `same_as` directly from a turn.
         if relation == RelationName::SameAs {
+            // A `same_as` naming `self` is refused under every authority, ahead of the free-merge and
+            // proposal routing below: the agent is not a person, so binding it into an identity class
+            // is a category error that would corrupt class resolution, not a permissions question.
+            self.guard_self_merge(from, to)?;
             match self.authority {
                 Authority::Platform => {
                     if create {
@@ -306,9 +311,10 @@ impl MemoryBlock {
                 _ => {}
             }
         }
-        // A link from or to `self` modifies the self model — barred outside the console.
-        self.guard_self(from)?;
-        self.guard_self(to)?;
+        // A link touching `self` is an ordinary relationship (`self knows person/rowan`), not a
+        // self-model content write, so it is permitted under every authority — `guard_self` gates
+        // content writes only. The one identity-touching exception, a `same_as` naming `self`, is
+        // refused above by `guard_self_merge`.
         // Operator-authored links carry operator provenance; the agent's own (a platform turn or a
         // maintenance pass) carry `Agent`. (The merging `same_as` is authored by the operator's console
         // merge directly, not through a block, so it never reaches this seam — it carries

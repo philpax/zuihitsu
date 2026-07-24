@@ -44,8 +44,10 @@ pub enum MemoryError {
     UnknownTag(TagName),
     /// A `links.register` gave a cardinality that is neither "one" nor "many".
     BadCardinality(String),
-    /// A platform-authority write tried to touch `self` — appending to it, or linking from or to it.
-    /// Only the console (operator authority) may edit `self`.
+    /// A non-operator write tried to record content on `self` — an append, supersede, retract,
+    /// attest, or rename of the self model. Only the console (operator authority) may edit `self`'s
+    /// content. Links touching `self` are not gated here: a relationship the agent has (`self knows
+    /// person/rowan`, `self operator_of …`) is an ordinary link, not a self-model content write.
     SelfWriteForbidden,
     /// A write tried to record content on `person/operator`, the operator's provisional identity
     /// anchor. It holds no content of its own — facts about the operator belong on their real
@@ -55,6 +57,13 @@ pub enum MemoryError {
     /// never authors a `same_as` from a turn — it `propose_merge`s, and the operator confirms; a
     /// retraction is operator-only.
     MergeForbidden,
+    /// A `same_as` (or a `propose_merge`) named `self` on either side. A `same_as` binds two
+    /// references to one identity, but `self` is the agent, not a person — folding it into a person's
+    /// identity class is a category error, not a permissions question, so it is refused under every
+    /// authority, the operator included. Left unbarred it would corrupt class resolution everywhere a
+    /// read traverses the class. A relationship the agent has to a person rides an ordinary relation,
+    /// never an identity merge.
+    SelfMergeForbidden,
     /// A merge proposal named the same memory twice — there is nothing to merge.
     MergeProposalInvalid,
     /// An agent-authored entry about a person was written with no explicit visibility. Such a write
@@ -214,6 +223,13 @@ impl std::fmt::Display for MemoryError {
             MemoryError::MergeForbidden => {
                 write!(f, "same_as merges can only be asserted from the console")
             }
+            MemoryError::SelfMergeForbidden => write!(
+                f,
+                "self is you, not a person, so it cannot be merged into an identity — a same_as \
+                 would fold the agent into someone's identity class and corrupt every read that \
+                 traverses it. Record a relationship you have with an ordinary relation like knows \
+                 or operator_of instead, never an identity merge"
+            ),
             MemoryError::VisibilityRequired => write!(
                 f,
                 "set this entry's visibility explicitly — pass {{ visibility = \"public\" }} or \

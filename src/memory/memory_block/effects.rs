@@ -132,6 +132,19 @@ impl MemoryBlock {
         Ok(())
     }
 
+    /// Reject a `same_as` (or a `propose_merge`) naming `self` on either side, under every authority —
+    /// the operator included. A `same_as` binds two references to one identity, but `self` is the
+    /// agent, not a person, so folding it into a person's identity class is a category error that
+    /// would corrupt class resolution everywhere a read traverses the class. This is not a permissions
+    /// question — unlike [`MemoryBlock::guard_self`], it does not clear for operator authority. A
+    /// relationship the agent has rides an ordinary relation (`knows`, `operator_of`), not a merge.
+    pub(super) fn guard_self_merge(&self, from: MemoryId, to: MemoryId) -> Result<(), MemoryError> {
+        if Some(from) == self.self_id || Some(to) == self.self_id {
+            return Err(MemoryError::SelfMergeForbidden);
+        }
+        Ok(())
+    }
+
     /// Reject a content write to the `person/operator` anchor (under any authority). The anchor holds
     /// no content of its own — facts about the operator belong on their real `person/<name>` profile,
     /// which is merged into it — so it stays a pure merge target. The merge (`same_as`) and `created_by`
