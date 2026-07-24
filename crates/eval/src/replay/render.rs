@@ -91,11 +91,16 @@ fn summarize_text(text: &StepText) -> String {
 /// the run's first event.
 pub(crate) fn humane_duration(millis: i64) -> String {
     let negative = millis < 0;
-    let total_secs = millis.unsigned_abs() / 1_000;
-    let days = total_secs / 86_400;
-    let hours = (total_secs % 86_400) / 3_600;
-    let minutes = (total_secs % 3_600) / 60;
-    let seconds = total_secs % 60;
+    const SECS_PER_DAY: u64 =
+        (zuihitsu::time::MILLIS_PER_DAY / zuihitsu::time::MILLIS_PER_SECOND) as u64;
+    const SECS_PER_HOUR: u64 =
+        (zuihitsu::time::MILLIS_PER_HOUR / zuihitsu::time::MILLIS_PER_SECOND) as u64;
+    const SECS_PER_MINUTE: u64 = zuihitsu::time::SECONDS_PER_MINUTE as u64;
+    let total_secs = millis.unsigned_abs() / zuihitsu::time::MILLIS_PER_SECOND as u64;
+    let days = total_secs / SECS_PER_DAY;
+    let hours = (total_secs % SECS_PER_DAY) / SECS_PER_HOUR;
+    let minutes = (total_secs % SECS_PER_HOUR) / SECS_PER_MINUTE;
+    let seconds = total_secs % SECS_PER_MINUTE;
 
     let magnitude = if days > 0 {
         two_units(days, "d", hours, "h", " ")

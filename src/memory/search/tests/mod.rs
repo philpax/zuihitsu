@@ -1,4 +1,5 @@
 use super::{SALIENCE_CAP, SearchHit, SearchQuery, recency_bonus, search};
+
 use crate::{
     InstanceFeatures,
     agent::genesis::{self, SeedSelf},
@@ -16,12 +17,10 @@ use crate::{
     },
     settings::{SearchSettings, Settings},
     store::{MemoryStore, Store},
-    time::{CivilDate, TemporalRef, Timestamp},
+    time::{CivilDate, MILLIS_PER_DAY, TemporalRef, Timestamp},
     vector::{InMemoryVectorIndex, VectorIndex},
     vocabulary::{RelationName, TagName},
 };
-
-const DAY: i64 = 86_400_000;
 
 fn event(seq: u64, payload: EventPayload) -> Event {
     Event {
@@ -73,11 +72,11 @@ fn bonus(graph: &Graph, id: MemoryId, now_ms: i64) -> f32 {
 
 #[test]
 fn occurrence_time_drives_decay_not_assertion_time() {
-    let now = 20_000 * DAY;
+    let now = 20_000 * MILLIS_PER_DAY;
     // Written "today" but about a decade ago: it must decay like a decade-old memory.
     let (about_past, past_id) = graph_with_entry(
         Some(TemporalRef::Instant(Timestamp::from_millis(
-            now - 3650 * DAY,
+            now - 3650 * MILLIS_PER_DAY,
         ))),
         now,
     );
@@ -95,8 +94,8 @@ fn occurrence_time_drives_decay_not_assertion_time() {
 
 #[test]
 fn falls_back_to_assertion_time_without_an_occurrence() {
-    let now = 20_000 * DAY;
-    let (graph, id) = graph_with_entry(None, now - 3650 * DAY);
+    let now = 20_000 * MILLIS_PER_DAY;
+    let (graph, id) = graph_with_entry(None, now - 3650 * MILLIS_PER_DAY);
     assert!(bonus(&graph, id, now) < 0.01);
 }
 
@@ -104,8 +103,8 @@ fn falls_back_to_assertion_time_without_an_occurrence() {
 fn higher_volatility_decays_faster_at_the_same_age() {
     // The volatility-aware part: at the *same* age, the decay rate is keyed by the memory's
     // volatility through τ — High (τ=90d) decays far faster than Medium (τ=365d) than Low (τ=3650d).
-    let now = 20_000 * DAY;
-    let one_year_ago = now - 365 * DAY;
+    let now = 20_000 * MILLIS_PER_DAY;
+    let one_year_ago = now - 365 * MILLIS_PER_DAY;
     let bonus_for = |volatility| {
         let (mut graph, id) = graph_with_entry(
             Some(TemporalRef::Instant(Timestamp::from_millis(one_year_ago))),
@@ -149,10 +148,10 @@ fn higher_volatility_decays_faster_at_the_same_age() {
 
 #[test]
 fn a_future_occurrence_does_not_decay() {
-    let now = 20_000 * DAY;
+    let now = 20_000 * MILLIS_PER_DAY;
     let (graph, id) = graph_with_entry(
         Some(TemporalRef::Instant(Timestamp::from_millis(
-            now + 100 * DAY,
+            now + 100 * MILLIS_PER_DAY,
         ))),
         now,
     );

@@ -6,10 +6,8 @@ use crate::{
     event::{EventPayload, Teller, Visibility},
     graph::Graph,
     ids::{EntryId, MemoryId, MemoryName, Namespace},
-    time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Rrule, TemporalRef, Timestamp},
+    time::{BEFORE_AFTER_EPSILON_MILLIS, CivilDate, MILLIS_PER_DAY, Rrule, TemporalRef, Timestamp},
 };
-
-const DAY: i64 = 86_400_000;
 
 fn created(id: MemoryId, name: impl Into<MemoryName>) -> EventPayload {
     EventPayload::memory_created(id, name)
@@ -35,7 +33,7 @@ fn denormalizes_each_variant_to_its_representative_instant() {
         Some(TemporalRef::Instant(Timestamp::from_millis(1_000))),
         Some(TemporalRef::Day(CivilDate("2026-06-03".into()))),
         Some(TemporalRef::Approx {
-            center: Timestamp::from_millis(10 * DAY),
+            center: Timestamp::from_millis(10 * MILLIS_PER_DAY),
             fuzz_days: 2,
         }),
         Some(TemporalRef::Range {

@@ -184,7 +184,7 @@ fn the_step_summarizer_renders_a_turn_ref() {
 
 #[test]
 fn the_step_summarizer_renders_an_advance_as_a_duration() {
-    let day = 24 * 60 * 60 * 1_000;
+    let day = zuihitsu::time::MILLIS_PER_DAY;
     let summary = summarize_step(&EvalStep::Advance { millis: 5 * day });
     assert_eq!(summary, "Advance 5d");
 }
@@ -206,7 +206,7 @@ fn humane_time_picks_the_two_most_significant_units() {
     assert_eq!(humane_duration(10_000), "10s");
     assert_eq!(humane_duration(2 * 60_000 + 10_000), "2m10s");
     assert_eq!(humane_duration(2 * 60_000), "2m");
-    let day = 24 * 60 * 60 * 1_000;
+    let day = zuihitsu::time::MILLIS_PER_DAY;
     assert_eq!(humane_duration(3 * day + 4 * 60 * 60 * 1_000), "3d 4h");
     assert_eq!(humane_offset(0), "+0s");
     assert_eq!(humane_offset(2 * 60_000 + 10_000), "+2m10s");
