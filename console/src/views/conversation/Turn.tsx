@@ -11,7 +11,13 @@ import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { CallContext } from "./CallContext.tsx";
 import { OutcomeList } from "./OutcomeList.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
-import { ConversationNames, EventsBySeq, ModelCalls, Names } from "./conversationContexts.ts";
+import {
+  CanonicalNames,
+  ConversationNames,
+  EventsBySeq,
+  ModelCalls,
+  Names,
+} from "./conversationContexts.ts";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
 import { Deliberation } from "./Deliberation.tsx";
@@ -30,6 +36,7 @@ export function TurnItem({
   inflight?: InFlightGeneration | null;
 }) {
   const { bySeq } = useContext(ModelCalls);
+  const canonicalNames = useContext(CanonicalNames);
   const tokens = turnTokens(turn, bySeq);
   // The turn's final Step-phase call — the conversational context the turn ended with, footing the
   // turn with the same display each deliberation step carries. Synthesis calls are excluded: their
@@ -39,7 +46,8 @@ export function TurnItem({
     .find((step) => step.kind === "model" && step.phase === "Step")?.seq;
   // The deep-linked turn (`?turn=<id>`) announces itself: scrolled into view once and washed in
   // fading sage, so a pasted link lands the reader on the moment it points at.
-  const linked = useStream().search.turn === turn.turnId;
+  const { seq, link, search } = useStream();
+  const linked = search.turn === turn.turnId;
   const itemRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (linked) itemRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -82,26 +90,48 @@ export function TurnItem({
   }
 
   const isAgent = turn.role === "Agent";
+  // The speaker displays as its canonical class primary; when the recorded stub handle differs
+  // (a platform snowflake bound into a merged identity), it dims beside the canonical name so the
+  // actually-used operand stays legible without stealing the line.
+  const canonicalSpeaker =
+    (turn.speakerId ? canonicalNames.get(turn.speakerId) : undefined) ?? turn.speaker;
+  const speakerAlias =
+    canonicalSpeaker !== null && turn.speaker !== null && canonicalSpeaker !== turn.speaker
+      ? turn.speaker
+      : null;
   return (
     <motion.li
       ref={itemRef}
       className={"border-b border-line/70 py-4 last:border-b-0 sm:py-5" + linkedClass(linked)}
       {...enter}
     >
-      {turn.entrance && turn.speaker && (
+      {turn.entrance && canonicalSpeaker && (
         <LabeledDivider className="mb-4 text-ink-faint">
-          <span>{turn.speaker} entered the room</span>
+          <span>{canonicalSpeaker} entered the room</span>
         </LabeledDivider>
       )}
       <div className="mb-1.5 flex items-baseline gap-2">
-        <span
-          className={
-            "font-mono text-2xs font-medium tracking-widest uppercase " +
-            (isAgent ? "text-sage" : "text-clay")
-          }
-        >
-          {isAgent ? "the agent" : (turn.speaker ?? "someone")}
+        <span className={"font-mono text-2xs font-medium " + (isAgent ? "text-sage" : "text-clay")}>
+          {isAgent ? (
+            <Link to={link.state("self", { seq })} className="hover:underline">
+              the agent
+            </Link>
+          ) : canonicalSpeaker ? (
+            <Link to={link.state(canonicalSpeaker, { seq })} className="hover:underline">
+              {canonicalSpeaker}
+            </Link>
+          ) : (
+            "someone"
+          )}
         </span>
+        {!isAgent && speakerAlias && (
+          <span className="font-mono text-2xs text-ink-faint">
+            ·{" "}
+            <Link to={link.state(speakerAlias, { seq })} className="hover:underline">
+              {speakerAlias}
+            </Link>
+          </span>
+        )}
         {/* A flush turn is internal bookkeeping delivered to no one; mark it as such in faint ink
             rather than the generic "unprompted", so an operator scanning the room sees at a glance
             it was never sent. */}

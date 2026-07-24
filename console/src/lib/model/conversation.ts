@@ -93,6 +93,9 @@ export interface TurnModel {
   role: TurnRole;
   text: string;
   speaker: string | null;
+  /// The recorded participant id behind `speaker` — the platform stub the connector resolved. The
+  /// view canonicalizes it to the class primary for display, dimming this actually-used handle.
+  speakerId: string | null;
   initiation: Initiation;
   deliberation: DeliberationStep[];
   /// What the turn produced: the graph-mutating events its Lua committed (writes, links, tags,
@@ -189,6 +192,7 @@ export function emptyTurn(turnId: string, seq: number): TurnModel {
     role: "Agent",
     text: "",
     speaker: null,
+    speakerId: null,
     initiation: "Responding",
     deliberation: [],
     outcomes: [],
@@ -306,6 +310,7 @@ export function buildConversations(
         model.role = payload.role;
         model.text = payload.text;
         model.speaker = name(payload.participant);
+        model.speakerId = payload.participant;
         model.initiation = payload.initiation;
         model.brief = payload.brief;
         model.checkpoint = payload.produced_by?.template_name === "flush";
