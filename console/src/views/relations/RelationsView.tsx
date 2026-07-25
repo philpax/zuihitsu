@@ -196,7 +196,6 @@ export function RelationsView({
         ) : (
           <MergeProposals
             proposals={proposals}
-            cursor={cursor}
             onResolve={merge?.resolve}
             onUnmerge={merge?.unmerge}
             onDesignatePrimary={merge?.designatePrimary}
