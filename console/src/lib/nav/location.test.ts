@@ -118,6 +118,47 @@ describe("the location codec", () => {
     expect(parsePath("/settings", "console")).toBeNull(); // agent views are not top-level in the console
   });
 
+  it("carries the new views' subtabs as a selection segment in both frames", () => {
+    // Background and Relations are stream views, so their subtab segment round-trips under the eval
+    // frame as well as the live frame; the segment is the pass category / subtab id.
+    expect(
+      buildPath(
+        streamLocation(
+          { kind: "live" },
+          { view: "background", selection: "temporal-extraction", search: {} },
+        ),
+      ),
+    ).toBe("/live/background/temporal-extraction");
+    expect(parsePath("/live/relations/merges", "console")).toEqual(
+      streamLocation({ kind: "live" }, { view: "relations", selection: "merges", search: {} }),
+    );
+    expect(parsePath("/eval/scn/2/background/arbitration", "console")).toEqual(
+      streamLocation(
+        { kind: "evalRun", scenario: "scn", run: 2 },
+        { view: "background", selection: "arbitration", search: {} },
+      ),
+    );
+
+    // Prompts is an agent-only view, so its template segment is admitted in the live frame but the
+    // view itself is rejected under the eval frame.
+    expect(parsePath("/live/prompts/scaffold", "console")).toEqual(
+      streamLocation({ kind: "live" }, { view: "prompts", selection: "scaffold", search: {} }),
+    );
+    expect(parsePath("/eval/scn/2/prompts/scaffold", "console")).toBeNull();
+
+    // A bare subtab-bearing view still defaults to itself with no selection, and a stale segment is a
+    // valid parse the view resolves to its own default at render — the codec does not police subtab ids.
+    expect(parsePath("/live/relations", "console")).toEqual(
+      streamLocation({ kind: "live" }, { view: "relations", search: {} }),
+    );
+    expect(parsePath("/live/background/no-such-category", "console")).toEqual(
+      streamLocation(
+        { kind: "live" },
+        { view: "background", selection: "no-such-category", search: {} },
+      ),
+    );
+  });
+
   it("drops a malformed cursor rather than admitting a fractional or negative seq", () => {
     for (const seq of ["-1", "1.5", "abc"]) {
       expect(parsePath(`/live/state/self?seq=${seq}`, "console")).toEqual(

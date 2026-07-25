@@ -37,7 +37,10 @@ export interface Stream {
 /// Typed navigation targets within a fixed frame. Each returns a full [`AppLocation`] carrying that
 /// frame, so a shared view builds links without naming — or even knowing — which frame it sits in.
 export interface StreamLink {
-  view: (view: ViewId, opts?: { seq?: number | null }) => AppLocation;
+  view: (
+    view: ViewId,
+    opts?: { seq?: number | null; selection?: string; search?: StreamSearch },
+  ) => AppLocation;
   state: (memory: string, opts?: { seq?: number | null }) => AppLocation;
   conversation: (opts?: { room?: string; turn?: string; seq?: number | null }) => AppLocation;
   events: (opts?: { focus?: string; seq?: number | null }) => AppLocation;
@@ -47,7 +50,16 @@ export interface StreamLink {
 export function streamLink(frame: StreamFrame): StreamLink {
   const at = (stream: StreamView): AppLocation => streamLocation(frame, stream);
   return {
-    view: (view, opts) => at({ view, search: seqSearch(opts?.seq) }),
+    // A view move, optionally landing on a subtab (Background's pass category, Relations' subtab,
+    // Prompts' template). `search` carries the leaving view's own search forward when a subtab switch
+    // must preserve it (Relations' relation filters) — otherwise only the cursor survives, as a tab
+    // move drops the leaving view's search.
+    view: (view, opts) =>
+      at({
+        view,
+        ...(opts?.selection !== undefined ? { selection: opts.selection } : {}),
+        search: opts?.search ?? seqSearch(opts?.seq),
+      }),
     state: (memory, opts) => at({ view: "state", selection: memory, search: seqSearch(opts?.seq) }),
     conversation: ({ room, turn, seq } = {}) =>
       at({

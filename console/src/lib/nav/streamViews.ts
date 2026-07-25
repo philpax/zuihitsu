@@ -24,9 +24,17 @@ export type AgentViewId = (typeof AGENT_VIEW_IDS)[number];
 export type ViewId = StreamViewId | AgentViewId;
 
 /// The views that carry a trailing selection segment in the URL (State → memory, Conversation → room,
-/// Settings → tab). Every other view is reached bare. The location codec gates the segment on this
-/// set, and the round-trip test enumerates against it — so it lives here, once.
-export const SELECTION_VIEWS = new Set<ViewId>(["state", "conversation", "settings"]);
+/// Settings → tab, Background → pass category, Relations → subtab, Prompts → template name). Every
+/// other view is reached bare. The location codec gates the segment on this set, and the round-trip
+/// test enumerates against it — so it lives here, once.
+export const SELECTION_VIEWS = new Set<ViewId>([
+  "state",
+  "conversation",
+  "settings",
+  "background",
+  "relations",
+  "prompts",
+]);
 
 /// Whether a raw view segment names a timeline-scoped stream view — the guard the eval frame uses to
 /// reject a view its (extra-view-less) nav does not carry.
