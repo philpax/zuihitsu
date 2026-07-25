@@ -134,6 +134,20 @@ pub struct SessionSummary {
     pub participants: Vec<String>,
 }
 
+/// One live memory's `same_as` class membership, so the State sidebar can cluster a class under its
+/// canonical member. `primary` is the id every class-level read collapses to — the class recompute's
+/// choice: the operator's designation if one stands, else the earliest member by ULID. A lone memory is
+/// its own class, so its `primary` equals its `id`. `designated` marks a memory the operator has pinned
+/// as its class's primary (`ClassPrimaryDesignated`), as opposed to one winning by the earliest-ULID
+/// default.
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi, missing_as_null, hashmap_as_object)]
+pub struct MemoryClass {
+    pub id: MemoryId,
+    pub primary: MemoryId,
+    pub designated: bool,
+}
+
 /// A resolved memory reference, crossing to the console's `MemRefChip`: the `same_as` class primary the
 /// reference collapses to (the memory the chip opens) and its handle (the chip's label).
 #[derive(Serialize, Tsify)]
@@ -215,3 +229,10 @@ pub struct DigestCheckList(pub Vec<DigestCheck>);
 #[tsify(into_wasm_abi, missing_as_null, hashmap_as_object)]
 #[serde(transparent)]
 pub struct RefSegmentList(pub Vec<RefSegment>);
+
+/// A JSON array of [`MemoryClass`] as it crosses the boundary. See [`MergeProposalList`] for why the
+/// list is wrapped.
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi, missing_as_null, hashmap_as_object)]
+#[serde(transparent)]
+pub struct MemoryClassList(pub Vec<MemoryClass>);

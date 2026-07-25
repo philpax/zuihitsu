@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 
 use crate::types::{
     AgendaItem, AgendaList, ConversationDetail, ConversationList, DigestCheck, DigestCheckList,
-    DigestStatus, MemRefResolution, MemoryDetail, MergeProposalList, MergeProposalView,
-    MergeStatus, SessionSummary,
+    DigestStatus, MemRefResolution, MemoryClass, MemoryClassList, MemoryDetail, MergeProposalList,
+    MergeProposalView, MergeStatus, SessionSummary,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -128,6 +128,34 @@ impl Replica {
             .map_err(graph_error)?;
         memories.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
         to_js(&memories)
+    }
+
+    /// Every live memory's `same_as` class membership at the current fold horizon — the primary id it
+    /// clusters under and whether the operator has pinned it. The State sidebar folds this over the
+    /// `memories()` list to group a class beneath its canonical member; a lone memory is its own class,
+    /// so its primary is itself. The primary is `class_id` (the recompute's designation-then-earliest-ULID
+    /// choice), so the console clusters under exactly the member the agent's own reads collapse to.
+    #[wasm_bindgen(js_name = memoryClasses)]
+    pub fn memory_classes(&self) -> Result<MemoryClassList, JsError> {
+        let memories = self.graph.memories_in_namespace("").map_err(graph_error)?;
+        let mut classes = Vec::with_capacity(memories.len());
+        for memory in &memories {
+            let primary = self
+                .graph
+                .class_id(memory.id)
+                .map_err(graph_error)?
+                .unwrap_or(memory.id);
+            let designated = self
+                .graph
+                .is_primary_designated(memory.id)
+                .map_err(graph_error)?;
+            classes.push(MemoryClass {
+                id: memory.id,
+                primary,
+                designated,
+            });
+        }
+        Ok(MemoryClassList(classes))
     }
 
     /// The full State-view detail for one memory by name, or `null` if there is no such memory at

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { EntryView } from "@zuihitsu/wire/types/EntryView.ts";
+import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
 import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { RecurringItem } from "../../lib/model/audit.ts";
@@ -16,7 +17,7 @@ import {
 import { formatDateTime } from "../../lib/format/format.ts";
 import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
-import { groupByNamespace, leafName } from "./memoryUtilities.ts";
+import { clusterByClass, groupByNamespace, leafName } from "./memoryUtilities.ts";
 
 // Module-level plugin array so the React Compiler sees a stable object. Memory entries are
 // agent-authored Markdown — GFM tables, lists, emphasis — but carry no turn references, so the
@@ -35,57 +36,110 @@ function MemoryRef({ name, onSelect }: { name: string; onSelect: (name: string) 
   );
 }
 
+/// The desktop sidebar: memories grouped by namespace, and within each namespace clustered by `same_as`
+/// identity class. A class renders as a collapsible node headed by its canonical primary; expanding it
+/// reveals the other members (the platform stubs), each still selectable exactly as a leaf is. A memory
+/// in no class renders as a plain leaf. Expansion is sticky and purely user-controlled: a cluster stays
+/// open until its disclosure triangle is clicked shut, and a selection change never collapses it. A
+/// deep-link into a hidden class member is the one exception — it expands that member's cluster so the
+/// selection never lands behind a collapsed head, only ever adding to the open set.
 export function MemoryList({
   memories,
   selected,
   recurring,
+  primaryOf,
+  designated,
   onSelect,
 }: {
   memories: MemoryView[];
   selected: string | null;
   recurring: Map<string, RecurringItem[]>;
+  /// Each memory's canonical `same_as` primary id, from `replica.memoryClasses()` — the key the sidebar
+  /// clusters on.
+  primaryOf: Map<MemoryId, MemoryId>;
+  /// The ids the operator has pinned as their class's primary, marked on the cluster head.
+  designated: Set<MemoryId>;
   onSelect: (name: string) => void;
 }) {
   const groups = groupByNamespace(memories);
+  const [expanded, setExpanded] = useState<Set<MemoryId>>(new Set());
+  const toggle = (id: MemoryId) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Cluster each namespace's memories once, so the render and the deep-link auto-expand read the
+  // same grouping.
+  const clustersByNamespace = groups.map(
+    ([namespace, items]) => [namespace, clusterByClass(items, primaryOf)] as const,
+  );
+
+  // Auto-expand on deep link: when the opened memory is a hidden class member (not its cluster's
+  // head), reveal its cluster so the selection never lands behind a collapsed head. Expansion is
+  // otherwise purely user-controlled — this only ever ADDS to the expanded set, so a plain selection
+  // change never collapses anything and a cluster the operator closed by hand stays closed unless a
+  // deep link into one of its hidden members reopens it. The adjustment runs during render (the
+  // documented alternative to an effect for reconciling state with a changing input), guarded by the
+  // last member cluster it opened so it fires once per distinct deep link rather than fighting a
+  // manual collapse on every render.
+  const selectedMemberPrimary =
+    clustersByNamespace
+      .flatMap(([, clusters]) => clusters)
+      .find((cluster) => cluster.members.some((member) => member.name === selected))?.primary.id ??
+    null;
+  const [autoExpanded, setAutoExpanded] = useState<MemoryId | null>(null);
+  if (selectedMemberPrimary !== null && selectedMemberPrimary !== autoExpanded) {
+    setAutoExpanded(selectedMemberPrimary);
+    setExpanded((prev) => {
+      if (prev.has(selectedMemberPrimary)) return prev;
+      const next = new Set(prev);
+      next.add(selectedMemberPrimary);
+      return next;
+    });
+  }
 
   return (
     <nav className="flex flex-col gap-4 sm:gap-6">
-      {groups.map(([namespace, items]) => (
+      {clustersByNamespace.map(([namespace, clusters]) => (
         <div key={namespace}>
           <Eyebrow>{namespace}</Eyebrow>
           <ul className="mt-2 flex flex-col">
-            {items.map((memory) => {
-              const active = memory.name === selected;
+            {clusters.map(({ primary, members }) => {
+              const open = members.length > 0 && expanded.has(primary.id);
               return (
-                <li key={memory.id}>
-                  <button
-                    onClick={() => onSelect(memory.name)}
-                    title={
-                      memory.description ? `${memory.name} — ${memory.description}` : memory.name
+                <li key={primary.id}>
+                  <MemoryRow
+                    memory={primary}
+                    namespace={namespace}
+                    active={primary.name === selected}
+                    recurring={recurring.has(primary.id)}
+                    designated={members.length > 0 && designated.has(primary.id)}
+                    onSelect={onSelect}
+                    disclosure={
+                      members.length > 0
+                        ? { open, count: members.length, onToggle: () => toggle(primary.id) }
+                        : undefined
                     }
-                    className={
-                      "-ml-3 flex w-full min-w-0 flex-col border-l-2 py-1 pl-2.5 text-left transition-colors " +
-                      (active
-                        ? "border-clay text-ink"
-                        : "border-transparent text-ink-soft hover:text-ink")
-                    }
-                  >
-                    <span className="flex w-full min-w-0 items-baseline font-mono text-xs">
-                      <span className="truncate">{leafName(memory.name, namespace)}</span>
-                      {recurring.has(memory.id) && (
-                        <span className="ml-1.5 shrink-0 text-sage" title="recurring">
-                          ↻
-                        </span>
-                      )}
-                    </span>
-                    {/* The synthesized description, clamped, so the list reads as a glanceable index of
-                        what each memory is about rather than a bare list of names. */}
-                    {memory.description && (
-                      <span className="mt-0.5 line-clamp-2 text-2xs/snug text-ink-faint">
-                        {memory.description}
-                      </span>
-                    )}
-                  </button>
+                  />
+                  {open && (
+                    <ul className="flex flex-col">
+                      {members.map((member) => (
+                        <li key={member.id}>
+                          <MemoryRow
+                            memory={member}
+                            namespace={namespace}
+                            active={member.name === selected}
+                            recurring={recurring.has(member.id)}
+                            onSelect={onSelect}
+                            nested
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               );
             })}
@@ -93,6 +147,79 @@ export function MemoryList({
         </div>
       ))}
     </nav>
+  );
+}
+
+/// One selectable row in the sidebar tree — a leaf, a cluster head (with a trailing disclosure
+/// control), or a nested class member. Leaves and heads sit flush at the sidebar's left edge with
+/// identical styling; a revealed member carries a light indent under its head, and the disclosure
+/// rides at the row's right so the name column stays consistent. The name selects the memory; the
+/// disclosure toggle, when present, expands or collapses the class without changing the selection.
+function MemoryRow({
+  memory,
+  namespace,
+  active,
+  recurring,
+  designated,
+  nested,
+  disclosure,
+  onSelect,
+}: {
+  memory: MemoryView;
+  namespace: string;
+  active: boolean;
+  recurring: boolean;
+  designated?: boolean;
+  nested?: boolean;
+  disclosure?: { open: boolean; count: number; onToggle: () => void };
+  onSelect: (name: string) => void;
+}) {
+  return (
+    <div className={"flex items-start" + (nested ? " pl-3" : "")}>
+      <button
+        onClick={() => onSelect(memory.name)}
+        title={memory.description ? `${memory.name} — ${memory.description}` : memory.name}
+        className={
+          "flex w-full min-w-0 flex-col border-l-2 py-1 pl-2.5 text-left transition-colors " +
+          (active ? "border-clay text-ink" : "border-transparent text-ink-soft hover:text-ink")
+        }
+      >
+        <span className="flex w-full min-w-0 items-baseline font-mono text-xs">
+          <span className="truncate">{leafName(memory.name, namespace)}</span>
+          {designated && (
+            <span className="ml-1.5 shrink-0 text-clay" title="operator-designated primary">
+              ◆
+            </span>
+          )}
+          {recurring && (
+            <span className="ml-1.5 shrink-0 text-sage" title="recurring">
+              ↻
+            </span>
+          )}
+        </span>
+        {/* The synthesized description, clamped, so the list reads as a glanceable index of what each
+            memory is about rather than a bare list of names. */}
+        {memory.description && (
+          <span className="mt-0.5 line-clamp-2 text-2xs/snug text-ink-faint">
+            {memory.description}
+          </span>
+        )}
+      </button>
+      {disclosure && (
+        <button
+          onClick={disclosure.onToggle}
+          aria-expanded={disclosure.open}
+          title={
+            disclosure.open
+              ? "Collapse identity class"
+              : `Expand ${disclosure.count} class member${disclosure.count === 1 ? "" : "s"}`
+          }
+          className="mt-1 shrink-0 px-1 font-mono text-2xs text-ink-faint transition-colors hover:text-ink"
+        >
+          <span aria-hidden>{disclosure.open ? "▾" : "▸"}</span>
+        </button>
+      )}
+    </div>
   );
 }
 

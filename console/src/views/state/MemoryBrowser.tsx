@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
+import type { MemoryId } from "@zuihitsu/wire/types/MemoryId.ts";
 import type { Replica } from "../../lib/replica/replica.ts";
 import type { MemoryView } from "@zuihitsu/wire/types/MemoryView.ts";
 import { nameById } from "../../lib/model/labels.ts";
@@ -9,7 +10,7 @@ import { type RecurringItem, arbitrationsFor } from "../../lib/model/audit.ts";
 import { Select } from "../../components/primitives.tsx";
 import { MemoryList } from "./MemoryList.tsx";
 import { MemoryDetailPane } from "./MemoryDetailPane.tsx";
-import { groupByNamespace } from "./memoryUtilities.ts";
+import { clusterByClass, groupByNamespace } from "./memoryUtilities.ts";
 
 /// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
 /// on the left, the opened memory's contents, links, and `same_as` class on the right. Selection is
@@ -37,6 +38,13 @@ export function MemoryBrowser({
 }) {
   const memories = replica.memories("");
   const names = nameById(memories);
+  // Each memory's canonical `same_as` primary, from the graph's projection — the key the sidebar
+  // clusters an identity class on, plus the operator-pinned designations it marks.
+  const classes = replica.memoryClasses();
+  const primaryOf = new Map<MemoryId, MemoryId>(classes.map((cls) => [cls.id, cls.primary]));
+  const designated = new Set<MemoryId>(
+    classes.filter((cls) => cls.designated).map((cls) => cls.id),
+  );
   // Which memories carry a live recurring occurrence, from the graph's projection (not a re-fold of
   // the log): the replica is the authority, grouped here into the per-memory shape the list badges.
   const recurring = new Map<string, RecurringItem[]>();
@@ -89,6 +97,7 @@ export function MemoryBrowser({
               memories={listed}
               selected={effective}
               recurring={recurring}
+              primaryOf={primaryOf}
               onSelect={onSelect}
             />
             <div className="hidden md:block">
@@ -96,6 +105,8 @@ export function MemoryBrowser({
                 memories={listed}
                 selected={effective}
                 recurring={recurring}
+                primaryOf={primaryOf}
+                designated={designated}
                 onSelect={onSelect}
               />
             </div>
@@ -122,16 +133,20 @@ export function MemoryBrowser({
 
 /// The mobile face of the memory list: a native dropdown grouped by namespace, so the opened memory
 /// owns the screen instead of scrolling past the whole list. Hidden once there is room for the
-/// sidebar (`md`).
+/// sidebar (`md`). A `same_as` class's members follow their canonical primary, indented — a native
+/// `<option>` cannot nest, so the clustering reads through order and a leading mark rather than a
+/// collapsible node.
 function MemorySelect({
   memories,
   selected,
   recurring,
+  primaryOf,
   onSelect,
 }: {
   memories: MemoryView[];
   selected: string | null;
   recurring: Map<string, RecurringItem[]>;
+  primaryOf: Map<MemoryId, MemoryId>;
   onSelect: (name: string) => void;
 }) {
   const groups = groupByNamespace(memories);
@@ -144,12 +159,18 @@ function MemorySelect({
     >
       {groups.map(([namespace, items]) => (
         <optgroup key={namespace} label={namespace}>
-          {items.map((memory) => (
-            <option key={memory.id} value={memory.name}>
-              {memory.name}
-              {recurring.has(memory.id) ? " ↻" : ""}
-            </option>
-          ))}
+          {clusterByClass(items, primaryOf).flatMap(({ primary, members }) => [
+            <option key={primary.id} value={primary.name}>
+              {primary.name}
+              {recurring.has(primary.id) ? " ↻" : ""}
+            </option>,
+            ...members.map((member) => (
+              <option key={member.id} value={member.name}>
+                {`↳ ${member.name}`}
+                {recurring.has(member.id) ? " ↻" : ""}
+              </option>
+            )),
+          ])}
         </optgroup>
       ))}
     </Select>

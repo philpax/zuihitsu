@@ -12,6 +12,7 @@ import type {
   ConversationDetail,
   DigestCheck,
   MemRefResolution,
+  MemoryClass,
   MemoryDetail,
   MergeProposalView,
   RefSegment,
@@ -125,6 +126,14 @@ export class Replica {
 
   memory(name: string): MemoryDetail | null {
     return this.#inner.memory(name) ?? null;
+  }
+
+  /// Every live memory's `same_as` class membership — the canonical primary id it clusters under (its
+  /// own id when it is in no class) and whether the operator has pinned it. The State sidebar folds this
+  /// over `memories()` to nest a class beneath its primary, so the console clusters under exactly the
+  /// member the agent's own reads collapse to.
+  memoryClasses(): MemoryClass[] {
+    return this.#inner.memoryClasses();
   }
 
   /// Resolve a memory reference to the memory the transcript chip should display for it,
