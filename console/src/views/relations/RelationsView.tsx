@@ -101,7 +101,16 @@ export function RelationsView({ replica, merge }: { replica: Replica; merge?: Me
   // collapsed identity nodes. Reversing this drops `same` edges before collapse sees them, making the
   // toggle a no-op whenever a relation is selected.
   const raw = buildMemoryGraph(replica);
-  const collapsed = sameAs ? collapseSameAs(raw) : raw;
+  // Each member's class primary by name, so the collapse labels a class by the member the agent's own
+  // reads resolve to — not the lexicographically smallest name, which hands the label to a
+  // digit-leading platform stub over its canonical profile.
+  const primaryOf = new Map<string, string>();
+  for (const cls of replica.memoryClasses()) {
+    const member = nameById.get(cls.id);
+    const primary = nameById.get(cls.primary);
+    if (member && primary) primaryOf.set(member, primary);
+  }
+  const collapsed = sameAs ? collapseSameAs(raw, primaryOf) : raw;
   const filtered = filterByRelations(collapsed, selected);
 
   // The filter and display toggles are continuous interaction, so each replaces (rather than pushes) a

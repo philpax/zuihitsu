@@ -91,12 +91,20 @@ export function buildMemoryGraph(replica: Replica): MemoryGraph {
 }
 
 /// Collapse each `same_as` identity class into a single virtual node. Union-find over the `same` edges
-/// computes the classes; each becomes a node whose `id` is its lexicographically smallest member
-/// suffixed with the member count (e.g. `"person/dave (3)"`), carrying `members` as the single source
-/// of truth for class membership. Typed edges between members of the same class are dropped
-/// (intra-class), and those between classes route through their class nodes. `same` edges vanish —
-/// they are subsumed by the merge. A class of one is left as its original node (no `members`).
-export function collapseSameAs(graph: MemoryGraph): MemoryGraph {
+/// computes the classes; each becomes a node whose `id` is its **class primary** suffixed with the
+/// member count (e.g. `"person/dave (3)"`), carrying `members` as the single source of truth for class
+/// membership. `primaryOf` maps each member name to its class primary's name (fold it from
+/// `replica.memoryClasses()`), so the chart clusters under exactly the member the agent's own reads
+/// collapse to — without it (or for a member it does not cover) the representative falls back to the
+/// lexicographically smallest member, which mislabels a class whose primary sorts late (a digit-leading
+/// platform stub sorts before its canonical `person/…` profile). Typed edges between members of the
+/// same class are dropped (intra-class), and those between classes route through their class nodes.
+/// `same` edges vanish — they are subsumed by the merge. A class of one is left as its original node
+/// (no `members`).
+export function collapseSameAs(
+  graph: MemoryGraph,
+  primaryOf?: ReadonlyMap<string, string>,
+): MemoryGraph {
   const parent = new Map<string, string>();
   function find(x: string): string {
     let root = x;
@@ -137,10 +145,16 @@ export function collapseSameAs(graph: MemoryGraph): MemoryGraph {
 
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const classOf = new Map<string, string[]>(); // member name → its class members
+  const repOf = new Map<string, string>(); // member name → its class representative
   const collapsedNodes: MemoryGraphNode[] = [];
   for (const members of classes.values()) {
     members.sort();
-    const rep = members[0];
+    // The representative is the class primary — the designation-then-earliest-ULID choice every agent
+    // read collapses to — guarded to be an actual member (a stale or inconsistent map must not invent
+    // a node), with the lexicographic head as the fallback.
+    const primary = primaryOf?.get(members[0]);
+    const rep = primary !== undefined && members.includes(primary) ? primary : members[0];
+    for (const member of members) repOf.set(member, rep);
     if (members.length === 1) {
       // Singletons stay as-is; no virtual node, no `members` field.
       const original = nodeById.get(rep);
@@ -161,8 +175,8 @@ export function collapseSameAs(graph: MemoryGraph): MemoryGraph {
     if (link.same) continue; // subsumed by the merge.
     const sourceMembers = classOf.get(link.source);
     const targetMembers = classOf.get(link.target);
-    const sourceRep = sourceMembers ? sourceMembers[0] : link.source;
-    const targetRep = targetMembers ? targetMembers[0] : link.target;
+    const sourceRep = repOf.get(link.source) ?? link.source;
+    const targetRep = repOf.get(link.target) ?? link.target;
     if (sourceRep === targetRep) continue; // intra-class.
     const sourceId =
       sourceMembers && sourceMembers.length > 1
