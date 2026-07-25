@@ -29,6 +29,9 @@ export interface BackgroundEvent {
   /// the memory (e.g., a genesis-seeded memory). The locator fields build the room segment that
   /// navigates to the conversation in the Conversation view.
   triggeredBy: {
+    /// The triggering turn's id, so the annotation deep-links to the exact turn rather than just
+    /// the room.
+    turn: string;
     speaker: string | null;
     text: string;
     platform: string;
@@ -134,8 +137,9 @@ export function buildBackgroundEvents(
             summary: eventSummary(payload, nameById),
             payload,
             triggeredBy:
-              turn && locator
+              turn && best && locator
                 ? {
+                    turn: best.turnId,
                     speaker: turn.speaker,
                     text: turn.text,
                     platform: locator.platform,

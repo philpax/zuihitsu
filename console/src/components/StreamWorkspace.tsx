@@ -273,7 +273,6 @@ export function StreamWorkspace({
                             <RelationsView
                               key={cursor}
                               replica={replica}
-                              cursor={cursor}
                               merge={
                                 participant && cursor >= head
                                   ? {

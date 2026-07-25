@@ -254,7 +254,6 @@ export function EventsView({
                   payload={event.payload}
                   nameById={names}
                   conversationNameById={convNames}
-                  seq={event.seq}
                   recordedAt={event.recorded_at}
                   source={event.source}
                 />

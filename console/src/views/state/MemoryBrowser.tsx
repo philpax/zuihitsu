@@ -120,7 +120,6 @@ export function MemoryBrowser({
           arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
           recurring={recurring.get(detail.memory.id) ?? []}
           onShowEvents={onShowEvents}
-          onSelect={onSelect}
           onEditSelf={onEditSelf}
           onRetract={onRetract}
         />

@@ -48,7 +48,7 @@ export function JoinBriefTurn({
       </div>
       {open && turn.brief && (
         <div className="mx-auto mt-3 max-w-prose">
-          <JoinBriefBody brief={turn.brief} seq={turn.seq} />
+          <JoinBriefBody brief={turn.brief} />
         </div>
       )}
     </motion.li>
@@ -60,7 +60,7 @@ export function JoinBriefTurn({
 /// provenance/staleness markers set quietly beside it, and the relationships as `source → relation →
 /// target` — the colored relation flanked by direction arrows — with each endpoint opening the memory
 /// in the State view at this moment in the timeline.
-export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
+export function JoinBriefBody({ brief }: { brief: Brief }) {
   return (
     <div className="space-y-3 border-l-2 border-line pl-4 text-sm">
       {brief.summary && <p className="leading-relaxed text-ink-soft">{brief.summary}</p>}
@@ -82,7 +82,7 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
         <ul className="space-y-1 font-mono text-xs text-ink-soft">
           {brief.relationships.map((relationship, index) => (
             <li key={index} className="flex flex-wrap items-baseline gap-x-2">
-              <MemoryNameLink name={relationship.source} seq={seq} />
+              <MemoryNameLink name={relationship.source} />
               <span aria-hidden className="text-ink-faint">
                 →
               </span>
@@ -92,7 +92,7 @@ export function JoinBriefBody({ brief, seq }: { brief: Brief; seq: number }) {
               <span aria-hidden className="text-ink-faint">
                 →
               </span>
-              <MemoryNameLink name={relationship.target} seq={seq} />
+              <MemoryNameLink name={relationship.target} />
               {relationship.marker && (
                 <span className="text-2xs text-ink-faint">{relationship.marker}</span>
               )}

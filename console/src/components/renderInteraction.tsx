@@ -21,17 +21,16 @@ import type { RenderContext } from "./renderPayload.tsx";
 /// events. Returns `undefined` if the payload type does not match any case here (so the caller can
 /// fall through to `renderMemoryPayload` or the default tree).
 export function renderInteractionPayload(ctx: RenderContext): ReactNode {
-  const { payload, nameById, conversationNameById, seq } = ctx;
-  const ref = (id: string) => <Ref id={id} nameById={nameById} seq={seq} />;
+  const { payload, nameById, conversationNameById } = ctx;
+  const ref = (id: string) => <Ref id={id} nameById={nameById} />;
   const refs = (ids: string[], empty?: string) => (
-    <RefList ids={ids} nameById={nameById} seq={seq} empty={empty} />
+    <RefList ids={ids} nameById={nameById} empty={empty} />
   );
   const convRef = (value: ConversationRef) => (
     <ConversationRefLink
       value={value}
       nameById={nameById}
       conversationNameById={conversationNameById}
-      seq={seq}
     />
   );
   switch (payload.type) {
@@ -97,7 +96,11 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           <Field label="to">{ref(payload.to)}</Field>
           <Field label="source">{linkSourceLabel(payload.source)}</Field>
           {payload.told_by && (
-            <Field label="told by">{tellerLabel(payload.told_by, nameById)}</Field>
+            <Field label="told by">
+              {payload.told_by === "Agent" || payload.told_by === "Bootstrap"
+                ? tellerLabel(payload.told_by, nameById)
+                : ref(payload.told_by.Participant)}
+            </Field>
           )}
           {payload.told_in && <Field label="told in">{convRef(payload.told_in)}</Field>}
           <Field label="visibility">
@@ -240,7 +243,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
       return (
         <Fields>
           <Field label="turn">
-            <span className="font-mono text-2xs">{payload.turn_id}</span>
+            {convRef({ conversation: payload.conversation, turn: payload.turn_id })}
           </Field>
           <Field label="hint">
             <span className="whitespace-pre-wrap text-ink-faint">{payload.text}</span>
@@ -272,9 +275,7 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
     case "ConversationEnded":
       return (
         <Fields>
-          <Field label="conversation">
-            <Mono>{payload.id}</Mono>
-          </Field>
+          <Field label="conversation">{convRef({ conversation: payload.id, turn: null })}</Field>
         </Fields>
       );
 

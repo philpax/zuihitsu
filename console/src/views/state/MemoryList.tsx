@@ -15,6 +15,8 @@ import {
   visibilityLabel,
 } from "../../lib/model/labels.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
+import { Link } from "../../lib/nav/history.tsx";
+import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
 import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { clusterByClass, groupByNamespace, leafName } from "./memoryUtilities.ts";
@@ -23,18 +25,6 @@ import { clusterByClass, groupByNamespace, leafName } from "./memoryUtilities.ts
 // agent-authored Markdown — GFM tables, lists, emphasis — but carry no turn references, so the
 // turn-ref plugin is absent (unlike `TurnMarkdown`).
 const entryMarkdownPlugins = [remarkGfm];
-
-function MemoryRef({ name, onSelect }: { name: string; onSelect: (name: string) => void }) {
-  return (
-    <button
-      onClick={() => onSelect(name)}
-      title={`Open ${name}`}
-      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
-    >
-      {name}
-    </button>
-  );
-}
 
 /// The desktop sidebar: memories grouped by namespace, and within each namespace clustered by `same_as`
 /// identity class. A class renders as a collapsible node headed by its canonical primary; expanding it
@@ -241,7 +231,8 @@ export function EntryItem({
   /// distinct phrasing, and — on a history read — its retracted attestations struck through. The
   /// compact metadata line keeps only the attester chips and the count badge without this.
   expanded?: boolean;
-  /// The memory's name, passed so the retract button can address the entry by memory + entry id.
+  /// The memory's name, so the retract button can address the entry by memory + entry id, and the
+  /// entry can carry an `#entry-<id>` anchor a `?entry=` deep link scrolls to.
   memoryName?: string;
   /// Retract this entry under operator authority. Present only in the live agent frame at the head.
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
@@ -249,6 +240,7 @@ export function EntryItem({
   /// exactly the entry the reference named.
   highlighted?: boolean;
 }) {
+  const stream = useOptionalStream();
   const priv = isPrivate(entry.visibility);
   // The founding attestation is `attestations[0]` (the reads order founding first), and it is the
   // same teller the row already renders as `told by`. The tail is the corroboration — a further
@@ -271,10 +263,21 @@ export function EntryItem({
       </div>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5 font-mono text-2xs text-ink-faint">
         {/* The entry id leads the line (faint, truncated), the same handle the agent supersedes or
-            retracts by; the title carries the full id. */}
-        <span className="text-ink-faint/60" title={entry.entry_id}>
-          {entry.entry_id.slice(0, 10)}
-        </span>
+            retracts by; the title carries the full id, and the id links to its own entry — the
+            shareable `?entry=` deep link that highlights this entry. */}
+        {stream && memoryName ? (
+          <Link
+            to={stream.link.state(memoryName, { entry: entry.entry_id, seq: stream.seq })}
+            title={entry.entry_id}
+            className="text-ink-faint/60 underline-offset-2 transition-colors hover:text-ink hover:underline"
+          >
+            {entry.entry_id.slice(0, 10)}
+          </Link>
+        ) : (
+          <span className="text-ink-faint/60" title={entry.entry_id}>
+            {entry.entry_id.slice(0, 10)}
+          </span>
+        )}
         <span className="text-ink-faint/45">·</span>
         {entry.retracted_reason !== null && (
           <>
@@ -509,5 +512,3 @@ export function Section({ label, children }: { label: string; children: React.Re
     </section>
   );
 }
-
-export { MemoryRef };

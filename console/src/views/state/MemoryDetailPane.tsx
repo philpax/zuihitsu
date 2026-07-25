@@ -4,11 +4,12 @@ import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { MemoryDetail } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { Arbitration, RecurringItem } from "../../lib/model/audit.ts";
 import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
-import { formatDateTime } from "../../lib/format/format.ts";
+import { formatDateTime, formatIso } from "../../lib/format/format.ts";
 import { relationColor } from "../../lib/format/relationColor.ts";
 import { rruleLabel } from "../../lib/model/audit.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
-import { EntryItem, MemoryRef, Section } from "./MemoryList.tsx";
+import { EntryItem, Section } from "./MemoryList.tsx";
+import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 import { SelfEditor } from "./SelfEditor.tsx";
 
 export function MemoryDetailPane({
@@ -17,7 +18,6 @@ export function MemoryDetailPane({
   arbitrations,
   recurring,
   onShowEvents,
-  onSelect,
   onEditSelf,
   onRetract,
 }: {
@@ -26,7 +26,6 @@ export function MemoryDetailPane({
   arbitrations: Arbitration[];
   recurring: RecurringItem[];
   onShowEvents?: (id: string, name: string) => void;
-  onSelect: (name: string) => void;
   /// Present only in the live agent frame at the head, and exercised only on `self`: append a charter
   /// entry, or revise one under operator authority (the operator side of self-editing).
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
@@ -91,7 +90,7 @@ export function MemoryDetailPane({
             {classPeers.map((peer, index) => (
               <span key={peer.id}>
                 {index > 0 && ", "}
-                <MemoryRef name={peer.name} onSelect={onSelect} />
+                <MemoryNameLink name={peer.name} />
               </span>
             ))}
           </p>
@@ -136,11 +135,9 @@ export function MemoryDetailPane({
               const target = nameById.get(link.to);
               return (
                 <li key={index} className="flex items-baseline gap-2">
-                  {source ? (
-                    <MemoryRef name={source} onSelect={onSelect} />
-                  ) : (
-                    <span>{link.from}</span>
-                  )}
+                  <span className="min-w-0 truncate">
+                    {source ? <MemoryNameLink name={source} /> : link.from}
+                  </span>
                   <span aria-hidden className="text-ink-faint">
                     →
                   </span>
@@ -148,11 +145,15 @@ export function MemoryDetailPane({
                   <span aria-hidden className="text-ink-faint">
                     →
                   </span>
-                  {target ? (
-                    <MemoryRef name={target} onSelect={onSelect} />
-                  ) : (
-                    <span>{link.to}</span>
-                  )}
+                  <span className="min-w-0 truncate">
+                    {target ? <MemoryNameLink name={target} /> : link.to}
+                  </span>
+                  <time
+                    dateTime={new Date(link.asserted_at).toISOString()}
+                    className="ml-auto text-2xs text-ink-faint tabular-nums"
+                  >
+                    {formatIso(link.asserted_at)}
+                  </time>
                 </li>
               );
             })}
@@ -170,6 +171,7 @@ export function MemoryDetailPane({
                 nameById={nameById}
                 faded
                 expanded
+                memoryName={memory.name}
                 highlighted={entry.entry_id === highlightId}
               />
             ))}
@@ -187,6 +189,7 @@ export function MemoryDetailPane({
                 nameById={nameById}
                 faded
                 expanded
+                memoryName={memory.name}
                 highlighted={entry.entry_id === highlightId}
               />
             ))}

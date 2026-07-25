@@ -4,7 +4,7 @@ import type { RelationView } from "@zuihitsu/wire/types/RelationView.ts";
 import type { MemoryGraph, MemoryGraphLink } from "../../lib/model/memoryGraph.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { Checkbox } from "../../components/primitives.tsx";
-import { ConversationRefLink, MemoryNameLink } from "../../components/eventDetailParts.tsx";
+import { ConversationRefLink, MemoryNameLink, Ref } from "../../components/eventDetailParts.tsx";
 import { Pager } from "../../components/Pager.tsx";
 import { pageOf } from "../../components/pagerUtilities.ts";
 import { formatIso } from "../../lib/format/format.ts";
@@ -104,14 +104,12 @@ export function RelationLegend({
 /// page of `PAGE_SIZE` at a time, with the page cursor owned by the caller.
 export function LinkedPairs({
   graph,
-  cursor,
   nameById,
   conversationNameById,
   page,
   onPage,
 }: {
   graph: MemoryGraph;
-  cursor: number;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
   page: number;
@@ -131,7 +129,6 @@ export function LinkedPairs({
           <LinkRow
             key={`${link.source}-${link.relation}-${link.target}-${index}`}
             link={link}
-            cursor={cursor}
             nameById={nameById}
             conversationNameById={conversationNameById}
           />
@@ -146,12 +143,10 @@ export function LinkedPairs({
 /// expands a detail panel with the link's provenance (told by, told in, visibility).
 function LinkRow({
   link,
-  cursor,
   nameById,
   conversationNameById,
 }: {
   link: MemoryGraphLink;
-  cursor: number;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
 }) {
@@ -165,7 +160,7 @@ function LinkRow({
         }
         onClick={() => hasDetail && setExpanded(!expanded)}
       >
-        <MemoryNameLink name={link.source} seq={cursor} />
+        <MemoryNameLink name={link.source} />
         <span aria-hidden className="text-ink-faint">
           →
         </span>
@@ -173,7 +168,7 @@ function LinkRow({
         <span aria-hidden className="text-ink-faint">
           →
         </span>
-        <MemoryNameLink name={link.target} seq={cursor} />
+        <MemoryNameLink name={link.target} />
         {/* The disclosure chevron trails the whole triple — mid-row it reads as part of the link and
             is easy to miss — while the timestamp keeps its own right-aligned column (via `ml-auto`)
             undisturbed. */}
@@ -204,15 +199,11 @@ function LinkRow({
             <div className="flex gap-2">
               <dt>told by</dt>
               <dd>
-                {(() => {
-                  const label = tellerLabel(link.told_by!, nameById);
-                  if (link.told_by === "Agent" || link.told_by === "Bootstrap") {
-                    return label;
-                  }
-                  const participantId = link.told_by.Participant;
-                  const name = nameById.get(participantId) ?? participantId;
-                  return <MemoryNameLink name={name} seq={cursor} />;
-                })()}
+                {link.told_by === "Agent" || link.told_by === "Bootstrap" ? (
+                  tellerLabel(link.told_by, nameById)
+                ) : (
+                  <Ref id={link.told_by.Participant} nameById={nameById} />
+                )}
               </dd>
             </div>
           )}

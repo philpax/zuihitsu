@@ -242,7 +242,6 @@ function TurnEvent({ event, seq }: { event: Event; seq: number }) {
             payload={event.payload}
             nameById={names}
             conversationNameById={convNames}
-            seq={seq}
             recordedAt={event.recorded_at}
             source={event.source}
           />

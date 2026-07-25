@@ -109,7 +109,6 @@ export function BackgroundView({
                   payload={event.payload}
                   nameById={names}
                   conversationNameById={convNames}
-                  seq={event.seq}
                   recordedAt={event.recordedAt}
                   source={event.source}
                 />
@@ -126,13 +125,15 @@ export function BackgroundView({
 /// A dim, clickable annotation linking back to the conversation turn that last touched this pass's
 /// memory before it ran, shown at the head of the expanded detail. The annotation shows the
 /// triggering turn's speaker and a truncated snippet of its text; clicking navigates to the
-/// Conversation view with the triggering room selected (turn-level focus is future work).
+/// Conversation view pinned to that exact turn.
 function TriggeredBy({
+  turn,
   speaker,
   text,
   platform,
   scopePath,
 }: {
+  turn: string;
   speaker: string | null;
   text: string;
   platform: string;
@@ -155,9 +156,9 @@ function TriggeredBy({
     <div className="mb-2 text-ink-faint">
       {stream ? (
         <Link
-          to={stream.link.conversation({ room })}
+          to={stream.link.conversation({ turn })}
           className="transition-colors hover:text-clay"
-          title={`Open the conversation in ${room}`}
+          title={`Open this turn in ${room}`}
         >
           {body}
         </Link>

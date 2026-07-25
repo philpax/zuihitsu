@@ -6,26 +6,34 @@ import { maintenancePassLabel } from "../lib/model/events.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { relationColor } from "../lib/format/relationColor.ts";
 import { Fields, Field, Tree } from "./Tree.tsx";
-import { EntryRef, Mono, Ref, ConversationRefLink } from "./eventDetailParts.tsx";
+import {
+  EntryRef,
+  EventRef,
+  MemoryNameLink,
+  Mono,
+  Ref,
+  ConversationRefLink,
+} from "./eventDetailParts.tsx";
 import { producedByLabel, temporalRefLabel } from "./eventDetailUtilities.ts";
 import { renderInteractionPayload } from "./renderInteraction.tsx";
 
 /// The shared context the per-payload render functions receive — the event's payload, the name map,
-/// and the `ref`/`refs` closures bound to this event's seq. The leaf refs read the enclosing stream
-/// frame themselves (rendering plain names when there is none), so references degrade gracefully
-/// outside a routed stream. `conversationNameById` maps conversation ids to their room display name,
-/// so `ConversationRef` links can label the room.
+/// and the name maps the `ref`/`refs`/`convRef` closures resolve through. The leaf refs read the
+/// enclosing stream frame themselves (rendering plain names when there is none), so references
+/// degrade gracefully outside a routed stream. `conversationNameById` maps conversation ids to their
+/// room display name, so `ConversationRef` links can label the room.
 export interface RenderContext {
   payload: EventPayload;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
-  seq?: number;
 }
 
 /// Render the first half of payload cases: genesis, memory lifecycle, and entry-level events.
 export function renderMemoryPayload(ctx: RenderContext): ReactNode {
-  const { payload, nameById, conversationNameById, seq } = ctx;
+  const { payload, nameById, conversationNameById } = ctx;
   const ref = (id: string) => <Ref id={id} nameById={nameById} />;
+  // The fold's known memory names, for linking a reference cited by handle rather than id.
+  const known = new Set(nameById.values());
   switch (payload.type) {
     case "GenesisCompleted":
       return (
@@ -86,7 +94,6 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
                 value={payload.told_in}
                 nameById={nameById}
                 conversationNameById={conversationNameById}
-                seq={seq}
               />
             </Field>
           )}
@@ -98,10 +105,10 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.id)}</Field>
           <Field label="entry">
-            <Mono>{payload.entry}</Mono>
+            <EntryRef id={payload.entry} nameById={nameById} />
           </Field>
           <Field label="superseded by">
-            <Mono>{payload.superseded_by}</Mono>
+            <EntryRef id={payload.superseded_by} nameById={nameById} />
           </Field>
         </Fields>
       );
@@ -142,7 +149,7 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.memory)}</Field>
           <Field label="entry">
-            <Mono>{payload.entry}</Mono>
+            <EntryRef id={payload.entry} nameById={nameById} />
           </Field>
           <Field label="teller">{tellerLabel(payload.teller, nameById)}</Field>
           <Field label="posture">
@@ -169,7 +176,6 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
                 value={payload.told_in}
                 nameById={nameById}
                 conversationNameById={conversationNameById}
-                seq={seq}
               />
             </Field>
           )}
@@ -182,7 +188,7 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.memory)}</Field>
           <Field label="entry">
-            <Mono>{payload.entry}</Mono>
+            <EntryRef id={payload.entry} nameById={nameById} />
           </Field>
           <Field label="teller">{tellerLabel(payload.teller, nameById)}</Field>
           <Field label="reason">{payload.reason}</Field>
@@ -220,7 +226,7 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.id)}</Field>
           <Field label="entry">
-            <Mono>{payload.entry_id}</Mono>
+            <EntryRef id={payload.entry_id} nameById={nameById} />
           </Field>
         </Fields>
       );
@@ -287,7 +293,13 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
                 // runs memory → target, `"from"` runs target → memory. Render it source → relation →
                 // target so the direction reads off the line rather than off a bare glyph.
                 const memoryEnd = ref(payload.memory);
-                const targetEnd = <span>{l.target}</span>;
+                // The model cites the target by handle; when that handle names a memory in the fold
+                // it links like any reference, and an unresolvable citation stays plain text.
+                const targetEnd = known.has(l.target) ? (
+                  <MemoryNameLink name={l.target} />
+                ) : (
+                  <span>{l.target}</span>
+                );
                 const [source, dest] =
                   l.direction === "to" ? [memoryEnd, targetEnd] : [targetEnd, memoryEnd];
                 return (
@@ -335,9 +347,7 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="pass">{maintenancePassLabel(payload.pass)}</Field>
           <Field label="window">
-            <Mono>
-              {payload.from} → {payload.to}
-            </Mono>
+            <EventRef seq={payload.from} /> → <EventRef seq={payload.to} />
           </Field>
           <Field label="actions">{payload.actions}</Field>
         </Fields>

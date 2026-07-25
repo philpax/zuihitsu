@@ -69,17 +69,9 @@ const SUBTABS = [
 
 type SubtabId = (typeof SUBTABS)[number]["id"];
 
-export function RelationsView({
-  replica,
-  cursor,
-  merge,
-}: {
-  replica: Replica;
-  cursor: number;
-  merge?: MergeControls;
-}) {
+export function RelationsView({ replica, merge }: { replica: Replica; merge?: MergeControls }) {
   const navigate = useNavigate();
-  const { search, link, patchSearch, selection } = useStream();
+  const { search, link, patchSearch, selection, seq } = useStream();
   const palette = readPalette();
   // The active subtab is the URL selection segment, defaulting to "all" when absent or unrecognized.
   const subtab: SubtabId = SUBTABS.some((entry) => entry.id === selection)
@@ -321,7 +313,9 @@ export function RelationsView({
                   if (isVirtual(node)) {
                     toggleExpand(String(node.id));
                   } else {
-                    navigate(link.state(String(node.id), { seq: cursor }));
+                    // The link carries the stream's own pinned seq only (null while following, dropped
+                    // by `seqSearch`); a graph-node click never mints a cursor pin of its own.
+                    navigate(link.state(String(node.id), { seq }));
                   }
                 }}
               />
@@ -333,7 +327,6 @@ export function RelationsView({
               relations when "all" is active, or just the selected ones when filtering. */}
           <LinkedPairs
             graph={linkedPairsGraph}
-            cursor={cursor}
             nameById={nameById}
             conversationNameById={convNameById}
             page={page}
