@@ -1,5 +1,4 @@
-import { useContext, useLayoutEffect, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useState } from "react";
 
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
@@ -16,9 +15,10 @@ import {
 } from "../lib/model/events.ts";
 import { buildStepMarkers, type StepMarker } from "../lib/model/stepJournal.ts";
 import { nameById } from "../lib/model/labels.ts";
-import { formatDateTime, formatTime } from "../lib/format/format.ts";
 import { useStream } from "../lib/nav/useStreamLocation.ts";
-import { ScrollContainer } from "../lib/nav/scrollContainer.ts";
+import { LogEventRow } from "../components/LogEventRow.tsx";
+import { Pager } from "../components/Pager.tsx";
+import { pageOf, PAGE_SIZE } from "../components/pagerUtilities.ts";
 import { Eyebrow } from "../components/primitives.tsx";
 import { EventDetail } from "../components/EventDetail.tsx";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
@@ -34,8 +34,10 @@ const CATEGORIES: EventCategory[] = [
 
 /// The Events view: the run's log as the source of truth, filtered by category and free text, and
 /// stopped at the timeline cursor. A flat, scannable stream — every other view is a projection of
-/// exactly these rows. An eval run also carries its step journal, which draws a hairline boundary
-/// above the first event of each scenario beat; a live tail has no journal, so the stream is unbroken.
+/// exactly these rows. Newest events sit at the top, and the list is paged at [`PAGE_SIZE`] so a
+/// thousands-row log stays a plain, compiler-memoised render rather than a virtualised window. An
+/// eval run also carries its step journal, which draws a hairline boundary above the first event of
+/// each scenario beat; a live tail has no journal, so the stream is unbroken.
 export function EventsView({
   replica,
   events,
@@ -49,7 +51,6 @@ export function EventsView({
   journal?: readonly StepRecord[];
   resumedFromStep?: number | null;
 }) {
-  "use no memo"; // The virtualizer (@tanstack/react-virtual) is incompatible with the React Compiler.
   const names = nameById(replica.memories(""));
   const convNames = conversationNameById(replica.conversations());
   const { search: streamSearch, patchSearch } = useStream();
@@ -64,9 +65,13 @@ export function EventsView({
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  // The current page into the newest-first list. Any filter change resets it to the first page, so a
+  // narrower result set is never left scrolled past its own end.
+  const [page, setPage] = useState(0);
 
   function clearFocus() {
     patchSearch((prev) => ({ ...prev, focus: undefined }));
+    setPage(0);
   }
 
   const needle = search.trim().toLowerCase();
@@ -86,7 +91,14 @@ export function EventsView({
       return (
         event.payload.type.toLowerCase().includes(needle) || summary.toLowerCase().includes(needle)
       );
-    });
+    })
+    // Newest first: sort by recorded time descending, falling back to seq so events sharing a
+    // timestamp keep a stable, log-order-reversed sequence.
+    .sort((a, b) => b.event.recorded_at - a.event.recorded_at || b.event.seq - a.event.seq);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const pageRows = pageOf(rows, clampedPage);
 
   // The step boundaries, keyed by the seq they sit above. Anchored against the full log (the first
   // event carries the genesis marker), so a boundary shows wherever its anchor event survives the
@@ -102,6 +114,7 @@ export function EventsView({
     if (next.has(category)) next.delete(category);
     else next.add(category);
     setActive(next);
+    setPage(0);
   }
 
   function toggleSource(source: EventSource) {
@@ -109,34 +122,18 @@ export function EventsView({
     if (next.has(source)) next.delete(source);
     else next.add(source);
     setActiveSources(next);
+    setPage(0);
   }
 
-  // A run's log is thousands of rows, so only the visible window is rendered. The list scrolls within
-  // the workspace well (the shared scroll container), so `scrollMargin` tracks the list's offset from
-  // the top of that container's scrolled content — the filter rows above it — re-measured when that
-  // layout changes (a filter rewrapping, a resize). The well is positioned (`relative`), so the list's
-  // `offsetTop` is measured against it. Rows measure their own height, so an expanded row's detail is
-  // accounted for without a fixed size.
-  const container = useContext(ScrollContainer);
-  const listRef = useRef<HTMLDivElement>(null);
-  const [scrollMargin, setScrollMargin] = useState(0);
-  useLayoutEffect(() => {
-    const measure = () => listRef.current && setScrollMargin(listRef.current.offsetTop);
-    measure();
-    const observer = new ResizeObserver(measure);
-    // Observe the well's scrolled content (its first child), not the well itself: the well's own box
-    // is fixed, so only its content growing or the filters above rewrapping move the list's offset.
-    observer.observe(container?.firstElementChild ?? document.body);
-    return () => observer.disconnect();
-  }, [container]);
-  // eslint-disable-next-line react-hooks/incompatible-library -- the "use no memo" opt-out above makes the skipped compilation deliberate.
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => container,
-    estimateSize: () => 37,
-    overscan: 12,
-    scrollMargin,
-  });
+  function changeSearch(value: string) {
+    setSearch(value);
+    setPage(0);
+  }
+
+  function changeTypeFilter(next: string | null) {
+    setTypeFilter(next);
+    setPage(0);
+  }
 
   return (
     <section>
@@ -153,33 +150,35 @@ export function EventsView({
           </button>
         </div>
       )}
-      <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-        <div className="flex flex-wrap gap-x-4 gap-y-2">
-          {CATEGORIES.map((category) => (
-            <button
-              key={category}
-              onClick={() => toggle(category)}
-              className={
-                "font-mono text-2xs tracking-widest uppercase transition-colors " +
-                (active.has(category) ? CATEGORY_COLOR[category] : "text-ink-faint/45 line-through")
-              }
-            >
-              {category}
-            </button>
-          ))}
+      {/* The labels sit in their own column, the member lists on a shared vertical baseline well
+          clear of them — so "type" and "by" read as row headers, not as members of the lists. */}
+      <div className="mb-7 grid grid-cols-[auto_1fr] items-baseline gap-x-8 gap-y-1">
+        <span className="font-mono text-2xs tracking-widest text-ink-faint uppercase">type</span>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {CATEGORIES.map((category) => (
+              <button
+                key={category}
+                onClick={() => toggle(category)}
+                className={
+                  "font-mono text-2xs tracking-widest uppercase transition-colors " +
+                  (active.has(category)
+                    ? CATEGORY_COLOR[category]
+                    : "text-ink-faint/45 line-through")
+                }
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+          <input
+            value={search}
+            onChange={(event) => changeSearch(event.target.value)}
+            placeholder="filter…"
+            className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none sm:w-44"
+          />
         </div>
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="filter…"
-          className="w-full border-b border-line bg-transparent pb-1 font-mono text-xs text-ink placeholder:text-ink-faint/60 focus:border-ink-faint focus:outline-none sm:w-44"
-        />
-      </div>
-
-      <div className="mb-7 flex items-baseline gap-x-4 gap-y-2">
-        <span className="shrink-0 font-mono text-2xs tracking-widest text-ink-faint uppercase">
-          by
-        </span>
+        <span className="font-mono text-2xs tracking-widest text-ink-faint uppercase">by</span>
         <div className="flex flex-wrap gap-x-4 gap-y-2">
           {EVENT_SOURCES.map((source) => (
             <button
@@ -202,7 +201,7 @@ export function EventsView({
           <Eyebrow>{rows.length} events</Eyebrow>
           {typeFilter && (
             <button
-              onClick={() => setTypeFilter(null)}
+              onClick={() => changeTypeFilter(null)}
               className="font-mono text-xs text-clay transition-colors hover:text-ink"
               title="Clear the type filter"
             >
@@ -216,77 +215,40 @@ export function EventsView({
         </Eyebrow>
       </div>
 
-      <div ref={listRef} className="font-mono text-xs">
-        <div className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-          {virtualizer.getVirtualItems().map((item) => {
-            const { event, category, summary } = rows[item.index];
-            const open = expanded === event.seq;
-            const markers = stepMarkers.get(event.seq);
-            return (
-              <div
-                key={event.seq}
-                data-index={item.index}
-                ref={virtualizer.measureElement}
-                className="absolute top-0 left-0 w-full border-b border-line/60"
-                style={{
-                  transform: `translateY(${item.start - virtualizer.options.scrollMargin}px)`,
-                }}
+      <div className="font-mono text-xs">
+        {pageRows.map(({ event, category, summary }) => {
+          const open = expanded === event.seq;
+          const markers = stepMarkers.get(event.seq);
+          return (
+            <div key={event.seq}>
+              {markers && <StepBoundary markers={markers} />}
+              <LogEventRow
+                seq={event.seq}
+                type={event.payload.type}
+                category={category}
+                summary={summary}
+                recordedAt={event.recorded_at}
+                open={open}
+                onToggle={() => setExpanded(open ? null : event.seq)}
+                onTypeClick={() =>
+                  changeTypeFilter(typeFilter === event.payload.type ? null : event.payload.type)
+                }
               >
-                {markers && <StepBoundary markers={markers} />}
-                <button
-                  onClick={() => setExpanded(open ? null : event.seq)}
-                  className="grid w-full grid-cols-[2.25rem_7rem_1fr] items-baseline gap-3 py-2 text-left sm:grid-cols-[3rem_11rem_1fr_auto] sm:gap-4"
-                >
-                  <span className={"text-right " + (open ? "text-clay" : "text-ink-faint")}>
-                    {event.seq}
-                  </span>
-                  <span
-                    // Click the type to narrow to just it — a precise filter under the coarse
-                    // categories. The row is a button, so this stays a span and stops the toggle.
-                    role="button"
-                    tabIndex={-1}
-                    onClick={(click) => {
-                      click.stopPropagation();
-                      setTypeFilter((current) =>
-                        current === event.payload.type ? null : event.payload.type,
-                      );
-                    }}
-                    className={"truncate hover:underline " + CATEGORY_COLOR[category]}
-                    title={`Filter to ${event.payload.type}`}
-                  >
-                    {event.payload.type}
-                  </span>
-                  <span
-                    className={"truncate " + (open ? "text-ink" : "text-ink-soft")}
-                    title={summary}
-                  >
-                    {summary}
-                  </span>
-                  <time
-                    className="hidden shrink-0 text-right text-ink-faint sm:block"
-                    dateTime={new Date(event.recorded_at).toISOString()}
-                    title={formatDateTime(event.recorded_at)}
-                  >
-                    {formatTime(event.recorded_at)}
-                  </time>
-                </button>
-                {open && (
-                  <div className="border-l-2 border-line py-3 pr-2 pl-4">
-                    <EventDetail
-                      payload={event.payload}
-                      nameById={names}
-                      conversationNameById={convNames}
-                      seq={event.seq}
-                      recordedAt={event.recorded_at}
-                      source={event.source}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                <EventDetail
+                  payload={event.payload}
+                  nameById={names}
+                  conversationNameById={convNames}
+                  seq={event.seq}
+                  recordedAt={event.recorded_at}
+                  source={event.source}
+                />
+              </LogEventRow>
+            </div>
+          );
+        })}
       </div>
+
+      <Pager page={clampedPage} total={rows.length} onPage={setPage} />
     </section>
   );
 }
