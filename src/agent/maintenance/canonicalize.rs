@@ -31,6 +31,11 @@
 //! profile mint, the `same_as`, and the designation clear the same guards a turn's writes do. The
 //! free-merge rule that lets an agent bind a freshly-minted empty profile without an operator merge
 //! proposal lives in that guard, not here.
+//!
+//! After the stub loop, a purely mechanical step (no model call) re-homes links that scattered across a
+//! `same_as` class's non-primary members onto the class primary — the standing repair for edges that
+//! accrued on a stub before its identity class formed (see [`rehome`]). It runs on every sweep with new
+//! activity, whether or not a fresh stub was identified.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -78,15 +83,10 @@ pub(crate) async fn catch_up(
         });
     };
 
-    // Collect platform stubs identified since the cursor.
+    // Collect platform stubs identified since the cursor. An empty set does not short-circuit the sweep:
+    // the mechanical re-home step below still runs, since a merge that formed a class needing repair
+    // advances the log head without necessarily identifying a fresh stub.
     let stubs = collect_platform_stubs(engine.store.lock().as_ref(), cursor)?;
-    if stubs.is_empty() {
-        return Ok(SweepOutcome {
-            cursor: head,
-            considered: 0,
-            actions: 0,
-        });
-    }
 
     let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
     let max_entry_chars = crate::settings::Settings::from_store(engine.store.lock().as_ref())
@@ -253,13 +253,24 @@ pub(crate) async fn catch_up(
         }
     }
 
+    // The mechanical re-home step: move links stranded on a class's non-primary members onto the
+    // primary, over the committed graph (the stub loop above buffered but did not commit). No model
+    // call — a purely structural repair.
+    rehome::rehome_scattered_links(engine, &mut block)?;
+
     let events = block.into_effects().events;
-    // One `ClassPrimaryDesignated` is committed per stub given a canonical primary — whether the pass
-    // minted a fresh `person/<name>` profile or designated an existing hand-merged bare member — so
-    // counting them counts the profiles designated or minted this sweep.
+    // Each canonical primary given a stub commits one `ClassPrimaryDesignated` — whether the pass minted
+    // a fresh `person/<name>` profile or designated an existing hand-merged bare member — and each
+    // re-homed link commits one `LinkRemoved` (a survivor drop included). Counting both counts the
+    // sweep's effects: profiles designated or minted, plus links re-homed.
     let actions = events
         .iter()
-        .filter(|event| matches!(event, EventPayload::ClassPrimaryDesignated { .. }))
+        .filter(|event| {
+            matches!(
+                event,
+                EventPayload::ClassPrimaryDesignated { .. } | EventPayload::LinkRemoved { .. }
+            )
+        })
         .count() as u32;
     if !events.is_empty() {
         let now = engine.clock.now();
@@ -670,6 +681,8 @@ async fn identify_name(
 
     Ok(Some(name))
 }
+
+mod rehome;
 
 #[cfg(test)]
 mod tests;

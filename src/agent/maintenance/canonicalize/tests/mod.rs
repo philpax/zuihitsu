@@ -1,5 +1,7 @@
 //! Canonicalize pass tests: the hand-merged designation path, and abstention on evidence-poor stubs.
 
+mod rehome;
+
 use std::sync::Arc;
 
 use crate::{
@@ -20,7 +22,7 @@ use crate::{
 
 /// Build an `Arc<Engine>` over an in-memory store and graph, seeded with `events` (committed under
 /// `EventSource::Agent`) and materialized.
-fn engine_with(events: Vec<EventPayload>) -> Arc<Engine> {
+pub(super) fn engine_with(events: Vec<EventPayload>) -> Arc<Engine> {
     let mut store = MemoryStore::new();
     store
         .append(Timestamp::from_millis(1_000), EventSource::Agent, events)
@@ -36,7 +38,7 @@ fn engine_with(events: Vec<EventPayload>) -> Arc<Engine> {
 
 /// The `same_as` relation registration and the name-identification template, the two prerequisites
 /// every canonicalize sweep needs in the log.
-fn prerequisites() -> Vec<EventPayload> {
+pub(super) fn prerequisites() -> Vec<EventPayload> {
     vec![
         EventPayload::LinkTypeRegistered {
             name: RelationName::SameAs,

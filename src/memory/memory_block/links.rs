@@ -9,7 +9,7 @@ use crate::{
     memory::{
         memory_block::{
             Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock,
-            MemoryError, RelationSpec, parse_cardinality, reconcile_forced_visibility,
+            MemoryError, RehomedLink, RelationSpec, parse_cardinality, reconcile_forced_visibility,
         },
         visibility::link_visible,
     },
@@ -311,6 +311,17 @@ impl MemoryBlock {
                 _ => {}
             }
         }
+        // Route a non-`same_as` link write onto its endpoints' class primaries, so an edge lands on the
+        // identity rather than whichever member the caller happened to recall — the write-side mirror of
+        // the canonicalizing link reads. `same_as` is exempt: it *is* the class structure, member-level
+        // by definition, so the guard, the proposal routing above, and the assertion below all keep the
+        // raw endpoints. `class_write_target` internally exempts a connector-authored block, keeping a
+        // connector's structural edges on the exact stub it holds ids against.
+        let (from, to) = if relation == RelationName::SameAs {
+            (from, to)
+        } else {
+            (self.class_write_target(from)?, self.class_write_target(to)?)
+        };
         // A link touching `self` is an ordinary relationship (`self knows person/rowan`), not a
         // self-model content write, so it is permitted under every authority — `guard_self` gates
         // content writes only. The one identity-touching exception, a `same_as` naming `self`, is
@@ -394,6 +405,36 @@ impl MemoryBlock {
         self.buffer
             .push(EventPayload::class_primary_designated(id, designated));
         Ok(())
+    }
+
+    /// Re-home an existing link off a `same_as` class member onto the class primary, verbatim — the
+    /// mechanical move the canonicalize pass performs for an edge that accrued on a stub before its
+    /// identity class formed. It buffers an [`EventPayload::LinkRemoved`] for the stored edge and, unless
+    /// [`RehomedLink::survivor`] is set, an [`EventPayload::LinkCreated`] re-asserting it at the canonical
+    /// endpoints under the posture carried over unchanged — this is a move, not a new assertion, so the
+    /// write-time visibility resolution must not re-run. A survivor drop emits only the removal: the
+    /// primary already carries the relation, so the member's parallel copy is withdrawn and nothing is
+    /// re-created (the primary's edge wins). It bypasses the public
+    /// [`MemoryBlock::link`]/[`MemoryBlock::unlink`] path deliberately, since those recompute the posture
+    /// and re-canonicalize the endpoints this move has already resolved.
+    pub(crate) fn rehome_link(&mut self, link: RehomedLink) {
+        self.touched.insert(link.stored_from);
+        self.touched.insert(link.stored_to);
+        self.touched.insert(link.canonical_from);
+        self.touched.insert(link.canonical_to);
+        self.buffer.push(EventPayload::link_removed(
+            link.stored_from,
+            link.stored_to,
+            link.relation.clone(),
+        ));
+        if !link.survivor {
+            self.buffer.push(EventPayload::link_created(
+                link.canonical_from,
+                link.canonical_to,
+                link.relation,
+                link.posture,
+            ));
+        }
     }
 
     /// Whether `id` is an empty profile: a memory with no live entries of its own `same_as` class. A

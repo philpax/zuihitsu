@@ -111,6 +111,21 @@ impl Graph {
         })
     }
 
+    /// The primary id of every `same_as` class with more than one live member — the merged identities
+    /// the canonicalize pass sweeps to re-home scattered links onto. A lone memory is its own
+    /// single-member class and is excluded. Ordered by id for a deterministic sweep.
+    pub fn same_as_classes(&self) -> Result<Vec<MemoryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT class_id FROM memories WHERE deleted = 0
+             GROUP BY class_id HAVING COUNT(*) > 1
+             ORDER BY class_id",
+        )?;
+        query_map_into(stmt, params![], |row| {
+            let id: String = row.get(0)?;
+            Ok::<_, GraphError>(MemoryId(parse_ulid(&id)?))
+        })
+    }
+
     /// All live memories whose name begins with `prefix` (e.g. `"person/"`), ordered by name.
     pub fn memories_in_namespace(&self, prefix: &str) -> Result<Vec<MemoryView>, GraphError> {
         let stmt = self.conn.prepare(

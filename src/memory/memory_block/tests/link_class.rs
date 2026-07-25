@@ -297,3 +297,192 @@ fn a_redundant_class_equivalent_relink_is_dropped_but_a_differing_one_records() 
         "a differing-posture re-link still records",
     );
 }
+
+/// A merged class (`primary` + `stub`, `primary` the designated primary) plus a lone `beta` far
+/// endpoint, seeded with the `same_as` and `knows` relations — the fixture the write-time
+/// canonicalization tests link and unlink against. Returns the seed and the three ids, with `primary`
+/// deterministically the earliest ULID so it wins the class.
+fn merged_pair_and_beta() -> (Vec<EventPayload>, MemoryId, MemoryId, MemoryId) {
+    let mut ids = [MemoryId::generate(), MemoryId::generate()];
+    ids.sort();
+    let [primary, stub] = ids;
+    let beta = MemoryId::generate();
+    let seed = vec![
+        same_as_relation(),
+        knows_relation(),
+        EventPayload::memory_created(primary, Namespace::Person.with_name("rowan")),
+        EventPayload::memory_created(stub, Namespace::Person.with_name("9001@testplat")),
+        EventPayload::memory_created(beta, Namespace::Person.with_name("beta")),
+        same_as(primary, stub),
+        EventPayload::class_primary_designated(primary, true),
+    ];
+    (seed, primary, stub, beta)
+}
+
+/// The `LinkCreated` `(from, to)` pairs a finished block buffered.
+fn created_edges(block: MemoryBlock) -> Vec<(MemoryId, MemoryId)> {
+    block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::LinkCreated { from, to, .. } => Some((from, to)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_link_naming_a_stub_lands_on_the_class_primary() {
+    // Write-time canonicalization: an agent `link()` addressing a platform stub records the edge against
+    // the stub's class primary, the write-side mirror of the canonicalizing link reads — so edges no
+    // longer scatter across whichever member the agent happened to recall. Both endpoints redirect: here
+    // the far endpoint is a stub of its own class too.
+    let (mut seed, primary, stub, _beta) = merged_pair_and_beta();
+    let mut far_ids = [MemoryId::generate(), MemoryId::generate()];
+    far_ids.sort();
+    let [far_primary, far_stub] = far_ids;
+    seed.extend([
+        EventPayload::memory_created(far_primary, Namespace::Person.with_name("erin")),
+        EventPayload::memory_created(far_stub, Namespace::Person.with_name("9002@testplat")),
+        same_as(far_primary, far_stub),
+        EventPayload::class_primary_designated(far_primary, true),
+    ]);
+    let mut block = block(
+        graph_from(seed),
+        ManualClock::new(Timestamp::from_millis(2_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    block
+        .link(
+            stub,
+            far_stub,
+            RelationName::new("knows"),
+            Some(LinkOptions {
+                visibility: Some(VisibilityChoice::Public),
+                exclude: None,
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        created_edges(block),
+        vec![(primary, far_primary)],
+        "both endpoints redirect to their class primaries",
+    );
+}
+
+#[test]
+fn a_connector_authored_link_stays_on_the_stub() {
+    // A connector maintains its structural edges on the exact stub it holds platform ids against, so a
+    // connector-authored block is exempt from the write-time redirect — keyed on provenance, exactly as
+    // content writes are.
+    let (seed, primary, stub, beta) = merged_pair_and_beta();
+    let mut block = block(
+        graph_from(seed),
+        ManualClock::new(Timestamp::from_millis(2_000)),
+        Teller::Agent,
+        Authority::Platform,
+    )
+    .authored_by_connector();
+    block
+        .link(
+            stub,
+            beta,
+            RelationName::new("knows"),
+            Some(LinkOptions {
+                visibility: Some(VisibilityChoice::Public),
+                exclude: None,
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        created_edges(block),
+        vec![(stub, beta)],
+        "a connector link stays on the stub, never redirecting to the primary {primary:?}",
+    );
+}
+
+#[test]
+fn a_same_as_link_routes_raw_to_the_merge_machinery() {
+    // `same_as` is the class structure itself, member-level by definition, so it is exempt from the
+    // write-time canonicalization: a platform-authority `same_as` create routes to the merge-proposal
+    // machinery naming the exact members addressed, not their class primaries — a merge proposal names
+    // specific stubs deliberately.
+    let (mut seed, _primary_a, stub_a, _beta) = merged_pair_and_beta();
+    let mut b_ids = [MemoryId::generate(), MemoryId::generate()];
+    b_ids.sort();
+    let [primary_b, stub_b] = b_ids;
+    seed.extend([
+        EventPayload::memory_created(primary_b, Namespace::Person.with_name("quinn")),
+        EventPayload::memory_created(stub_b, Namespace::Person.with_name("9003@testplat")),
+        same_as(primary_b, stub_b),
+        EventPayload::class_primary_designated(primary_b, true),
+    ]);
+    let mut block = block(
+        graph_from(seed),
+        ManualClock::new(Timestamp::from_millis(2_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    block
+        .link(stub_a, stub_b, RelationName::SameAs, None)
+        .unwrap();
+    let proposed: Vec<(MemoryId, MemoryId)> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::MergeProposed { from, to, .. } => Some((from, to)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        proposed,
+        vec![(stub_a, stub_b)],
+        "a same_as proposal names the raw stubs, never their class primaries",
+    );
+}
+
+#[test]
+fn an_unlink_naming_a_stub_removes_the_primary_homed_edge() {
+    // The latent unlink bug: reads present a link re-homed to the primary, but an exact-endpoint
+    // `LinkRemoved` naming the stub the agent sees would silently no-op on a primary-stored edge. With
+    // the endpoints canonicalized, an `unlink()` addressing the stub targets the primary-homed edge it
+    // actually removes.
+    let (mut seed, primary, stub, beta) = merged_pair_and_beta();
+    seed.push(EventPayload::link_created(
+        primary,
+        beta,
+        RelationName::new("knows"),
+        LinkPosture {
+            source: LinkSource::Agent,
+            told_by: Some(Teller::Agent),
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+    ));
+    let mut block = block(
+        graph_from(seed),
+        ManualClock::new(Timestamp::from_millis(2_000)),
+        Teller::Agent,
+        Authority::Platform,
+    );
+    block
+        .unlink(stub, beta, RelationName::new("knows"))
+        .unwrap();
+    let removed: Vec<(MemoryId, MemoryId)> = block
+        .into_effects()
+        .events
+        .into_iter()
+        .filter_map(|event| match event {
+            EventPayload::LinkRemoved { from, to, .. } => Some((from, to)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        removed,
+        vec![(primary, beta)],
+        "unlink via the stub removes the primary-homed edge",
+    );
+}

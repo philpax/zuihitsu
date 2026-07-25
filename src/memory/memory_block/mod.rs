@@ -16,7 +16,8 @@ use serde::Deserialize;
 use crate::{
     engine::Engine,
     event::{
-        Cardinality, ConversationRef, EventPayload, LinkSource, Teller, Visibility, Volatility,
+        Cardinality, ConversationRef, EventPayload, LinkPosture, LinkSource, Teller, Visibility,
+        Volatility,
     },
     graph::GraphError,
     ids::{ConversationId, EntryId, MemoryId, MemoryName, NamespacedMemoryName, TurnId},
@@ -420,6 +421,23 @@ pub struct LinkOptions {
     pub visibility: Option<VisibilityChoice>,
     #[serde(skip)]
     pub exclude: Option<BTreeSet<MemoryId>>,
+}
+
+/// One link the canonicalize pass re-homes off a `same_as` class member onto the class primary — the
+/// parameter bundle [`MemoryBlock::rehome_link`] takes. `stored_from`/`stored_to` name the edge as it
+/// sits in the graph (the row a `LinkRemoved` withdraws); `canonical_from`/`canonical_to` are those
+/// endpoints resolved to their class primaries (where the re-asserted edge lands); `posture` carries
+/// over verbatim, since a re-home moves an edge rather than asserting a new one. `survivor` drops the
+/// re-assertion: the primary already carries the relation, so only the member's parallel copy is
+/// withdrawn.
+pub(crate) struct RehomedLink {
+    pub(crate) stored_from: MemoryId,
+    pub(crate) stored_to: MemoryId,
+    pub(crate) canonical_from: MemoryId,
+    pub(crate) canonical_to: MemoryId,
+    pub(crate) relation: RelationName,
+    pub(crate) posture: LinkPosture,
+    pub(crate) survivor: bool,
 }
 
 /// A link relation to register, deserialized straight from the `links.register` table. Cardinalities
