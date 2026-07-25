@@ -28,6 +28,7 @@ async fn a_standalone_context_needs_no_conversation() {
             "discord",
             &[ContextEntry {
                 text: "Guild: Acme".to_owned(),
+                supersedes: None,
             }],
         )
         .unwrap();
@@ -59,6 +60,7 @@ async fn a_context_written_before_the_first_message_is_reused_by_the_conversatio
             "discord",
             &[ContextEntry {
                 text: "Channel: #leads".to_owned(),
+                supersedes: None,
             }],
         )
         .unwrap();

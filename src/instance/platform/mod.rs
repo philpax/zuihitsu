@@ -55,6 +55,19 @@ pub struct ProjectOutcome {
     pub entries: Vec<Option<EntryId>>,
 }
 
+/// The outcome of a [`Platform::write_context`] call: the id of the context memory the entries landed on
+/// (resolved or minted), and the new entry id per entry in request order. A connector holds the entry
+/// ids so a later write — a channel rename, or a restart with changed metadata — supersedes the prior
+/// descriptor in place rather than re-appending a duplicate. Every context entry carries text (a write
+/// never clears), so each yields an id, unlike a projection's clear-capable `Option`.
+#[derive(Clone, Debug, Serialize)]
+pub struct ContextOutcome {
+    /// The context memory the entries landed on, resolved or minted from the locator's scope.
+    pub memory_id: MemoryId,
+    /// The new entry id per entry, in request order.
+    pub entries: Vec<EntryId>,
+}
+
 /// One endpoint of a connector-authored structural link ([`Platform::link`]) — a participant or a
 /// context, each named under the connector's own platform. A connector can only ever link memories it
 /// owns, so both nodes are scoped to its platform by construction.

@@ -7,8 +7,8 @@ use crate::{
     instance::{
         ContextEntry, InstanceError,
         platform::{
-            LinkNode, ParticipantAttribute, Platform, ProjectOutcome, retract_if_live,
-            supersede_if_live,
+            ContextOutcome, LinkNode, ParticipantAttribute, Platform, ProjectOutcome,
+            retract_if_live, supersede_if_live,
         },
     },
     memory::{
@@ -19,8 +19,8 @@ use crate::{
 
 impl Platform<'_> {
     /// Write context entries to a conversation's context memory under platform authority. A
-    /// connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
-    /// first contact, posting structured data rather than interpolating untrusted strings into code.
+    /// connector (e.g. the Discord bot) uses this to keep channel metadata and laconic guidance
+    /// current, posting structured data rather than interpolating untrusted strings into code.
     ///
     /// The context memory is resolved (or minted) by name from the locator's scope — independent of any
     /// conversation, so a connector can establish context for a scope that has no messages of its own (a
@@ -28,15 +28,19 @@ impl Platform<'_> {
     /// message reuses the same memory by name. Each entry is appended as `Public` under the agent's
     /// teller. The `max_entry_chars` guard is bypassed (passed as `usize::MAX`): platform-authority
     /// context writes are blessed, like self-memories, and not subject to the agent's entry length limit.
+    ///
+    /// The write is sync-shaped, mirroring [`Platform::project`]: an entry whose `supersedes` names the
+    /// entry a prior write returned supersedes it after the fresh append, so a channel rename or a
+    /// connector restart with changed metadata revises the descriptor in place rather than stacking a
+    /// duplicate. A supersede target the agent has since dropped is a no-op — the fresh append still
+    /// stands. Returns the context memory id and the new entry id per entry in request order, which the
+    /// connector holds to supersede on the next change.
     pub fn write_context(
         &self,
         locator: &ConversationLocator,
         platform: &str,
         entries: &[ContextEntry],
-    ) -> Result<(), InstanceError> {
-        if entries.is_empty() {
-            return Ok(());
-        }
+    ) -> Result<ContextOutcome, InstanceError> {
         // Resolve (or mint) the scope's context memory by name — no conversation, so this works for a
         // guild as well as a room. One graph guard spans the resolve, the mint, and the materialize
         // (as in `ensure_conversation`), so a concurrent first contact for the same scope cannot mint a
@@ -54,6 +58,12 @@ impl Platform<'_> {
             graph.materialize_from(engine.store.lock().as_ref())?;
             id
         };
+        if entries.is_empty() {
+            return Ok(ContextOutcome {
+                memory_id: context_memory,
+                entries: Vec::new(),
+            });
+        }
 
         // Connector-authored: these entries commit under `EventSource::PlatformConnector` and belong on
         // the exact stub the connector holds ids against, so they must not follow an agent write's
@@ -68,14 +78,19 @@ impl Platform<'_> {
             usize::MAX,
         )?
         .authored_by_connector();
+        let mut results = Vec::with_capacity(entries.len());
         for entry in entries {
             let opts = AppendOptions {
                 visibility: Some(VisibilityChoice::Public),
                 ..AppendOptions::default()
             };
-            block
+            let new = block
                 .append(context_memory, &entry.text, opts)
                 .map_err(InstanceError::Memory)?;
+            if let Some(old) = entry.supersedes {
+                supersede_if_live(&mut block, context_memory, old, new)?;
+            }
+            results.push(new);
         }
         let now = engine.clock.now();
         engine.store.lock().append(
@@ -87,7 +102,10 @@ impl Platform<'_> {
             .graph
             .lock()
             .materialize_from(engine.store.lock().as_ref())?;
-        Ok(())
+        Ok(ContextOutcome {
+            memory_id: context_memory,
+            entries: results,
+        })
     }
 
     /// Project platform attributes onto a scoped memory as ordinary `Public` entries: a participant's

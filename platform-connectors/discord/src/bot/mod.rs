@@ -86,13 +86,19 @@ impl BotState {
                 db_path.display()
             ))
         })?;
+        let context_sync = ContextSync::open(&db_path).map_err(|e| {
+            Error::config(format!(
+                "could not open the state db at {}: {e}",
+                db_path.display()
+            ))
+        })?;
         Ok(BotState {
             platform,
             config,
             bot_id: Mutex::new(None),
             self_memory: OnceCell::new(),
             turn_map: Mutex::new(turn_map),
-            context_sync: ContextSync::new(),
+            context_sync,
             guild_sync: GuildSync::new(),
             projection_sync,
             present_members: Mutex::new(HashMap::new()),

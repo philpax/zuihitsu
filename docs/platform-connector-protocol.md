@@ -104,9 +104,11 @@ Resync the room's roster against a fresh member list. Each newly-arrived member 
 
 ### `POST /platform/context`
 
-Write context entries to a conversation's context memory directly, without running a turn. A platform connector uses this to write room metadata on first contact, or when the room's name or topic changes.
+Write context entries to a conversation's context memory directly, without running a turn. A platform connector uses this to keep room metadata current — writing it on first contact, and revising it when the room's name or topic changes.
 
 The conversation is minted on first contact if it doesn't yet exist. This is intentional: a connector can establish context before the first message arrives.
+
+The write is sync-shaped, mirroring [`POST /platform/project`](#post-platformproject): a connector holds the entry id a prior write returned and names it as `supersedes` on the next write, so a rename or a connector restart with changed metadata **supersedes** the prior descriptor in place rather than stacking a duplicate. A supersede target the agent has since dropped is a no-op — the fresh append still lands.
 
 **Request body:**
 
@@ -114,15 +116,26 @@ The conversation is minted on first contact if it doesn't yet exist. This is int
 {
   "scope_path": "room/42",
   "entries": [
-    { "text": "Room: #general. Topic: Welcome to the project." }
+    { "text": "Room: #general. Topic: Welcome to the project.", "supersedes": "01J…" }
   ]
 }
 ```
 
 - `scope_path` — the room's address within the connector's platform.
 - `entries` — the context text to append to the conversation's context memory. The entries are attributed to `EventSource::PlatformConnector` — the request's connector, from its key — not the agent.
+- `supersedes` — the entry id a prior context write returned for this descriptor, superseded after the fresh append; `null` on first contact. A target the agent has since dropped is a no-op: the fresh append still stands.
 
-Returns `204 No Content` on success.
+**Response body (`200 OK`):**
+
+```json
+{
+  "memory_id": "01J…",
+  "entries": ["01J…"]
+}
+```
+
+- `memory_id` — the id of the context memory the entries landed on, resolved or minted from the scope.
+- `entries` — the new entry id per entry, in request order. The connector stores these to supersede the prior descriptor on the next change, so a restart revises in place rather than re-appending a duplicate.
 
 ## Projecting attributes
 

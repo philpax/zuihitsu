@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use zuihitsu::{
-    ContextEntry, ConversationLocator, LinkError, LinkNode, MemoryId, MessageInput,
+    ContextEntry, ContextOutcome, ConversationLocator, LinkError, LinkNode, MemoryId, MessageInput,
     ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
@@ -165,9 +165,12 @@ pub(super) async fn roster(
 }
 
 /// `POST /platform/context` — write context entries to a conversation's context memory directly.
-/// A connector (e.g. the Discord bot) uses this to write channel metadata and laconic guidance on
-/// first contact, posting structured data rather than interpolating untrusted strings into code. The
-/// write is attributed in the event log to the request's connector, not the agent.
+/// A connector (e.g. the Discord bot) uses this to keep channel metadata and laconic guidance current,
+/// posting structured data rather than interpolating untrusted strings into code. The write is
+/// attributed in the event log to the request's connector, not the agent. Each entry may name the
+/// `supersedes` id a prior write returned, so a channel rename or a connector restart revises the
+/// descriptor in place rather than stacking a duplicate; the response is the context memory id and the
+/// new entry id per entry, in order, which the connector holds to supersede on the next change.
 #[derive(Deserialize)]
 pub(super) struct ContextRequest {
     scope_path: String,
@@ -178,13 +181,13 @@ pub(super) async fn write_context(
     State(state): State<AppState>,
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ContextRequest>,
-) -> Result<StatusCode, ApiError> {
-    state.server.platform().write_context(
+) -> Result<Json<ContextOutcome>, ApiError> {
+    let outcome = state.server.platform().write_context(
         &locator(&scope, request.scope_path),
         &scope.platform,
         &request.entries,
     )?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(outcome))
 }
 
 /// `POST /platform/project` — project platform attributes onto a scoped memory as public entries: a

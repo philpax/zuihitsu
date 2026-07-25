@@ -21,6 +21,12 @@ use crate::{
 pub struct ContextEntry {
     /// The entry's text content.
     pub text: String,
+    /// The entry a prior context write returned for this channel, superseded on a change so a restart
+    /// revises the descriptor in place rather than re-appending a duplicate. `None` on first contact. A
+    /// target the agent has since dropped is a no-op — the fresh append still stands. Defaulted so an
+    /// older connector that omits the field still deserializes.
+    #[serde(default)]
+    pub supersedes: Option<EntryId>,
 }
 
 /// Operator-authority operations: agent creation and read-only inspection. A platform client can

@@ -26,7 +26,8 @@ pub use control::{
     ModelCall, RetractAttestationOutcome, RetractOutcome, SelfEditOutcome, UnmergeOutcome,
 };
 pub use platform::{
-    LinkError, LinkNode, MessageInput, ParticipantAttribute, Platform, ProjectOutcome, RosterResync,
+    ContextOutcome, LinkError, LinkNode, MessageInput, ParticipantAttribute, Platform,
+    ProjectOutcome, RosterResync,
 };
 
 use std::{

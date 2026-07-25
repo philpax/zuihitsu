@@ -104,10 +104,24 @@ pub enum StreamOutcome {
     Error(String),
 }
 
-/// One entry to write to a conversation's context memory via `POST /platform/context`.
+/// One entry to write to a conversation's context memory via `POST /platform/context`. `supersedes` is
+/// the entry id a prior write of this descriptor returned, which the server supersedes after the fresh
+/// append so a rename or a restart revises in place rather than stacking a duplicate — the connector
+/// holds it, so the server needs no keying of its own. `None` on first contact.
 #[derive(Serialize)]
 pub struct ContextEntry {
     pub text: String,
+    pub supersedes: Option<EntryId>,
+}
+
+/// The response to `POST /platform/context`: the context memory the entries landed on (resolved or
+/// minted from the scope) and the new entry id per entry, in request order. A connector holds the entry
+/// ids to supersede the prior descriptor on the next change, so a restart revises in place rather than
+/// re-appending a duplicate.
+#[derive(Deserialize)]
+pub struct ContextResponse {
+    pub memory_id: MemoryId,
+    pub entries: Vec<EntryId>,
 }
 
 /// One attribute to project onto a scoped memory via `POST /platform/project`. `text` is the value to
@@ -350,13 +364,17 @@ impl PlatformClient {
     }
 
     /// `POST /platform/context` — write context entries to a conversation's context memory directly.
-    /// A connector uses this to write channel metadata and laconic guidance on first contact. The write
-    /// is attributed to the connector the request's key registers.
+    /// A connector uses this to keep channel metadata and laconic guidance current. The write is
+    /// attributed to the connector the request's key registers. Each entry may name the `supersedes` id
+    /// a prior write returned, which the server supersedes after the fresh append so a rename or a
+    /// restart revises in place rather than stacking a duplicate. Returns the context memory id and the
+    /// new entry id per entry, in request order, which the connector holds to supersede on the next
+    /// change.
     pub async fn write_context(
         &self,
         locator: &ConversationLocator,
         entries: &[ContextEntry],
-    ) -> Result<()> {
+    ) -> Result<ContextResponse> {
         /// The request body for `POST /platform/context`.
         #[derive(Serialize)]
         struct ContextBody<'a> {
@@ -390,7 +408,13 @@ impl PlatformClient {
                 body,
             });
         }
-        Ok(())
+        response
+            .json::<ContextResponse>()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::WriteContext,
+                source: e,
+            })
     }
 
     /// `POST /platform/project` — project attributes onto a scoped memory as public entries: a

@@ -27,7 +27,7 @@ use crate::{
         mentions::splice_mentions,
         process::process_message,
     },
-    context_sync::ContextParams,
+    context_sync::{channel_metadata_text, dm_metadata_text},
     locator::{ChannelContext, DISCORD_PLATFORM},
     pacing::PendingMessage,
 };
@@ -141,29 +141,25 @@ impl EventHandler for Handler {
             turn_map.inject_turn_ref(&msg.content, referenced_id.as_ref())
         };
 
-        // Ensure context is written on first contact.
+        // Keep the channel's context current: write it on first contact, and supersede the descriptor in
+        // place if the name or topic has since changed.
         let guild_name = match msg.guild_id {
             Some(guild_id) => guild_name(&ctx, guild_id).await,
             None => String::new(),
         };
         let (channel_name, topic) = channel_metadata(&ctx, msg.channel_id).await;
+        let metadata = if is_dm {
+            dm_metadata_text()
+        } else {
+            channel_metadata_text(&guild_name, &channel_name, &topic)
+        };
 
         if let Err(error) = state
             .context_sync
-            .ensure_context(
-                &state.platform,
-                &locator,
-                &ContextParams {
-                    channel_id: msg.channel_id,
-                    guild_name: &guild_name,
-                    channel_name: &channel_name,
-                    topic: &topic,
-                    is_dm,
-                },
-            )
+            .sync(&state.platform, &locator, msg.channel_id, metadata)
             .await
         {
-            tracing::warn!(%error, "discord connector: could not write context on first contact");
+            tracing::warn!(%error, "discord connector: could not sync context");
         }
 
         // Project the sender's current username, display name, and nickname onto their profile,
@@ -377,17 +373,11 @@ impl EventHandler for Handler {
             channel_id: channel_id.get(),
         };
         let locator = channel_ctx.locator();
+        let metadata = channel_metadata_text(&guild_name, &channel_name, &topic);
 
         if let Err(error) = state
             .context_sync
-            .update_context(
-                &state.platform,
-                &locator,
-                channel_id,
-                &guild_name,
-                &channel_name,
-                &topic,
-            )
+            .sync(&state.platform, &locator, channel_id, metadata)
             .await
         {
             tracing::warn!(%error, "discord connector: could not update context on channel update");
