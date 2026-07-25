@@ -151,6 +151,7 @@ pub fn template_statuses(
             curated: assessment.is_curated(),
             default_version: assessment.default_version,
             upgrade_available: assessment.upgrade_available(),
+            description: Some(assessment.default_description.to_owned()),
         })
         .collect())
 }
@@ -163,6 +164,9 @@ pub struct TemplateAssessment {
     pub name: PromptTemplateName,
     pub default_version: u32,
     pub default_body: String,
+    /// The build default's operator-facing one-line summary, carried through for the console's prompt
+    /// surface. Metadata only — never part of the registered body or the manifest hash.
+    pub default_description: &'static str,
     latest: Option<LatestRegistration>,
 }
 
@@ -218,6 +222,7 @@ pub fn assess_templates(
             name: template.name,
             default_version: template.version,
             default_body: template.body,
+            default_description: template.description,
             latest: latest.get(&template.name).cloned(),
         })
         .collect())
@@ -377,10 +382,16 @@ fn is_genesis_completed(event: &crate::event::Event) -> bool {
 /// change bumps `version` — distinct bodies never share a `(name, version)` pair — so an older
 /// event's `produced_by` keeps naming the body it was generated under; a body's history lives in
 /// version control, not in comments.
+///
+/// The `description` is build-side metadata for the operator's Prompts view — a one-line summary of
+/// what the template drives. It never reaches the event log, the registered body, or the genesis
+/// manifest hash (which covers only the `(name, version)` pair), so writing or editing one perturbs
+/// neither the wire nor an existing agent's hash.
 struct TemplateDef {
     name: PromptTemplateName,
     version: u32,
     body: String,
+    description: &'static str,
 }
 
 /// A build-seeded system tag. Like the seed relations, these are build defaults rather than part of

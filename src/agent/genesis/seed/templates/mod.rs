@@ -19,11 +19,15 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             name: PromptTemplateName::Scaffold,
             version: 28,
             body: scaffold_body(features),
+            description: "The system-prompt scaffold: the standing instructions every turn is \
+                          framed by.",
         },
         TemplateDef {
             name: PromptTemplateName::DescriptionRegen,
             version: 2,
             body: body_of(include_str!("synthesis/description_regen.md")),
+            description: "Regenerates a memory's one-line description from its content entries, \
+                          arbitrating any contradictions.",
         },
         // The body leads with the omit-default because over-resolution is the dangerous direction: a
         // statement stamped with a fabricated now-relative date reads back as fact, while an untimed
@@ -32,16 +36,22 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             name: PromptTemplateName::TemporalExtraction,
             version: 6,
             body: body_of(include_str!("synthesis/temporal_extraction.md")),
+            description: "Resolves when each entry is about in the real world, so a statement can \
+                          carry an occurrence date.",
         },
         TemplateDef {
             name: PromptTemplateName::Flush,
             version: 5,
             body: flush_template_body(),
+            description: "The flush turn: writes a session's durable working state to memory before \
+                          its transcript scrolls away.",
         },
         TemplateDef {
             name: PromptTemplateName::Imprint,
             version: 3,
             body: body_of(include_str!("turn/imprint.md")),
+            description: "The first-contact turn: the agent meets its creator and records who it is \
+                          for and who is responsible for it.",
         },
         // A coined directional relation is easy to link the wrong way round, so the body has the
         // model express each link as a subject–relation–object sentence — the direction is carried
@@ -50,21 +60,29 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
             name: PromptTemplateName::LinkInference,
             version: 5,
             body: body_of(include_str!("synthesis/link_inference.md")),
+            description: "Infers typed relations between memories from a memory's entries, coining \
+                          new relations when none fits.",
         },
         TemplateDef {
             name: PromptTemplateName::EntryConsolidation,
             version: 4,
             body: body_of(include_str!("synthesis/entry_consolidation.md")),
+            description: "Fuses a cluster of entries that state the same fact into one consolidated \
+                          entry.",
         },
         TemplateDef {
             name: PromptTemplateName::NameIdentification,
             version: 2,
             body: body_of(include_str!("synthesis/name_identification.md")),
+            description: "Identifies a platform stub's canonical person name from its entries, or \
+                          abstains when the evidence is weak.",
         },
         TemplateDef {
             name: PromptTemplateName::LinkCleanup,
             version: 1,
             body: body_of(include_str!("synthesis/link_cleanup.md")),
+            description: "Retracts entries whose content merely restates a link that already \
+                          exists, leaving the edge as the record.",
         },
     ]
 }

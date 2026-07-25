@@ -24,4 +24,8 @@ pub struct TemplateStatus {
     /// A newer or divergent build default is available for a curated surface to adopt. Always `false`
     /// for a default-tracking name, which the boot reconcile has already advanced to the build default.
     pub upgrade_available: bool,
+    /// A one-line summary of what the template drives, sourced from the running build's defaults by
+    /// name — operator-facing metadata that never touches the log or the registered body. `None` for
+    /// a name the build carries no default for (an operator-coined template), which the console omits.
+    pub description: Option<String>,
 }

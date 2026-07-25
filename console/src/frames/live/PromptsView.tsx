@@ -120,11 +120,12 @@ function PromptList({
     <nav className="flex flex-col">
       {templates.map((template) => {
         const active = template.name === selected;
+        const description = statuses.get(template.name)?.description;
         return (
           <button
             key={template.name}
             onClick={() => onSelect(template.name)}
-            title={template.name}
+            title={description ? `${template.name} · ${description}` : template.name}
             className={
               "-ml-3 flex w-full min-w-0 items-baseline border-l-2 py-1 pl-2.5 text-left transition-colors " +
               (active ? "border-clay text-ink" : "border-transparent text-ink-soft hover:text-ink")
@@ -204,6 +205,7 @@ function PromptEditor({
       <p className="mb-2 font-mono text-2xs tracking-widest text-ink-faint uppercase">
         {template.name} · version {template.version}
       </p>
+      {status?.description && <p className="mb-2 text-xs text-ink-faint">{status.description}</p>}
       {status?.upgrade_available && (
         <p className="mb-2 text-xs text-ink-faint">
           Updated default available (v{status.default_version}). This is an operator-edited surface,
