@@ -21,6 +21,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(canonicalize::NamesPlatformStub),
         Arc::new(canonicalize::AvoidsSpuriousMints),
         Arc::new(canonicalize::SuffixesNameCollision),
+        Arc::new(canonicalize::BindsAnOrphanedProfile),
         Arc::new(append_dedup::HandlesRepeatedFactGracefully),
     ];
     scenarios.extend(attestation_hidden_confirmation::scenarios());

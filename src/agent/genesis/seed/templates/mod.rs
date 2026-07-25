@@ -58,7 +58,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         },
         TemplateDef {
             name: PromptTemplateName::NameIdentification,
-            version: 1,
+            version: 2,
             body: body_of(include_str!("synthesis/name_identification.md")),
         },
         TemplateDef {

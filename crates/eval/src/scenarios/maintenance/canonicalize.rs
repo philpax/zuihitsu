@@ -3,7 +3,8 @@
 //!
 //! The pass reads a platform stub's entries, and per stub either designates an existing hand-merged
 //! bare profile, mints a fresh `person/<name>` canonical profile (disambiguating with a suffix on a
-//! genuine collision), or abstains when the evidence is too thin. Three scenarios cover the shapes:
+//! genuine collision), binds an empty stub to a bare profile holding its borrowed evidence, or abstains
+//! when the evidence is too thin. Four scenarios cover the shapes:
 //!
 //! - [`NamesPlatformStub`] (metric): the end-to-end naming path against the real model and the
 //!   genesis-baked `NameIdentification` template — a stub with name evidence gets a bare profile
@@ -16,6 +17,11 @@
 //!   profile. The pass must never merge or assert onto that existing profile (the gate); it should mint
 //!   a suffixed profile bound to the stub instead (a metric). The no-merge gate holds regardless of the
 //!   model's naming, so it fails only on a genuine cross-identity squat.
+//! - [`BindsAnOrphanedProfile`] (gating): the borrowed-evidence shape — two empty stubs whose people's
+//!   facts were recorded onto bare `person/<stem>` profiles rather than the stubs. One profile's
+//!   entries are the teller's own self-introduction (bindable); the other's describe a relative sharing
+//!   the name (a different person). The pass should bind the first (a metric) and must never bind the
+//!   second (the gate) — the relative's facts must not cause a mis-identification.
 
 use async_trait::async_trait;
 use zuihitsu::{
@@ -254,6 +260,126 @@ impl Scenario for SuffixesNameCollision {
     }
 }
 
+/// The borrowed-evidence shape: two empty platform stubs whose people's facts were recorded directly
+/// onto bare `person/<stem>` profiles (teller-stamped from the stub) rather than the stubs themselves.
+/// One profile's entries are the teller's own self-introduction — a bindable identity; the other's
+/// describe a relative who happens to share the name — a different person. The pass must bind the first
+/// stub to its profile (a metric, since the model may abstain) and must never bind the second (the
+/// gate): the relative's facts must not cause a mis-identification.
+pub struct BindsAnOrphanedProfile;
+
+#[async_trait]
+impl Scenario for BindsAnOrphanedProfile {
+    fn meta(&self) -> ScenarioMeta {
+        ScenarioMeta {
+            name: "canonicalize_binds_an_orphaned_profile".to_owned(),
+            category: Category::Identity,
+            description:
+                "When an empty platform stub's person recorded their own facts onto a bare person \
+                          profile, the canonicalize pass binds the stub to that profile with same_as \
+                          and designates it primary; when the borrowed facts describe a relative \
+                          sharing the name, the pass must never bind."
+                    .to_owned(),
+            bar: Bar::gating(),
+        }
+    }
+
+    fn steps(&self) -> Vec<EvalStep> {
+        let rowan_stub = MemoryId::generate();
+        let rowan_bare = MemoryId::generate();
+        let sable_stub = MemoryId::generate();
+        let sable_bare = MemoryId::generate();
+        let now = run_start();
+        let seed = vec![
+            // Stub A: an empty `person/rowan@chat` stub whose person's own self-introduction was
+            // written onto a bare, unbound `person/rowan` profile, teller-stamped from the stub. The
+            // borrowed evidence names the profile's own person, so the pass should bind the two.
+            EventPayload::memory_created(rowan_stub, MemoryName::new("person/rowan@chat")),
+            EventPayload::participant_identified(rowan_stub, "chat", "rowan#0001"),
+            EventPayload::memory_created(rowan_bare, MemoryName::new("person/rowan")),
+            told_by_stub(
+                rowan_bare,
+                rowan_stub,
+                now,
+                "I'm Rowan, I coordinate the volunteer roster for the neighbourhood clinic.",
+            ),
+            told_by_stub(
+                rowan_bare,
+                rowan_stub,
+                now,
+                "I've been building a shared calendar so the on-call shifts stop clashing.",
+            ),
+            // Stub B: an empty `person/sable@chat` stub whose bare `person/sable` profile holds facts
+            // that plainly describe someone else — the speaker's aunt, who happens to share the name.
+            // The borrowed evidence names a relative, not the teller, so the pass must leave the stub
+            // unbound.
+            EventPayload::memory_created(sable_stub, MemoryName::new("person/sable@chat")),
+            EventPayload::participant_identified(sable_stub, "chat", "sable#0002"),
+            EventPayload::memory_created(sable_bare, MemoryName::new("person/sable")),
+            told_by_stub(
+                sable_bare,
+                sable_stub,
+                now,
+                "Their aunt Sable is a marine biologist who tags migrating turtles off the coast.",
+            ),
+            told_by_stub(
+                sable_bare,
+                sable_stub,
+                now,
+                "Their aunt Sable retired from the university last spring and now sails full-time.",
+            ),
+        ];
+        vec![
+            EvalStep::SeedEvents(seed),
+            EvalStep::Settle,
+            EvalStep::MaintenanceCatchUp,
+            EvalStep::Settle,
+        ]
+    }
+
+    async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
+        let rowan_stub = analysis::memory_id_named(events, "person/rowan@chat");
+        let rowan_bare = analysis::memory_id_named(events, "person/rowan");
+        let sable_stub = analysis::memory_id_named(events, "person/sable@chat");
+
+        // Metric: stub A ends bound — a `same_as` edge joins it to the bare `person/rowan` profile its
+        // borrowed evidence names, and that profile is the designated class primary. Model-dependent,
+        // so an abstention is tolerated (a metric, not a gate).
+        let bound = rowan_stub.and_then(|stub| bound_canonical(events, stub));
+        let bound_ok = bound.is_some()
+            && bound == rowan_bare
+            && bound.is_some_and(|id| designated_primary(events, id));
+
+        // Gating: stub B ends unbound — no `same_as` edge touches `person/sable@chat`, and no suffixed
+        // duplicate was minted for it. The aunt's facts describe a different person, so binding to
+        // `person/sable` (or minting a `person/sable-N`) would be a mis-identification. Holds even when
+        // the model abstains (nothing is bound or minted at all), so it fails only on a genuine
+        // mis-bind.
+        let sable_bound = sable_stub.is_some_and(|stub| same_as_touches(events, stub));
+        let sable_minted = analysis::memories_in_namespace(events, "person/")
+            .iter()
+            .any(|name| name.starts_with("person/sable-"));
+
+        vec![
+            Verdict::metric_outcome(
+                "bound the orphaned profile to its stub",
+                bound_ok,
+                "the empty stub was same_as-bound to the bare profile its borrowed evidence names, and \
+                 that profile was designated the class primary",
+                "the empty stub was not bound to the profile holding its borrowed evidence",
+            ),
+            Verdict::oracle_outcome(
+                "left the relative's profile unbound",
+                !sable_bound && !sable_minted,
+                "the stub whose borrowed evidence describes a relative was left unbound — no same_as \
+                 onto it, and no suffixed duplicate minted",
+                "MIS-BIND: the pass bound a stub to a profile whose facts describe a different person \
+                 sharing the name",
+            ),
+        ]
+    }
+}
+
 /// The bare (non-platform-qualified) canonical profile bound to `stub` by a `same_as` link, if the run
 /// minted and bound one. Resolves the partner of every `same_as` edge touching the stub and returns the
 /// first whose handle is a bare `person/` name (no `@platform` suffix).
@@ -312,6 +438,21 @@ fn append(id: MemoryId, now: Timestamp, text: &str) -> EventPayload {
         occurred_at: None,
         text: text.to_owned(),
         told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+    }
+}
+
+/// Append an entry told by a platform stub — the person's own facts recorded on a bare profile,
+/// teller-stamped from the stub, as the pass's borrowed-evidence path reads them.
+fn told_by_stub(id: MemoryId, stub: MemoryId, now: Timestamp, text: &str) -> EventPayload {
+    EventPayload::MemoryContentAppended {
+        id,
+        entry_id: EntryId::generate(),
+        asserted_at: now,
+        occurred_at: None,
+        text: text.to_owned(),
+        told_by: Teller::Participant(stub),
         told_in: None,
         visibility: Visibility::Public,
     }

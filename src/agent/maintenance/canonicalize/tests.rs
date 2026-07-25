@@ -428,3 +428,177 @@ async fn a_vague_stub_abstains_when_the_model_returns_no_name() {
     );
     assert!(designations(&engine).is_empty());
 }
+
+#[tokio::test]
+async fn borrowed_entries_bind_the_empty_stub_to_the_profile_they_sit_on() {
+    // The agent wrote this person's own facts directly onto a bare `person/rowan` profile,
+    // teller-stamped from the stub `person/rowan@chat`, and never bound the two — so the stub is empty
+    // and its identity class never closes over it. The pass must read those borrowed entries, name the
+    // profile from them, and bind the stub to it (`same_as` plus a designation), minting nothing.
+    let stub = MemoryId::generate();
+    let bare = MemoryId::generate();
+    let mut events = prerequisites();
+    events.extend([
+        EventPayload::memory_created(stub, Namespace::Person.with_name("rowan@chat")),
+        EventPayload::memory_created(bare, Namespace::Person.with_name("rowan")),
+        EventPayload::MemoryContentAppended {
+            id: bare,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "I'm Rowan, I run the community garden on weekends.".to_owned(),
+            told_by: Teller::Participant(stub),
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+        EventPayload::participant_identified(stub, "chat", "rowan#0001"),
+    ]);
+    let engine = engine_with(events);
+    let model = ScriptedModel::new([Completion::Reply(r#"{"name": "rowan"}"#.to_owned())]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    let same_as = same_as_pairs(&engine);
+    assert!(
+        same_as
+            .iter()
+            .any(|(from, to)| (*from == stub && *to == bare) || (*from == bare && *to == stub)),
+        "the stub is same_as-bound to the profile its borrowed evidence names: {same_as:?}"
+    );
+    assert_eq!(
+        designations(&engine),
+        vec![(bare, true)],
+        "the existing profile is designated the class primary"
+    );
+    assert_eq!(
+        minted_person_names(&engine),
+        vec!["person/rowan@chat".to_owned(), "person/rowan".to_owned()],
+        "no new profile is minted — the empty stub binds to the existing one"
+    );
+}
+
+#[tokio::test]
+async fn borrowed_entries_describing_a_third_person_bind_nothing() {
+    // The only entries the stub told on `person/rowan` are about someone else — a sibling who shares
+    // the name — not the teller's own identity. The model abstains, and the pass binds and mints
+    // nothing: borrowed evidence names only the profile whose own identity it evidences.
+    let stub = MemoryId::generate();
+    let bare = MemoryId::generate();
+    let mut events = prerequisites();
+    events.extend([
+        EventPayload::memory_created(stub, Namespace::Person.with_name("rowan@chat")),
+        EventPayload::memory_created(bare, Namespace::Person.with_name("rowan")),
+        EventPayload::MemoryContentAppended {
+            id: bare,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "My sister Rowan just moved to Perth for a new job.".to_owned(),
+            told_by: Teller::Participant(stub),
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+        EventPayload::participant_identified(stub, "chat", "rowan#0002"),
+    ]);
+    let engine = engine_with(events);
+    // The model abstains on third-person evidence: an empty object parses to `name: None`.
+    let model = ScriptedModel::new([Completion::Reply("{}".to_owned())]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    assert!(
+        same_as_pairs(&engine).is_empty(),
+        "no same_as is asserted when the borrowed evidence describes a third person"
+    );
+    assert!(
+        designations(&engine).is_empty(),
+        "nothing is designated on an abstention"
+    );
+    assert_eq!(
+        minted_person_names(&engine),
+        vec!["person/rowan@chat".to_owned(), "person/rowan".to_owned()],
+        "no profile is minted from borrowed evidence"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_stub_whose_stem_matches_no_profile_abstains_without_a_model_call() {
+    // An unrelated bare profile exists, but none at the stub's stem (`person/rowan`): the lookup
+    // misses, so the pass abstains before any model call and binds nothing. Borrowed evidence is drawn
+    // only from the profile at the stub's own stem, never a differently-named one.
+    let stub = MemoryId::generate();
+    let other = MemoryId::generate();
+    let mut events = prerequisites();
+    events.extend([
+        EventPayload::memory_created(stub, Namespace::Person.with_name("rowan@chat")),
+        EventPayload::memory_created(other, Namespace::Person.with_name("robin")),
+        EventPayload::MemoryContentAppended {
+            id: other,
+            entry_id: EntryId::generate(),
+            asserted_at: Timestamp::from_millis(1_000),
+            occurred_at: None,
+            text: "I'm Robin, a potter.".to_owned(),
+            told_by: Teller::Participant(stub),
+            told_in: None,
+            visibility: Visibility::Public,
+        },
+        EventPayload::participant_identified(stub, "chat", "rowan#0003"),
+    ]);
+    let engine = engine_with(events);
+    // An empty scripted model panics on any call — asserting the pass abstains before reaching one.
+    let model = ScriptedModel::new([]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    assert!(
+        same_as_pairs(&engine).is_empty(),
+        "no bind happens when the stem matches no profile"
+    );
+    assert!(designations(&engine).is_empty());
+}
+
+#[tokio::test]
+async fn a_stub_with_a_designated_bare_primary_is_untouched() {
+    // The stub already has a bare `same_as` member designated its class primary — a completed
+    // canonical identity. The pass must skip it: no model call, no new same_as, no re-designation.
+    let stub = MemoryId::generate();
+    let bare = MemoryId::generate();
+    let mut events = prerequisites();
+    events.extend([
+        EventPayload::memory_created(stub, Namespace::Person.with_name("rowan@chat")),
+        EventPayload::memory_created(bare, Namespace::Person.with_name("rowan")),
+        EventPayload::link_created(
+            stub,
+            bare,
+            RelationName::SameAs,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ),
+        EventPayload::ClassPrimaryDesignated {
+            memory: bare,
+            designated: true,
+        },
+        EventPayload::participant_identified(stub, "chat", "rowan#0004"),
+    ]);
+    let engine = engine_with(events);
+    // An empty scripted model panics on any call — asserting the completed stub reaches no model.
+    let model = ScriptedModel::new([]);
+
+    catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+        .await
+        .unwrap();
+
+    // The only designation and same_as in the log are the seeded ones; the pass appended neither.
+    assert_eq!(designations(&engine), vec![(bare, true)]);
+    assert_eq!(same_as_pairs(&engine).len(), 1);
+}

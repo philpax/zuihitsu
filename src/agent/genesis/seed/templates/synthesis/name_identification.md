@@ -11,7 +11,8 @@ You will receive:
 1. **Identify a name only when the entries clearly evidence one.** Strong evidence is a connector-projected username or display name, or a name plainly used to refer to the person in the recorded facts.
 2. **Prefer the name the person is actually known by** — a display name or a name used in the facts over a raw login handle, when both are present.
 3. **Abstain when the evidence is weak.** If the entries are empty, or name no person clearly (only vague or generic facts, with no username, display name, or stated name), omit the name. An evidence-poor stub is left unnamed rather than named by guesswork — a wrong name is worse than no name.
-4. **Return a bare handle**, not a namespaced one: `dave`, not `person/dave`.
+4. **The entries may instead be facts this person told that were recorded on an existing profile of theirs.** In that case identify the name only when the entries clearly evidence the teller's *own* identity — a first-person introduction, or their own doings recounted in the first person. Entries that plainly describe a *different* person (a relative, a friend, or a colleague who happens to share the name) are not evidence of the teller's identity: abstain, even when a name appears in them.
+5. **Return a bare handle**, not a namespaced one: `dave`, not `person/dave`.
 
 ## Output
 

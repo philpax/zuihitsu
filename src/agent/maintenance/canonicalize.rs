@@ -18,6 +18,14 @@
 //!    when the evidence is weak. On a name, mint a fresh `person/<name>` profile — disambiguating with
 //!    a suffix on a genuine collision with a *different* person — assert `same_as`, and designate it
 //!    primary.
+//! 4. When the stub has no entries of its own, look for borrowed evidence before abstaining: the agent
+//!    may have written this person's facts directly onto a bare `person/<stem>` profile of theirs
+//!    (teller-stamped from the stub), leaving the stub empty. If that profile exists and is a bare
+//!    unbound person profile carrying entries the stub told, name it from those entries and, when the
+//!    name reproduces the profile's own handle, bind the stub to it (`same_as` plus a designation)
+//!    rather than minting. Borrowed evidence only ever binds to the profile it came from; a name that
+//!    does not match the profile — a relative sharing the name, say — or an abstention leaves the stub
+//!    untouched.
 //!
 //! Every write runs through the ordinary [`MemoryBlock`] path under [`Authority::Agent`], so the
 //! profile mint, the `same_as`, and the designation clear the same guards a turn's writes do. The
@@ -139,11 +147,77 @@ pub(crate) async fn catch_up(
             graph.class_entries(stub_id)?
         };
         if entries.is_empty() {
-            // No evidence to name from: abstain rather than guess.
+            // The stub carries no entries of its own — but the agent may have written this person's
+            // facts directly onto an existing bare profile of theirs (teller-stamped from the stub),
+            // leaving the stub empty and the identity class never closed over it. If such a profile
+            // exists, name it from those borrowed entries and bind the stub to it rather than
+            // abstaining; borrowed evidence only ever binds to the profile it came from, never mints a
+            // fresh one.
+            let Some(evidence) = borrowed_evidence(engine, stub_id)? else {
+                // No evidence anywhere to name from: abstain rather than guess.
+                continue;
+            };
+            match identify_name(
+                engine,
+                model,
+                &recording,
+                &template.body,
+                stub_id,
+                &evidence.entries,
+                Evidence::BorrowedProfile,
+            )
+            .await
+            {
+                Ok(Some(name)) => {
+                    let target: MemoryName = Namespace::Person.with_name(&name).into();
+                    if target == evidence.handle {
+                        match bind_canonical(&mut block, stub_id, evidence.candidate) {
+                            Ok(()) => tracing::info!(
+                                stub = ?stub_id,
+                                candidate = ?evidence.candidate,
+                                "canonicalize: bound stub to the existing profile holding its borrowed evidence"
+                            ),
+                            Err(error) => tracing::warn!(
+                                stub = ?stub_id,
+                                %error,
+                                "canonicalize: binding the stub to its borrowed-evidence profile was rejected; skipping"
+                            ),
+                        }
+                    } else {
+                        // The stub-told entries named someone else (a relative sharing the name, say),
+                        // not the profile's own person: bind nothing, and never mint from borrowed
+                        // evidence.
+                        tracing::debug!(
+                            stub = ?stub_id,
+                            identified = %name,
+                            "canonicalize: borrowed evidence named a different person than the profile it sits on; skipping"
+                        );
+                    }
+                }
+                Ok(None) => tracing::debug!(
+                    stub = ?stub_id,
+                    "canonicalize: model abstained on the borrowed-evidence name; skipping"
+                ),
+                Err(error) => tracing::warn!(
+                    stub = ?stub_id,
+                    %error,
+                    "canonicalize: borrowed-evidence name identification failed; skipping"
+                ),
+            }
             continue;
         }
 
-        match identify_name(engine, model, &recording, &template.body, stub_id, &entries).await {
+        match identify_name(
+            engine,
+            model,
+            &recording,
+            &template.body,
+            stub_id,
+            &entries,
+            Evidence::OwnStub,
+        )
+        .await
+        {
             Ok(Some(name)) => {
                 let canonical_name = resolve_unique_name(engine, &name, &claimed)?;
                 let handle: MemoryName = Namespace::Person.with_name(&canonical_name).into();
@@ -227,6 +301,97 @@ fn mint_canonical(
     )?;
     block.designate_primary(canonical_id, true)?;
     Ok(())
+}
+
+/// Bind an empty platform stub to an existing bare profile that already carries the person's own
+/// entries: assert `same_as` from the stub to the profile and designate the profile its class's
+/// primary. Unlike [`mint_canonical`], the canonical profile already exists — the naming evidence was
+/// written onto it instead of the stub. The `same_as` asserts directly (not as a merge proposal)
+/// because the stub is empty: it carries no entries of its own, so no visibility class collapses when
+/// it joins the profile's — the free-merge case the [`MemoryBlock`] guard clears under
+/// [`Authority::Agent`], which routes to a proposal only when *both* endpoints are non-empty profiles.
+fn bind_canonical(
+    block: &mut MemoryBlock,
+    stub_id: MemoryId,
+    canonical_id: MemoryId,
+) -> Result<(), crate::memory::memory_block::MemoryError> {
+    block.link(
+        stub_id,
+        canonical_id,
+        RelationName::SameAs,
+        Some(LinkOptions {
+            visibility: Some(VisibilityChoice::Public),
+            exclude: None,
+        }),
+    )?;
+    block.designate_primary(canonical_id, true)?;
+    Ok(())
+}
+
+/// A bare profile that already carries a stub's own facts — a bind candidate for an empty stub. The
+/// agent wrote the person's facts directly onto this profile (teller-stamped from the stub) rather
+/// than the stub, so the evidence to name the stub lives here; binding the stub to it closes the
+/// identity class the empty stub never would.
+struct BorrowedEvidence {
+    /// The candidate bare profile's id.
+    candidate: MemoryId,
+    /// The candidate's handle — the exact name the identification must reproduce to bind.
+    handle: MemoryName,
+    /// The candidate's entries the stub told, the naming evidence.
+    entries: Vec<EntryView>,
+}
+
+/// Find a bind candidate for an empty stub: the bare `person/<stem>` profile the stub's own facts were
+/// written onto, where the stem is the stub subject up to its platform suffix (`person/priya@chat` →
+/// `priya`). It qualifies only when that profile exists, is a bare unbound person profile (in no
+/// `same_as` class of its own, so binding cannot collapse an existing identity), is not the stub
+/// itself, and carries at least one entry the stub told. Returns the candidate and those stub-told
+/// entries, or `None` when no such profile exists.
+fn borrowed_evidence(
+    engine: &Engine,
+    stub_id: MemoryId,
+) -> Result<Option<BorrowedEvidence>, InstanceError> {
+    let graph = engine.graph.lock();
+    let Some(stub) = graph.memory_by_id(stub_id)? else {
+        return Ok(None);
+    };
+    let Ok(namespaced) = stub.name.namespaced() else {
+        return Ok(None);
+    };
+    let Some((stem, _platform)) = namespaced.subject.split_once('@') else {
+        return Ok(None);
+    };
+    if stem.is_empty() {
+        return Ok(None);
+    }
+    let handle: MemoryName = Namespace::Person.with_name(stem).into();
+    let Some(candidate) = graph.memory_by_name(handle.clone())? else {
+        return Ok(None);
+    };
+    // A bind candidate is a bare person profile, not the stub, and unbound — its `same_as` class is
+    // just itself, so binding the stub cannot collapse a second identity into the class.
+    if candidate.id == stub_id
+        || candidate.name.is_platform_qualified()
+        || graph.class_members(candidate.id)? != vec![candidate.id]
+    {
+        return Ok(None);
+    }
+    // Keep only the entries the stub itself told — the person's own facts, teller-stamped from the
+    // stub. A fact another teller wrote onto this profile is not the stub's evidence to name from.
+    let teller = Teller::Participant(stub_id);
+    let entries: Vec<EntryView> = graph
+        .class_entries(candidate.id)?
+        .into_iter()
+        .filter(|entry| entry.told_by == teller)
+        .collect();
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(BorrowedEvidence {
+        candidate: candidate.id,
+        handle,
+        entries,
+    }))
 }
 
 /// The model's name-identification response. The name is optional: the model omits it to abstain when
@@ -341,30 +506,39 @@ async fn choose_bare_member(
         return Ok(earliest);
     }
 
-    let identified =
-        match identify_name(engine, model, recording, template_body, stub_id, &entries).await {
-            Ok(Some(name)) => name,
-            Ok(None) => {
-                tracing::warn!(
-                    stub = ?stub_id,
-                    candidates = bare_members.len(),
-                    chosen = ?earliest,
-                    "canonicalize: model abstained on the name; designating the earliest-ULID bare \
-                     member unarbitrated"
-                );
-                return Ok(earliest);
-            }
-            Err(error) => {
-                tracing::warn!(
-                    stub = ?stub_id,
-                    %error,
-                    chosen = ?earliest,
-                    "canonicalize: name identification failed; designating the earliest-ULID bare \
-                     member unarbitrated"
-                );
-                return Ok(earliest);
-            }
-        };
+    let identified = match identify_name(
+        engine,
+        model,
+        recording,
+        template_body,
+        stub_id,
+        &entries,
+        Evidence::OwnStub,
+    )
+    .await
+    {
+        Ok(Some(name)) => name,
+        Ok(None) => {
+            tracing::warn!(
+                stub = ?stub_id,
+                candidates = bare_members.len(),
+                chosen = ?earliest,
+                "canonicalize: model abstained on the name; designating the earliest-ULID bare \
+                 member unarbitrated"
+            );
+            return Ok(earliest);
+        }
+        Err(error) => {
+            tracing::warn!(
+                stub = ?stub_id,
+                %error,
+                chosen = ?earliest,
+                "canonicalize: name identification failed; designating the earliest-ULID bare \
+                 member unarbitrated"
+            );
+            return Ok(earliest);
+        }
+    };
 
     let target: MemoryName = Namespace::Person.with_name(&identified).into();
     let matched = {
@@ -426,6 +600,18 @@ fn resolve_unique_name(
     Ok(format!("{name}-{}", MemoryId::generate().0))
 }
 
+/// Where the entries fed to [`identify_name`] came from, so the user prompt labels their provenance
+/// honestly. The stub's own entries are named directly; a bind candidate's entries are the person's
+/// own facts recorded on an existing profile, which the prompt frames as such so the model names only
+/// when they evidence the teller's own identity.
+#[derive(Clone, Copy)]
+enum Evidence {
+    /// The stub's own recorded entries.
+    OwnStub,
+    /// Entries this person told, recorded on an existing bare profile of theirs.
+    BorrowedProfile,
+}
+
 /// Call the model to identify the canonical name from a stub's entries, or `None` when it abstains.
 async fn identify_name(
     engine: &Engine,
@@ -434,10 +620,17 @@ async fn identify_name(
     template_body: &str,
     stub_id: MemoryId,
     entries: &[EntryView],
+    evidence: Evidence,
 ) -> Result<Option<String>, InstanceError> {
     let entry_lines: Vec<String> = entries.iter().map(|e| format!("- {:?}", e.text)).collect();
+    let label = match evidence {
+        Evidence::OwnStub => "Entries on this stub:",
+        Evidence::BorrowedProfile => {
+            "Entries this person told, recorded on an existing profile of theirs:"
+        }
+    };
     let user_prompt = format!(
-        "Platform stub: {}\n\nEntries on this stub:\n{}",
+        "Platform stub: {}\n\n{label}\n{}",
         stub_id.0,
         entry_lines.join("\n")
     );
