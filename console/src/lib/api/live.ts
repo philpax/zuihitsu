@@ -101,6 +101,14 @@ export function useLiveLog(connection: LiveConnection, following: RefObject<bool
       });
     }
 
+    /// Publish an in-flight-progress change only. The committed handles (replica, events, head) are
+    /// carried over by identity: a progress frame changes no committed state, and re-snapshotting the
+    /// replica per token would invalidate every memoised derivation downstream, render-binding the
+    /// token stream to the full fold's cost (observed live as one token surfacing per ~half second).
+    function publishProgress(status: LiveStatus) {
+      setLog((prev) => ({ ...prev, status, progress: new Map(progress) }));
+    }
+
     /// Fold a committed tail into the replica; returns whether anything arrived.
     function appendBatch(tail: Event[]): boolean {
       if (tail.length === 0) return false;
@@ -123,7 +131,7 @@ export function useLiveLog(connection: LiveConnection, following: RefObject<bool
       const next = foldFrame(progress.get(frame.conversation), frame);
       if (next) progress.set(frame.conversation, next);
       else progress.delete(frame.conversation);
-      publish({ status: "live" });
+      publishProgress({ status: "live" });
     }
 
     function streamTail() {
@@ -147,7 +155,7 @@ export function useLiveLog(connection: LiveConnection, following: RefObject<bool
           // than freezing a stale fragment on screen.
           if (progress.size > 0) {
             progress.clear();
-            publish({ status: "live" });
+            publishProgress({ status: "live" });
           }
           if (!error) {
             // A clean close is the server's deliberate reconnect cue (it ends the stream on
