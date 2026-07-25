@@ -18,6 +18,7 @@ import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { MergeProposals } from "./MergeProposals.tsx";
 import { LinkedPairs, RelationLegend } from "./Legend.tsx";
 import { conversationNameById } from "../../lib/model/conversationNameById.ts";
+import { Segmented } from "../../components/primitives.tsx";
 import { relationColor } from "../../lib/format/relationColor.ts";
 import {
   SIZES,
@@ -53,6 +54,21 @@ export interface MergeControls {
 /// `source relation target` triples with clickable names. The selected relations, the collapse
 /// toggle, and the expanded classes all ride in the URL so the view survives the cursor-keyed
 /// remount and browser history.
+///
+/// Two subtabs split the surface: "All" holds the relation registry, the graph, and the linked-pairs
+/// list; "Identity Merges" holds the cross-platform merge-proposal surface. The active subtab rides in
+/// the URL as the view's selection segment (`/…/relations/<subtab>`), so it is a shareable deep link and
+/// browser back and forward walk it — the same register the Settings view's section uses. Switching
+/// subtab carries the relation filters (which live in the search) forward, so returning to "All" finds
+/// them intact; an unknown segment falls back to "all". The `SubtabId` union guards the segment, so a
+/// stale or malformed value degrades to the default rather than blanking the view.
+const SUBTABS = [
+  { id: "all", label: "All" },
+  { id: "merges", label: "Identity Merges" },
+] as const;
+
+type SubtabId = (typeof SUBTABS)[number]["id"];
+
 export function RelationsView({
   replica,
   cursor,
@@ -63,8 +79,17 @@ export function RelationsView({
   merge?: MergeControls;
 }) {
   const navigate = useNavigate();
-  const { search, link, patchSearch } = useStream();
+  const { search, link, patchSearch, selection } = useStream();
   const palette = readPalette();
+  // The active subtab is the URL selection segment, defaulting to "all" when absent or unrecognized.
+  const subtab: SubtabId = SUBTABS.some((entry) => entry.id === selection)
+    ? (selection as SubtabId)
+    : "all";
+
+  // The linked-pairs list windows a long newest-first list, so it carries a page cursor. Changing the
+  // subtab or the relation/collapse filters reshuffles which links are listed, so those handlers reset
+  // the cursor to the first page rather than stranding the reader on a now-out-of-range page.
+  const [page, setPage] = useState(0);
 
   // URL state: the selected relations (empty = all), the `same_as` collapse toggle (default on),
   // and the comma-joined set of expanded virtual-node ids. Defaults are applied when the param is
@@ -91,21 +116,31 @@ export function RelationsView({
   // history entry via `patchSearch`, mutating only its own search key.
   function toggleRelation(name: string) {
     patchSearch((prev) => ({ ...prev, relations: toggleCsv(prev.relations, name) }));
+    setPage(0);
   }
 
   function clearRelations() {
     patchSearch((prev) => ({ ...prev, relations: undefined }));
+    setPage(0);
   }
 
   function toggleSameAs(on: boolean) {
     patchSearch((prev) => ({ ...prev, sameAs: on ? undefined : "off" }));
+    setPage(0);
   }
 
   function toggleExpand(id: string) {
     patchSearch((prev) => ({ ...prev, expand: toggleCsv(prev.expand, id) }));
   }
 
-  // The force-graph canvas needs explicit pixel dimensions, so measure the container it fills.
+  // The force-graph canvas needs explicit pixel dimensions, so measure the container it fills. The
+  // wrap div is only in the DOM on the "all" subtab with nodes to draw, so the observer effect keys
+  // off that condition: it re-attaches whenever the container appears and tears down when it leaves.
+  // Keying mount-only ([]) would strand the graph whenever the container is absent on the mount render
+  // — a non-"all" subtab, or a live agent whose log has not yet yielded a memory — because the effect
+  // would early-return on the null ref and never re-run, leaving `size` at zero so the width-gated
+  // `ForceGraph2D` never renders.
+  const showGraph = subtab === "all" && raw.nodes.length > 0;
   const wrap = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -118,7 +153,7 @@ export function RelationsView({
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [showGraph]);
 
   const graphData = expandVirtualNodes(filtered, expanded);
   const proposals = replica.mergeProposals();
@@ -127,25 +162,47 @@ export function RelationsView({
   // in-place mutation of node/link objects (it replaces `source`/`target` strings with node
   // object references) does not corrupt the data the list reads. The force graph receives
   // `graphData` (which may share references with `filtered` when no virtual nodes are expanded);
-  // this copy stays pristine.
+  // this copy stays pristine. The links are ordered newest-first by creation instant, so the
+  // paginated list leads with the most recent edges; a synthetic `same as` edge has no instant and
+  // sorts last.
   const linkedPairsGraph: MemoryGraph = {
     nodes: filtered.nodes,
-    links: filtered.links.map((link) => ({ ...link })),
+    links: filtered.links
+      .map((link) => ({ ...link }))
+      .sort((a, b) => (b.asserted_at ?? -1) - (a.asserted_at ?? -1)),
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {/* The cross-platform merge proposals derived from the folded log — the operator's identity
-          confirmation surface, above the relation graph the merges reshape. */}
-      <MergeProposals
-        proposals={proposals}
-        cursor={cursor}
-        onResolve={merge?.resolve}
-        onUnmerge={merge?.unmerge}
-        onDesignatePrimary={merge?.designatePrimary}
+      <Segmented
+        options={SUBTABS}
+        value={subtab}
+        onChange={(id) => {
+          // A subtab move is navigation (pushed), carrying the current search — the relation filters,
+          // the collapse toggle, the expanded set, and the cursor — so returning to "All" restores them.
+          navigate(link.view("relations", { selection: id, search }));
+          setPage(0);
+        }}
       />
 
-      {raw.nodes.length === 0 ? (
+      {subtab === "merges" ? (
+        // The cross-platform merge proposals derived from the folded log — the operator's identity
+        // confirmation surface. `MergeProposals` renders nothing when there are none, so the tab
+        // supplies its own empty state.
+        proposals.length === 0 ? (
+          <div className="py-16 text-center text-sm text-ink-faint">
+            No identity merges proposed at this point in the log.
+          </div>
+        ) : (
+          <MergeProposals
+            proposals={proposals}
+            cursor={cursor}
+            onResolve={merge?.resolve}
+            onUnmerge={merge?.unmerge}
+            onDesignatePrimary={merge?.designatePrimary}
+          />
+        )
+      ) : raw.nodes.length === 0 ? (
         <div className="py-16 text-center text-sm text-ink-faint">
           No memories to graph at this point in the log.
         </div>
@@ -280,6 +337,8 @@ export function RelationsView({
             cursor={cursor}
             nameById={nameById}
             conversationNameById={convNameById}
+            page={page}
+            onPage={setPage}
           />
         </>
       )}

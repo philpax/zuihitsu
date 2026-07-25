@@ -26,6 +26,9 @@ export interface MemoryGraphLink {
   told_by: Teller | null;
   /// The conversation reference (turn or room) the link was asserted in, if any.
   told_in: ConversationRef | null;
+  /// When the edge was created, as epoch milliseconds — `null` for the synthetic `same as` identity
+  /// edges, which are derived from class membership rather than a single `LinkCreated` instant.
+  asserted_at: number | null;
 }
 
 export interface MemoryGraph {
@@ -62,6 +65,7 @@ export function buildMemoryGraph(replica: Replica): MemoryGraph {
         visibility: link.visibility,
         told_by: link.told_by,
         told_in: link.told_in,
+        asserted_at: link.asserted_at,
       });
     }
 
@@ -78,6 +82,7 @@ export function buildMemoryGraph(replica: Replica): MemoryGraph {
         visibility: "Public" as Visibility,
         told_by: null,
         told_in: null,
+        asserted_at: null,
       });
     }
   }
@@ -178,6 +183,7 @@ export function collapseSameAs(graph: MemoryGraph): MemoryGraph {
       visibility: link.visibility,
       told_by: link.told_by,
       told_in: link.told_in,
+      asserted_at: link.asserted_at,
     });
   }
 

@@ -47,6 +47,7 @@ export function expandVirtualNodes(graph: MemoryGraph, expanded: Set<string>): M
         visibility: "Public",
         told_by: null,
         told_in: null,
+        asserted_at: null,
       });
     }
   }

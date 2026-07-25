@@ -5,6 +5,9 @@ import type { MemoryGraph, MemoryGraphLink } from "../../lib/model/memoryGraph.t
 import { isPrivate, tellerLabel, visibilityLabel } from "../../lib/model/labels.ts";
 import { Checkbox } from "../../components/primitives.tsx";
 import { ConversationRefLink, MemoryNameLink } from "../../components/eventDetailParts.tsx";
+import { Pager } from "../../components/Pager.tsx";
+import { pageOf } from "../../components/pagerUtilities.ts";
+import { formatIso } from "../../lib/format/format.ts";
 import { relationColor } from "../../lib/format/relationColor.ts";
 import { cardinalityLabel } from "./graphUtilities.ts";
 
@@ -95,29 +98,36 @@ export function RelationLegend({
 /// State view at the cursor. The colored relation name is the verb, flanked by direction arrows so the
 /// edge reads source-to-target. Virtual nodes (collapsed identities) render their display id but do not
 /// link — they are not a single memory to open.
-/// Non-public links carry a faint visibility tag after the triple. Clicking a row expands it to
-/// show the link's full provenance: who asserted it, where it was told, and its visibility posture.
+/// Non-public links carry a faint visibility tag after the triple, and each row shows its creation
+/// instant inline. Clicking a row expands it to show the link's full provenance: who asserted it, where
+/// it was told, and its visibility posture. The list is windowed newest-first (the caller sorts it), one
+/// page of `PAGE_SIZE` at a time, with the page cursor owned by the caller.
 export function LinkedPairs({
   graph,
   cursor,
   nameById,
   conversationNameById,
+  page,
+  onPage,
 }: {
   graph: MemoryGraph;
   cursor: number;
   nameById: Map<string, string>;
   conversationNameById: Map<string, string>;
+  page: number;
+  onPage: (page: number) => void;
 }) {
   if (graph.links.length === 0) {
     return <p className="font-mono text-2xs text-ink-faint">no links for these relations</p>;
   }
+  const pageLinks = pageOf(graph.links, page);
   return (
     <section>
       <span className="font-mono text-2xs tracking-widest text-ink-faint uppercase">
         {`linked · ${graph.links.length}`}
       </span>
       <ul className="mt-2 flex flex-col gap-0.5 font-mono text-xs text-ink-soft">
-        {graph.links.map((link, index) => (
+        {pageLinks.map((link, index) => (
           <LinkRow
             key={`${link.source}-${link.relation}-${link.target}-${index}`}
             link={link}
@@ -127,6 +137,7 @@ export function LinkedPairs({
           />
         ))}
       </ul>
+      <Pager page={page} total={graph.links.length} onPage={onPage} />
     </section>
   );
 }
@@ -163,12 +174,23 @@ function LinkRow({
           →
         </span>
         <MemoryNameLink name={link.target} seq={cursor} />
+        {/* The disclosure chevron trails the whole triple — mid-row it reads as part of the link and
+            is easy to miss — while the timestamp keeps its own right-aligned column (via `ml-auto`)
+            undisturbed. */}
+        {hasDetail && <span className="text-2xs text-ink-faint">{expanded ? "▾" : "▸"}</span>}
         {isPrivate(link.visibility) && (
           <span className="text-2xs text-clay/70">
             {visibilityLabel(link.visibility, nameById)}
           </span>
         )}
-        {hasDetail && <span className="text-2xs text-ink-faint">{expanded ? "▾" : "▸"}</span>}
+        {link.asserted_at !== null && (
+          <time
+            dateTime={new Date(link.asserted_at).toISOString()}
+            className="ml-auto text-2xs text-ink-faint tabular-nums"
+          >
+            {formatIso(link.asserted_at)}
+          </time>
+        )}
       </div>
       {expanded && hasDetail && (
         <dl className="ml-4 flex flex-col gap-0.5 py-1 text-2xs text-ink-faint">
