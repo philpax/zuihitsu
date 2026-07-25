@@ -247,7 +247,8 @@ impl Graph {
     }
 
     /// Every instance of each live recurring entry within `[from, to]` (up to `max_per_entry` per
-    /// entry), each paired with its memory and the entry's text, ordered soonest first — the
+    /// entry), each paired with its memory, its entry id, and the entry's text, ordered soonest
+    /// first — the
     /// console's calendar *expansion*. Distinct from [`Graph::recurring_in_window`], which collapses
     /// to a memory's single next instance for the agent's `calendar.upcoming`; here a weekly standup
     /// yields a row for each of the coming weeks. Instances anchor at `asserted_at` (the rrule carries
@@ -258,35 +259,38 @@ impl Graph {
         from: Timestamp,
         to: Timestamp,
         max_per_entry: usize,
-    ) -> Result<Vec<(Timestamp, MemoryView, String)>, GraphError> {
+    ) -> Result<Vec<(Timestamp, MemoryView, EntryId, String)>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.asserted_at,
-                    e.occurred_at, e.text
+            "SELECT m.id, m.name, m.description, m.volatility, m.created_at, e.entry_id,
+                    e.asserted_at, e.occurred_at, e.text
              FROM content_entries e JOIN memories m ON m.id = e.memory_id
              WHERE m.deleted = 0 AND e.superseded_by IS NULL
                AND e.occurred_sort IS NULL AND e.occurred_at IS NOT NULL
              ORDER BY e.seq",
         )?;
-        let rows: Vec<(MemoryColumns, i64, String, String)> = query_map_into(stmt, [], |row| {
-            let columns = (
-                row.get("id")?,
-                row.get("name")?,
-                row.get("description")?,
-                row.get("volatility")?,
-                row.get("created_at")?,
-            );
-            Ok::<_, GraphError>((
-                columns,
-                row.get("asserted_at")?,
-                row.get("occurred_at")?,
-                row.get("text")?,
-            ))
-        })?;
+        let rows: Vec<(MemoryColumns, String, i64, String, String)> =
+            query_map_into(stmt, [], |row| {
+                let columns = (
+                    row.get("id")?,
+                    row.get("name")?,
+                    row.get("description")?,
+                    row.get("volatility")?,
+                    row.get("created_at")?,
+                );
+                Ok::<_, GraphError>((
+                    columns,
+                    row.get("entry_id")?,
+                    row.get("asserted_at")?,
+                    row.get("occurred_at")?,
+                    row.get("text")?,
+                ))
+            })?;
 
         // `from - 1` as the "strictly after" seed so an instance landing exactly on `from` counts.
         let seed = Timestamp::from_millis(from.as_millisecond().saturating_sub(1));
         let mut hits = Vec::new();
-        for (columns, asserted_at, occurred_json, text) in rows {
+        for (columns, entry_id, asserted_at, occurred_json, text) in rows {
+            let entry_id = EntryId(parse_ulid(&entry_id)?);
             let Ok(TemporalRef::Recurring(rrule)) =
                 serde_json::from_str::<TemporalRef>(&occurred_json)
             else {
@@ -302,11 +306,11 @@ impl Graph {
                 if instant > to {
                     break;
                 }
-                hits.push((instant, memory.clone(), text.clone()));
+                hits.push((instant, memory.clone(), entry_id, text.clone()));
                 after = instant;
             }
         }
-        hits.sort_by_key(|(instant, _, _)| *instant);
+        hits.sort_by_key(|(instant, _, _, _)| *instant);
         Ok(hits)
     }
 
