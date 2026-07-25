@@ -11,11 +11,13 @@ import { useEffect } from "react";
 /// The view is the lowercase id from the URL (`conversation`, `state`, …), the same value
 /// [`useStreamLocation`] and the eval frame's `useMatch` read — so the title derives from the same
 /// URL the views already read. Omit it (or pass `null`/`undefined`) for a context with no active
-/// sub-view, like the landing or the eval overview.
-export function useDocumentTitle(context: string, view?: string | null) {
+/// sub-view, like the landing or the eval overview. A `null` context drops the segment entirely —
+/// the live agent is the console's default face, so its tabs read `zuihitsu · <view>` with no
+/// context label.
+export function useDocumentTitle(context: string | null, view?: string | null) {
   useEffect(() => {
     const previous = document.title;
-    document.title = view ? `zuihitsu · ${context} · ${view}` : `zuihitsu · ${context}`;
+    document.title = ["zuihitsu", context, view].filter(Boolean).join(" · ");
     return () => {
       document.title = previous;
     };

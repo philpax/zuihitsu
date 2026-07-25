@@ -6,7 +6,7 @@ import { useDocumentTitle } from "../../lib/nav/useDocumentTitle.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../../lib/api/operator.ts";
 import { isDegraded, useBackendHealth } from "../../lib/api/health.ts";
-import { Dot, Eyebrow } from "../../components/primitives.tsx";
+import { Dot } from "../../components/primitives.tsx";
 import { BackendBanner } from "./BackendBanner.tsx";
 import { StreamWorkspace } from "../../components/StreamWorkspace.tsx";
 import { GenesisGate } from "./GenesisGate.tsx";
@@ -34,7 +34,7 @@ export function LiveShell({
   const log = useLiveLog(connection, following);
   // The active view and timeline cursor live in the URL, exactly as in the eval frame.
   const { view, seq, selectView, setSeq } = useStream();
-  useDocumentTitle("agent", view);
+  useDocumentTitle(null, view);
   // The handle you converse under as a participant, lifted here so it survives view switches.
   const [sender, setSender] = useState("");
   const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
@@ -54,12 +54,9 @@ export function LiveShell({
 
   return (
     <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
-      <header className="shrink-0 border-b border-line py-4 sm:py-6">
+      <header className="shrink-0 pt-4 pb-2">
         <div className="flex items-baseline justify-between gap-3">
-          <div className="flex items-baseline gap-3">
-            <span className="font-serif text-xl text-ink">zuihitsu</span>
-            <Eyebrow>console · agent</Eyebrow>
-          </div>
+          <span className="font-serif text-xl text-ink">zuihitsu</span>
           <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
             <span className="hidden items-baseline gap-3 sm:flex">
               <ConnectionBadge status={log.status} />
