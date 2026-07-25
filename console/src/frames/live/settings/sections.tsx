@@ -41,7 +41,7 @@ export function SettingsView({
   }
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div>
       <Segmented options={SECTIONS} value={section} onChange={selectSection} className="mb-6" />
       {section === "settings" && <BehavioralSettings connection={connection} />}
       {section === "environment" && <EnvironmentSection connection={connection} />}
@@ -121,7 +121,10 @@ export function BehavioralSettings({ connection }: { connection: LiveConnection 
         ))}
       </div>
 
-      <div className="sticky bottom-0 mt-8 flex items-center gap-4 border-t border-line bg-paper/95 py-4 backdrop-blur-sm">
+      {/* The scroll well carries py-4, and a sticky bottom-0 pins to the content edge — leaving the
+          well's bottom padding as a see-through strip under the bar. The negative offset drops the
+          bar to the visual bottom, and the matching negative margin swallows the extra extent. */}
+      <div className="sticky -bottom-4 mt-8 -mb-4 flex items-center gap-4 border-t border-line bg-paper/95 py-4 backdrop-blur-sm">
         <Button primary onClick={save} disabled={!dirty || status === "saving"}>
           {status === "saving" ? "Saving…" : "Save"}
         </Button>

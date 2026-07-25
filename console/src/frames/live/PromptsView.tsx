@@ -10,13 +10,21 @@ import {
   getTemplateStatuses,
   registerPrompt,
 } from "../../lib/api/prompts.ts";
-import { Button, Hint, Segmented } from "../../components/primitives.tsx";
+import { useNavigate } from "../../lib/nav/historyContext.ts";
+import { useStream } from "../../lib/nav/useStreamLocation.ts";
+import { Button, Hint, Select } from "../../components/primitives.tsx";
 
 /// The Prompts view: the agent's prompt templates — the system-prompt scaffold and the framing
 /// templates — read from the log and editable (spec §Initialization → prompt templates). A save
 /// registers a new version under operator authority; the old version stays on the log, so past
 /// `produced_by` references keep resolving and the change shows in the Events view. The bodies are
 /// the *definitions*; the assembled prompt each call actually saw is in the Conversation deliberation.
+///
+/// Laid out as a master-detail pair, the same motif as the State view: a left-aligned list of the
+/// templates, the selected one's body in the detail pane to its right. The selected template rides in
+/// the URL as the view's selection segment (`/live/prompts/<template-name>`), so a template is a
+/// shareable deep link and browser back and forward walk the selection; a segment that names no
+/// registered template (a renamed or dropped one) falls back to the first template.
 ///
 /// A curated (operator-edited) template whose build default has since moved on is badged with the
 /// newer default's version: an unchanged default auto-tracks the build at boot, but an operator-edited
@@ -31,8 +39,13 @@ export function PromptsView({
   events: Event[];
 }) {
   const templates = deriveTemplates(events, Number.MAX_SAFE_INTEGER);
-  const [selected, setSelected] = useState<PromptTemplateName | null>(null);
+  const navigate = useNavigate();
+  const { selection, link } = useStream();
   const [statuses, setStatuses] = useState<Map<PromptTemplateName, TemplateStatus>>(new Map());
+
+  // Selecting a template is navigation (a pushed history entry): the selection rides the URL segment.
+  const selectTemplate = (name: PromptTemplateName) =>
+    navigate(link.view("prompts", { selection: name }));
 
   useEffect(() => {
     let cancelled = false;
@@ -56,22 +69,25 @@ export function PromptsView({
     );
   }
 
-  const active = templates.find((template) => template.name === selected) ?? templates[0];
+  const active = templates.find((template) => template.name === selection) ?? templates[0];
   return (
-    <div className="mx-auto max-w-3xl">
-      <Segmented
-        options={templates.map((template) => ({
-          id: template.name,
-          // A caret marks a curated template whose build default has moved on, so an upgrade is
-          // noticeable across the tabs without opening each one.
-          label: statuses.get(template.name)?.upgrade_available
-            ? `${template.name} ↑`
-            : template.name,
-        }))}
-        value={active.name}
-        onChange={(id) => setSelected(id as PromptTemplateName)}
-        className="mb-6"
-      />
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-[15rem_1fr] md:gap-8">
+      <div className="flex flex-col gap-4 self-start">
+        <PromptSelect
+          templates={templates}
+          statuses={statuses}
+          selected={active.name}
+          onSelect={selectTemplate}
+        />
+        <div className="hidden md:block">
+          <PromptList
+            templates={templates}
+            statuses={statuses}
+            selected={active.name}
+            onSelect={selectTemplate}
+          />
+        </div>
+      </div>
 
       {/* Keyed by name so selecting a different template remounts the editor with a fresh draft; a
           new version of the *same* template (arriving via the tail after a save) keeps the key, so it
@@ -83,6 +99,77 @@ export function PromptsView({
         connection={connection}
       />
     </div>
+  );
+}
+
+/// The sidebar list of templates, mirroring the State view's memory list: a left-aligned column of
+/// buttons, the selected one marked by a clay rule. A caret marks a curated template whose build
+/// default has moved on, so a pending upgrade is noticeable across the list without opening each one.
+function PromptList({
+  templates,
+  statuses,
+  selected,
+  onSelect,
+}: {
+  templates: PromptTemplate[];
+  statuses: Map<PromptTemplateName, TemplateStatus>;
+  selected: PromptTemplateName;
+  onSelect: (name: PromptTemplateName) => void;
+}) {
+  return (
+    <nav className="flex flex-col">
+      {templates.map((template) => {
+        const active = template.name === selected;
+        return (
+          <button
+            key={template.name}
+            onClick={() => onSelect(template.name)}
+            title={template.name}
+            className={
+              "-ml-3 flex w-full min-w-0 items-baseline border-l-2 py-1 pl-2.5 text-left transition-colors " +
+              (active ? "border-clay text-ink" : "border-transparent text-ink-soft hover:text-ink")
+            }
+          >
+            <span className="truncate font-mono text-xs">{template.name}</span>
+            {statuses.get(template.name)?.upgrade_available && (
+              <span className="ml-1.5 shrink-0 text-clay" title="an updated default is available">
+                ↑
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+/// The mobile face of the template list: a native dropdown, so the opened template owns the screen
+/// instead of scrolling past the whole list. Hidden once there is room for the sidebar (`md`).
+function PromptSelect({
+  templates,
+  statuses,
+  selected,
+  onSelect,
+}: {
+  templates: PromptTemplate[];
+  statuses: Map<PromptTemplateName, TemplateStatus>;
+  selected: PromptTemplateName;
+  onSelect: (name: PromptTemplateName) => void;
+}) {
+  return (
+    <Select
+      value={selected}
+      onChange={(event) => onSelect(event.target.value as PromptTemplateName)}
+      className="md:hidden"
+      aria-label="Choose a prompt template"
+    >
+      {templates.map((template) => (
+        <option key={template.name} value={template.name}>
+          {template.name}
+          {statuses.get(template.name)?.upgrade_available ? " ↑" : ""}
+        </option>
+      ))}
+    </Select>
   );
 }
 
@@ -113,7 +200,7 @@ function PromptEditor({
   }
 
   return (
-    <>
+    <div>
       <p className="mb-2 font-mono text-2xs tracking-widest text-ink-faint uppercase">
         {template.name} · version {template.version}
       </p>
@@ -145,6 +232,6 @@ function PromptEditor({
         )}
         {error && <Hint tone="error">{error}</Hint>}
       </div>
-    </>
+    </div>
   );
 }
