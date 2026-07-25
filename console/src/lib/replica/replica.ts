@@ -73,9 +73,16 @@ export function constructMemRef(id: string): string {
 /// `wire/types` shape, so the views stay fully typed.
 export class Replica {
   readonly #inner: WasmReplica;
+  /// The digest verification's memo. The wasm call reconstructs and re-hashes every recorded model
+  /// call in the log — hundreds of milliseconds on a long-lived log — while its result is a pure
+  /// function of the committed events, so it is cached per log head. The box is shared across
+  /// [`snapshot`] handles (they wrap the same inner log), so a re-render only recomputes when the
+  /// log has actually grown.
+  readonly #digests: { head: number; value: DigestCheck[] };
 
-  private constructor(inner: WasmReplica) {
+  private constructor(inner: WasmReplica, digests?: { head: number; value: DigestCheck[] }) {
     this.#inner = inner;
+    this.#digests = digests ?? { head: -1, value: [] };
   }
 
   /// Fold a run's event log into a replica. Async only because the wasm module loads on first use.
@@ -102,7 +109,7 @@ export class Replica {
   /// lets React's memoization re-derive (so a new participant's name resolves) without remounting
   /// the views and losing their local state, such as the open room.
   snapshot(): Replica {
-    return new Replica(this.#inner);
+    return new Replica(this.#inner, this.#digests);
   }
 
   /// The highest seq in the log — the upper bound of the time-travel range.
@@ -199,7 +206,12 @@ export class Replica {
   /// reconstruction re-hashed with the recorder's own serialization. `verified` means the displayed
   /// prompt provably matches the wire request; `mismatch` means it must not be trusted silently.
   requestDigests(): DigestCheck[] {
-    return this.#inner.requestDigests();
+    const head = this.#inner.headSeq;
+    if (this.#digests.head !== head) {
+      this.#digests.value = this.#inner.requestDigests();
+      this.#digests.head = head;
+    }
+    return this.#digests.value;
   }
 
   /// Re-derive a session's brief and the trace of how it was composed, against the graph at the
