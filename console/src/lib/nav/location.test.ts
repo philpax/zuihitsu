@@ -141,6 +141,19 @@ describe("the location codec", () => {
       ),
     );
 
+    // Calendar is a stream view too, so its grid-mode segment round-trips under both frames.
+    expect(
+      buildPath(
+        streamLocation({ kind: "live" }, { view: "calendar", selection: "week", search: {} }),
+      ),
+    ).toBe("/live/calendar/week");
+    expect(parsePath("/eval/scn/2/calendar/month", "console")).toEqual(
+      streamLocation(
+        { kind: "evalRun", scenario: "scn", run: 2 },
+        { view: "calendar", selection: "month", search: {} },
+      ),
+    );
+
     // Prompts is an agent-only view, so its template segment is admitted in the live frame but the
     // view itself is rejected under the eval frame.
     expect(parsePath("/live/prompts/scaffold", "console")).toEqual(

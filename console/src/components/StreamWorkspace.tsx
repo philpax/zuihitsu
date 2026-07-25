@@ -24,7 +24,7 @@ import {
   Names,
 } from "../views/conversation/ConversationView.tsx";
 import { EventsView } from "../views/EventsView.tsx";
-import { AgendaView } from "../views/AgendaView.tsx";
+import { CalendarView } from "../views/calendar/CalendarView.tsx";
 import { BackgroundView } from "../views/BackgroundView.tsx";
 import { nameById } from "../lib/model/labels.ts";
 import { buildConversations } from "../lib/model/conversation.ts";
@@ -303,8 +303,8 @@ export function StreamWorkspace({
                             progress={progress}
                           />
                         )}
-                        {view === "agenda" && (
-                          <AgendaView replica={replica} events={events} cursor={cursor} />
+                        {view === "calendar" && (
+                          <CalendarView replica={replica} events={events} cursor={cursor} />
                         )}
                         {view === "background" && (
                           <BackgroundView replica={replica} events={events} cursor={cursor} />

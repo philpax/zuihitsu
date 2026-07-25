@@ -105,6 +105,9 @@ pub struct AgendaItem {
     /// it without a clock time (a `Day` sorts at noon — not a stated time). See `TemporalRef::is_all_day`.
     pub all_day: bool,
     pub memory: String,
+    /// The entry carrying the occurrence, so a calendar chip links to the dated entry itself rather
+    /// than just its memory.
+    pub entry: String,
     pub text: String,
     pub recurring: bool,
 }

@@ -48,6 +48,11 @@ pub struct Replica {
 /// horizon).
 const MAX_RECURRING_INSTANCES: usize = 20;
 
+/// How many instances of a single recurring rule the calendar grids expand within one visible range.
+/// A month grid spans six weeks (42 days), so a daily rule fills every cell and this bound leaves
+/// headroom above that without letting a malformed rule loop unbounded.
+const MAX_CALENDAR_INSTANCES: usize = 50;
+
 #[wasm_bindgen]
 impl Replica {
     /// Build a replica from a JSON-encoded `Event[]` — a run's embedded log, or a live catch-up
@@ -508,11 +513,12 @@ impl Replica {
                 when: entry.occurred_sort.unwrap_or(from),
                 all_day: entry.occurred_at.as_ref().is_none_or(|at| at.is_all_day()),
                 memory: memory.name.as_str().to_owned(),
+                entry: entry.entry_id.0.to_string(),
                 text: entry.text,
                 recurring: false,
             });
         }
-        for (instant, memory, text) in self
+        for (instant, memory, entry_id, text) in self
             .graph
             .recurring_instances_in_window(from, horizon, MAX_RECURRING_INSTANCES)
             .map_err(graph_error)?
@@ -523,6 +529,53 @@ impl Replica {
                 when: instant,
                 all_day: true,
                 memory: memory.name.as_str().to_owned(),
+                entry: entry_id.0.to_string(),
+                text,
+                recurring: true,
+            });
+        }
+        items.sort_by_key(|item| item.when.as_millisecond());
+        Ok(AgendaList(items))
+    }
+
+    /// Every dated occurrence within the half-open window `[start_ms, end_ms)` — one-off occurrences
+    /// and each recurring instance expanded through the agent's own `next_occurrence` — for the
+    /// calendar grids, which query one visible range at a time. Where [`Replica::agenda`] runs
+    /// forward from now (all future one-offs, recurrence out to a horizon), this bounds both ends, so
+    /// a grid pages into the past as freely as the future. Each recurring rule is capped at
+    /// [`MAX_CALENDAR_INSTANCES`] within the window. Merged and ordered soonest first.
+    pub fn occurrences(&self, start_ms: f64, end_ms: f64) -> Result<AgendaList, JsError> {
+        let from = Timestamp::from_millis(start_ms as i64);
+        // The window is half-open, so the inclusive core queries stop one millisecond short of `end`
+        // — an occurrence at the exact start of the day after the range belongs to the next window.
+        let to = Timestamp::from_millis((end_ms as i64).saturating_sub(1));
+        let mut items = Vec::new();
+        for (memory, entry) in self
+            .graph
+            .occurrences_in_window(from, to)
+            .map_err(graph_error)?
+        {
+            items.push(AgendaItem {
+                when: entry.occurred_sort.unwrap_or(from),
+                all_day: entry.occurred_at.as_ref().is_none_or(|at| at.is_all_day()),
+                memory: memory.name.as_str().to_owned(),
+                entry: entry.entry_id.0.to_string(),
+                text: entry.text,
+                recurring: false,
+            });
+        }
+        for (instant, memory, entry_id, text) in self
+            .graph
+            .recurring_instances_in_window(from, to, MAX_CALENDAR_INSTANCES)
+            .map_err(graph_error)?
+        {
+            items.push(AgendaItem {
+                // The supported rrule subset (FREQ + INTERVAL) carries no time of day, so a recurring
+                // instance is day-granular — its clock time would be the incidental anchor time.
+                when: instant,
+                all_day: true,
+                memory: memory.name.as_str().to_owned(),
+                entry: entry_id.0.to_string(),
                 text,
                 recurring: true,
             });

@@ -7,7 +7,7 @@ export const STREAM_VIEWS = [
   { id: "background", label: "Background" },
   { id: "state", label: "State" },
   { id: "relations", label: "Relations" },
-  { id: "agenda", label: "Agenda" },
+  { id: "calendar", label: "Calendar" },
   { id: "events", label: "Events" },
 ] as const;
 
@@ -24,15 +24,16 @@ export type AgentViewId = (typeof AGENT_VIEW_IDS)[number];
 export type ViewId = StreamViewId | AgentViewId;
 
 /// The views that carry a trailing selection segment in the URL (State → memory, Conversation → room,
-/// Settings → tab, Background → pass category, Relations → subtab, Prompts → template name). Every
-/// other view is reached bare. The location codec gates the segment on this set, and the round-trip
-/// test enumerates against it — so it lives here, once.
+/// Settings → tab, Background → pass category, Relations → subtab, Calendar → grid mode, Prompts →
+/// template name). Every other view is reached bare. The location codec gates the segment on this
+/// set, and the round-trip test enumerates against it — so it lives here, once.
 export const SELECTION_VIEWS = new Set<ViewId>([
   "state",
   "conversation",
   "settings",
   "background",
   "relations",
+  "calendar",
   "prompts",
 ]);
 

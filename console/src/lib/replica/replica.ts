@@ -187,6 +187,14 @@ export class Replica {
     return this.#inner.agenda(nowMs, horizonDays);
   }
 
+  /// Every dated occurrence within the half-open window `[startMs, endMs)` — one-off occurrences and
+  /// each recurring instance expanded through the agent's own next-occurrence logic — the calendar
+  /// grids' per-visible-range query. Unlike `agenda`, which runs forward from now to a horizon, this
+  /// bounds both ends, so a grid pages into the past as freely as the future. Ordered soonest first.
+  occurrences(startMs: number, endMs: number): AgendaItem[] {
+    return this.#inner.occurrences(startMs, endMs);
+  }
+
   /// Verify every model call's recorded prompt against the digest stamped at send time — the
   /// reconstruction re-hashed with the recorder's own serialization. `verified` means the displayed
   /// prompt provably matches the wire request; `mismatch` means it must not be trusted silently.
