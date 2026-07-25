@@ -3,7 +3,10 @@
 use crate::{
     db::{query_map_into, query_opt_into},
     event::LinkPosture,
-    graph::{ClassLinkView, Graph, GraphError, LinkView, MemoryView, NeighborLinkView, parse_ulid},
+    graph::{
+        ClassLinkView, Graph, GraphError, LinkView, MemoryView, NeighborLinkView, parse_ulid,
+        timestamp_column,
+    },
     ids::{MemoryId, MemoryName},
     vocabulary::RelationName,
 };
@@ -59,7 +62,7 @@ impl Graph {
     /// agent-facing oriented view is [`Graph::outgoing`].
     pub fn links(&self, id: MemoryId) -> Result<Vec<LinkView>, GraphError> {
         let stmt = self.conn.prepare(
-            "SELECT l.from_id, l.to_id, l.relation, l.told_by, l.told_in, l.visibility
+            "SELECT l.from_id, l.to_id, l.relation, l.told_by, l.told_in, l.visibility, l.asserted_at
              FROM links l
              JOIN memories mf ON mf.id = l.from_id
              JOIN memories mt ON mt.id = l.to_id
@@ -84,6 +87,7 @@ impl Graph {
                     .map(|json| serde_json::from_str(&json))
                     .transpose()?,
                 visibility: serde_json::from_str(&visibility)?,
+                asserted_at: timestamp_column(row.get("asserted_at")?, "asserted_at")?,
             })
         })
     }

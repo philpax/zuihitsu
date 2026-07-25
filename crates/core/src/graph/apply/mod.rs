@@ -216,11 +216,13 @@ impl Graph {
                 // dropped: the primary key is the canonical `(from, to, relation)`, so the provenance and
                 // visibility a later `LinkCreated` carries supersede the earlier row's. Without this a
                 // re-link that widens or narrows an edge's audience — "make this public" — would silently
-                // no-op, since visibility is not part of the key.
+                // no-op, since visibility is not part of the key. `asserted_at` is left off the update
+                // set: it records when the edge first entered the graph, so a re-assertion keeps the
+                // original creation instant rather than moving it forward.
                 self.conn
                     .execute(
-                        "INSERT INTO links (from_id, to_id, relation, source, told_by, told_in, visibility)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                        "INSERT INTO links (from_id, to_id, relation, source, told_by, told_in, visibility, asserted_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                          ON CONFLICT(from_id, to_id, relation) DO UPDATE SET
                              source = excluded.source,
                              told_by = excluded.told_by,
@@ -233,7 +235,8 @@ impl Graph {
                             source.as_str(),
                             told_by,
                             told_in,
-                            visibility_json
+                            visibility_json,
+                            event.recorded_at.as_millisecond()
                         ],
                     )
                     .map_err(backend)?;

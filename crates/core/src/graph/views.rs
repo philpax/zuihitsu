@@ -234,6 +234,10 @@ pub struct LinkView {
     pub told_in: Option<ConversationRef>,
     /// The audience posture, governing the read-time `link_visible` predicate.
     pub visibility: Visibility,
+    /// When the edge first entered the graph, taken from the recording `LinkCreated` event. A
+    /// re-assertion keeps the original instant, so this is the edge's creation time, not its last
+    /// touch.
+    pub asserted_at: Timestamp,
 }
 
 impl LinkView {

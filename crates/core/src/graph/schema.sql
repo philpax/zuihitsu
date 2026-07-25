@@ -144,13 +144,14 @@ CREATE TABLE IF NOT EXISTS relations (
 );
 
 CREATE TABLE IF NOT EXISTS links (
-    from_id    TEXT NOT NULL,
-    to_id      TEXT NOT NULL,
-    relation   TEXT NOT NULL,
-    source     TEXT NOT NULL,
-    told_by    TEXT,
-    told_in    TEXT,
-    visibility TEXT NOT NULL DEFAULT 'Public',
+    from_id     TEXT    NOT NULL,
+    to_id       TEXT    NOT NULL,
+    relation    TEXT    NOT NULL,
+    source      TEXT    NOT NULL,
+    told_by     TEXT,
+    told_in     TEXT,
+    visibility  TEXT    NOT NULL DEFAULT 'Public',
+    asserted_at INTEGER NOT NULL,
     PRIMARY KEY (from_id, to_id, relation)
 );
 
