@@ -1,4 +1,7 @@
-import { EventRow } from "../../components/EventRow.tsx";
+import { useState } from "react";
+
+import { EventDetail } from "../../components/EventDetail.tsx";
+import { LogEventRow } from "../../components/LogEventRow.tsx";
 
 import type { TurnOutcome } from "../../lib/model/conversation.ts";
 
@@ -19,15 +22,48 @@ export function OutcomeList({
   className?: string;
 }) {
   return (
-    <ul className={"flex flex-col " + className}>
+    <div className={"flex flex-col " + className}>
       {outcomes.map((outcome) => (
-        <EventRow
+        <OutcomeRow
           key={outcome.seq}
-          row={outcome}
+          outcome={outcome}
           nameById={nameById}
           conversationNameById={conversationNameById}
         />
       ))}
-    </ul>
+    </div>
+  );
+}
+
+/// One outcome row: the shared [`LogEventRow`] in its compact inline variant, holding its own
+/// expansion state so each write in a turn's trail opens independently into the [`EventDetail`]
+/// viewer the Events tab uses.
+function OutcomeRow({
+  outcome,
+  nameById,
+  conversationNameById,
+}: {
+  outcome: TurnOutcome;
+  nameById: Map<string, string>;
+  conversationNameById: Map<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <LogEventRow
+      compact
+      type={outcome.type}
+      category={outcome.category}
+      summary={outcome.summary}
+      open={open}
+      onToggle={() => setOpen(!open)}
+    >
+      <EventDetail
+        payload={outcome.payload}
+        nameById={nameById}
+        conversationNameById={conversationNameById}
+        recordedAt={outcome.recordedAt}
+        source={outcome.source}
+      />
+    </LogEventRow>
   );
 }
