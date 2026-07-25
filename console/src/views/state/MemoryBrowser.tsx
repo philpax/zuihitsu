@@ -12,9 +12,9 @@ import { MemoryList } from "./MemoryList.tsx";
 import { MemoryDetailPane } from "./MemoryDetailPane.tsx";
 import { clusterByClass, groupByNamespace } from "./memoryUtilities.ts";
 
-/// The two-pane memory browser shared by the State and Time-travel views: a namespace-grouped list
-/// on the left, the opened memory's contents, links, and `same_as` class on the right. Selection is
-/// controlled by the parent so it survives the remount the Time-travel scrubber forces on each fold.
+/// The two-pane memory browser behind the State view: a namespace-grouped list on the left, the
+/// opened memory's contents, links, and `same_as` class on the right. Selection is controlled by
+/// the parent so it survives the remount the timeline scrubber forces on each fold.
 /// The console sees everything — superseded entries and all visibilities, plainly marked, plus the
 /// belief arbitrations the log records but the graph does not keep.
 export function MemoryBrowser({
@@ -80,9 +80,12 @@ export function MemoryBrowser({
     memories[0].name;
   const detail = replica.memory(effective);
 
+  // On `md` the grid fills the well's definite height and each pane scrolls itself — the sidebar
+  // never grows the main body, and no script measures anything; below `md` the panes stack and the
+  // well scrolls as one.
   return (
-    <div className="grid grid-cols-1 gap-5 md:grid-cols-[15rem_1fr] md:gap-8">
-      <div className="flex flex-col gap-4 self-start">
+    <div className="grid grid-cols-1 gap-5 md:h-full md:grid-cols-[15rem_1fr] md:grid-rows-[minmax(0,1fr)] md:gap-8">
+      <div className="flex flex-col gap-4 self-start md:min-h-0 md:self-stretch">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -100,7 +103,7 @@ export function MemoryBrowser({
               primaryOf={primaryOf}
               onSelect={onSelect}
             />
-            <div className="hidden md:block">
+            <div className="hidden md:block md:min-h-0 md:overflow-y-auto md:pr-1">
               <MemoryList
                 memories={listed}
                 selected={effective}
@@ -113,19 +116,21 @@ export function MemoryBrowser({
           </>
         )}
       </div>
-      {detail ? (
-        <MemoryDetailPane
-          detail={detail}
-          nameById={names}
-          arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
-          recurring={recurring.get(detail.memory.id) ?? []}
-          onShowEvents={onShowEvents}
-          onEditSelf={onEditSelf}
-          onRetract={onRetract}
-        />
-      ) : (
-        <div className="py-16 text-center text-sm text-ink-faint">Select a memory.</div>
-      )}
+      <div className="md:min-h-0 md:overflow-y-auto">
+        {detail ? (
+          <MemoryDetailPane
+            detail={detail}
+            nameById={names}
+            arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
+            recurring={recurring.get(detail.memory.id) ?? []}
+            onShowEvents={onShowEvents}
+            onEditSelf={onEditSelf}
+            onRetract={onRetract}
+          />
+        ) : (
+          <div className="py-16 text-center text-sm text-ink-faint">Select a memory.</div>
+        )}
+      </div>
     </div>
   );
 }

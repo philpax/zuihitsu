@@ -235,6 +235,7 @@ export function StreamWorkspace({
                     <AnimatePresence mode="popLayout" custom={direction} initial={false}>
                       <motion.div
                         key={view}
+                        className="h-full"
                         custom={direction}
                         initial={{ x: direction * shift, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
