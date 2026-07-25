@@ -111,7 +111,7 @@ export function Leaf({
       <select
         value={String(value)}
         onChange={(event) => onChange(event.target.value)}
-        className="border-b border-line bg-transparent pb-1 font-mono text-xs text-ink focus:border-ink-faint focus:outline-none"
+        className="border-b border-line bg-transparent pb-1 font-mono text-sm text-ink focus:border-ink-faint focus:outline-none"
       >
         {CAPTURE_LEVELS.map((option) => (
           <option key={option} value={option}>
@@ -126,15 +126,15 @@ export function Leaf({
         type={typeof value === "number" ? "number" : "text"}
         value={shownValue}
         onChange={(event) => onEdit(event.target.value)}
-        className="w-28 border-b border-line bg-transparent pb-1 text-right font-mono text-xs text-ink focus:border-ink-faint focus:outline-none"
+        className="w-28 border-b border-line bg-transparent pb-1 text-right font-mono text-sm text-ink focus:border-ink-faint focus:outline-none"
       />
     );
   return (
     <div className="flex items-baseline justify-between gap-4">
       <label className="flex flex-col gap-0.5">
-        <span className="font-mono text-2xs text-ink-soft">{label(name)}</span>
+        <span className="font-mono text-sm text-ink-soft">{label(name)}</span>
         {meta?.description && (
-          <span className="max-w-prose text-xs/snug text-ink-faint">{meta.description}</span>
+          <span className="max-w-prose text-sm/snug text-ink-faint">{meta.description}</span>
         )}
       </label>
       <span className="flex shrink-0 items-baseline gap-1.5">
@@ -144,7 +144,7 @@ export function Leaf({
             value={unitId}
             onChange={(event) => setUnitId(event.target.value)}
             aria-label={`Unit for ${label(name)}`}
-            className="w-12 bg-transparent font-mono text-2xs text-ink-faint focus:outline-none"
+            className="w-12 bg-transparent font-mono text-xs text-ink-faint focus:outline-none"
           >
             {units.map((entry) => (
               <option key={entry.id} value={entry.id}>
@@ -154,7 +154,7 @@ export function Leaf({
           </select>
         ) : (
           meta?.display && (
-            <span className="w-12 text-left font-mono text-2xs text-ink-faint">{meta.display}</span>
+            <span className="w-12 text-left font-mono text-xs text-ink-faint">{meta.display}</span>
           )
         )}
       </span>
@@ -178,7 +178,7 @@ export function ConfigFields({ value }: { value: ConfigValue }) {
           </div>
         ) : (
           <div key={key} className="flex items-baseline justify-between gap-4">
-            <span className="font-mono text-2xs text-ink-faint">{label(key)}</span>
+            <span className="font-mono text-sm text-ink-faint">{label(key)}</span>
             <Scalar value={child} />
           </div>
         ),
@@ -196,7 +196,7 @@ export function Scalar({ value }: { value: ConfigValue }) {
       ? "—"
       : String(value);
   return (
-    <span className="max-w-[65%] truncate text-right font-mono text-xs text-ink-soft" title={text}>
+    <span className="max-w-[65%] truncate text-right font-mono text-sm text-ink-soft" title={text}>
       {text}
     </span>
   );

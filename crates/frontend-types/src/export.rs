@@ -31,8 +31,9 @@ pub fn export_types(dir: &Path) -> Result<()> {
         ids::{ConversationId, Namespace, NamespacedMemoryName, PersonId, SessionId},
         progress::TurnProgress,
         settings::{
-            BriefSettings, CompactionSettings, ConcurrencySettings, ObservabilitySettings,
-            RecencySettings, SchedulerSettings, SearchSettings, TauDays, TurnSettings,
+            AmbientSettings, BriefSettings, CheckpointSettings, CompactionSettings,
+            ConcurrencySettings, MaintenanceSettings, MemorySettings, ObservabilitySettings,
+            RecencySettings, SchedulerSettings, SearchSettings, TauDays, TurnSettings, WebSettings,
         },
     };
     use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
@@ -89,6 +90,11 @@ pub fn export_types(dir: &Path) -> Result<()> {
     entries.extend(RecencySettings::fields());
     entries.extend(TauDays::fields());
     entries.extend(SchedulerSettings::fields());
+    entries.extend(CheckpointSettings::fields());
+    entries.extend(MemorySettings::fields());
+    entries.extend(WebSettings::fields());
+    entries.extend(AmbientSettings::fields());
+    entries.extend(MaintenanceSettings::fields());
     // Stable, human-readable ordering: by the dotted path.
     entries.sort_by(|a, b| a.path.cmp(&b.path));
 

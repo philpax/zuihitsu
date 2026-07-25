@@ -82,7 +82,11 @@ pub struct CompactionSettings {
 /// there is an unflushed delta worth writing and another live conversation to read it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "checkpoint")
+)]
 pub struct CheckpointSettings {
     /// Whether the checkpoint sweeper runs at all.
     pub enabled: bool,
@@ -269,7 +273,11 @@ pub enum CaptureLevel {
 /// and search snippets.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "memory")
+)]
 pub struct MemorySettings {
     /// The maximum character length of a single memory content entry. An entry exceeding this is
     /// rejected with a teachable error before it is buffered. The agent should summarize what it
@@ -285,7 +293,11 @@ pub struct MemorySettings {
 /// extracted Markdown per fetch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "web")
+)]
 pub struct WebSettings {
     /// How long a single fetch may take before it is abandoned with a teachable timeout error. Set
     /// comfortably under the block timeout (`TurnSettings::block_timeout_seconds`), so a slow page
@@ -315,7 +327,11 @@ pub struct WebSettings {
 /// memory the brief already carries, is dropped; at most `max_hits` survive.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
+    settings_metadata(parent = "ambient")
+)]
 pub struct AmbientSettings {
     /// Whether the ambient recall pass runs at all. Off leaves the turn assembled exactly as before —
     /// no hint, no `AmbientRecallSurfaced` record.
@@ -346,6 +362,7 @@ pub struct SearchSettings {
     pub bm25: f32,
     /// Weight of tag overlap in the search blend.
     pub tag: f32,
+    /// The recency bonus and its volatility-dependent decay.
     pub recency: RecencySettings,
 }
 
