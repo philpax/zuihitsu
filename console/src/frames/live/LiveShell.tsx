@@ -125,7 +125,11 @@ export function LiveShell({
               label: "Prompts",
               node: <PromptsView connection={connection} events={log.events} />,
             },
-            { id: "settings", label: "Settings", node: <SettingsView connection={connection} /> },
+            {
+              id: "settings",
+              label: "Settings",
+              node: <SettingsView connection={connection} events={log.events} />,
+            },
           ]}
         />
       )}

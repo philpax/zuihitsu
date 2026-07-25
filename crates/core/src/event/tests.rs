@@ -1,8 +1,8 @@
 use crate::{
     brief::{Brief, BriefFact, BriefRelationship},
     event::{
-        EntryId, Event, EventPayload, EventSource, Initiation, LinkSource, MemoryId,
-        MergeProposalSource, ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
+        EntryId, Event, EventPayload, EventSource, Initiation, LinkSource, MaintenancePass,
+        MemoryId, MergeProposalSource, ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
     },
     ids::{ConversationId, MemoryName, Seq, SessionId, TurnId},
     model::{Completion, Message, ToolChoice, Usage},
@@ -227,6 +227,18 @@ fn entries_consolidated_round_trips() {
         ],
         EntryId::generate(),
         None,
+    );
+    let json = serde_json::to_string(&event).unwrap();
+    assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+}
+
+#[test]
+fn maintenance_pass_completed_round_trips() {
+    let event = EventPayload::maintenance_pass_completed(
+        MaintenancePass::Consolidation,
+        Seq(12),
+        Seq(48),
+        3,
     );
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);

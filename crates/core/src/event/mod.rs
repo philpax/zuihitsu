@@ -347,6 +347,20 @@ pub enum SessionEndCause {
     Recovery,
 }
 
+/// Which maintenance pass a [`EventPayload::MaintenancePassCompleted`] observation records (spec
+/// §Write path → maintenance passes). A recognised closed set — the three autonomous data-hygiene
+/// sweeps that run off the hot path — so it rides as an enum rather than a bare string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum MaintenancePass {
+    /// Clusters semantically-overlapping live entries and folds redundant ones away.
+    Consolidation,
+    /// Gives platform stubs readable named `person/<name>` identities.
+    Canonicalize,
+    /// Retracts entries whose content is purely a description of a link that exists.
+    LinkCleanup,
+}
+
 /// Whether a turn is the agent responding to a message or acting unprompted (spec §Time).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

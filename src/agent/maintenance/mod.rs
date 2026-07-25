@@ -23,7 +23,11 @@
 
 use std::collections::BTreeSet;
 
-use crate::{InstanceError, engine::Engine, ids::MemoryId};
+use crate::{
+    InstanceError,
+    engine::Engine,
+    ids::{MemoryId, Seq},
+};
 
 pub mod canonicalize;
 pub mod consolidation;
@@ -32,6 +36,23 @@ pub mod link_cleanup;
 mod scheduling;
 
 pub use scheduling::activity_gate;
+
+/// The outcome of one maintenance sweep: the advanced cursor to store, how many identity classes or
+/// platform stubs the sweep considered, and how many effects it committed. The pass driver stores
+/// `cursor`, traces `considered` as a diagnostic, and reports `actions` everywhere the operator sees
+/// a count — the CLI, the control API, and the
+/// sweep's [`MaintenancePassCompleted`](crate::event::EventPayload::MaintenancePassCompleted).
+pub(crate) struct SweepOutcome {
+    /// The advanced cursor — the log head the sweep swept to.
+    pub(crate) cursor: Seq,
+    /// How many identity classes (consolidation, link cleanup) or platform stubs (canonicalize) the
+    /// sweep considered — a diagnostic, traced at sweep completion. Larger than `actions`, since a
+    /// considered class need not yield a committed effect.
+    pub(crate) considered: usize,
+    /// How many effects the sweep committed: consolidations performed (consolidation), canonical
+    /// profiles designated or minted (canonicalize), or entries retracted (link cleanup).
+    pub(crate) actions: u32,
+}
 
 /// Collapse a sweep set to one representative per `same_as` class: the class id itself, the member
 /// class resolution funnels writes to anyway. A merged identity's members otherwise each drive a

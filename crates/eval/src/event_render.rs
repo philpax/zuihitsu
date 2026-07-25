@@ -76,6 +76,15 @@ pub(crate) fn diagnostic_summary(payload: &EventPayload) -> Option<String> {
             hits.len(),
             hits.iter().map(|hit| hit.memory).collect::<Vec<_>>(),
         )),
+        EventPayload::MaintenancePassCompleted {
+            pass,
+            from,
+            to,
+            actions,
+        } => Some(format!(
+            "maintenance {pass:?} swept [{}, {}] — {actions} actions",
+            from.0, to.0,
+        )),
         _ => None,
     }
 }

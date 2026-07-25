@@ -426,6 +426,7 @@ fn category_color(payload: &EventPayload) -> AnsiColor {
         EventPayload::ModelCalled { .. }
         | EventPayload::ModelCallAborted { .. }
         | EventPayload::AmbientRecallSurfaced { .. }
+        | EventPayload::MaintenancePassCompleted { .. }
         | EventPayload::TurnSuperseded { .. }
         | EventPayload::LuaExecuted { .. }
         | EventPayload::GenesisCompleted { .. }

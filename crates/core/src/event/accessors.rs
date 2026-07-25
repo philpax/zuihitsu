@@ -25,6 +25,7 @@ impl EventPayload {
             EventPayload::ClassPrimaryDesignated { .. } => "ClassPrimaryDesignated",
             EventPayload::LinksInferred { .. } => "LinksInferred",
             EventPayload::DescribePassCompleted { .. } => "DescribePassCompleted",
+            EventPayload::MaintenancePassCompleted { .. } => "MaintenancePassCompleted",
             EventPayload::MemoryVolatilitySet { .. } => "MemoryVolatilitySet",
             EventPayload::TagCreated { .. } => "TagCreated",
             EventPayload::TagDescriptionChanged { .. } => "TagDescriptionChanged",
@@ -100,11 +101,12 @@ impl EventPayload {
             | EventPayload::TagDescriptionChanged { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::LinkTypeRegistered { name, .. } => Some(name.as_str().to_owned()),
             EventPayload::PromptTemplateRegistered { name, .. } => Some(name.as_str().to_owned()),
-            // A whole-settings snapshot, a vector-index migration, and a describer pass over many
-            // memories: none is about a single entity.
+            // A whole-settings snapshot, a vector-index migration, a describer pass over many memories,
+            // and a maintenance sweep over a log window: none is about a single entity.
             EventPayload::ConfigSet { .. }
             | EventPayload::EmbeddingModelChanged { .. }
-            | EventPayload::DescribePassCompleted { .. } => None,
+            | EventPayload::DescribePassCompleted { .. }
+            | EventPayload::MaintenancePassCompleted { .. } => None,
             // Conversation-keyed events target the conversation, so per-conversation history (the
             // console's conversation view, compaction's read of a session's blocks) is a cheap
             // indexed filter. A `LuaExecuted` touches many memories, but it belongs to one

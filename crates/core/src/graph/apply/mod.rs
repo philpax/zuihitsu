@@ -57,9 +57,14 @@ impl Graph {
             // projected (spec §Observability), and replay-inert by construction. The ambient recall
             // record projects no graph state either — it is part of the prompt record, replayed by the
             // buffer read path (which reads the store, not the graph), never folded into the projection.
+            // The maintenance-sweep record is purely observational (spec §Write path → maintenance
+            // passes): it exists so the operator can see when a pass ran and how much it did. The
+            // sweep's actual effects land as their own events (`EntriesConsolidated`, retractions,
+            // designations); this record projects nothing.
             EventPayload::ModelCalled { .. }
             | EventPayload::ModelCallAborted { .. }
             | EventPayload::AmbientRecallSurfaced { .. }
+            | EventPayload::MaintenancePassCompleted { .. }
             | EventPayload::TurnSuperseded { .. } => {}
             // An embedding-model swap bears only on the vector index (a separate projection); it is
             // acted on at boot, never in the graph materializer.

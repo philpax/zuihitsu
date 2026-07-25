@@ -1,7 +1,21 @@
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import type { EventSource } from "@zuihitsu/wire/types/EventSource.ts";
 import type { LinkSource } from "@zuihitsu/wire/types/LinkSource.ts";
+import type { MaintenancePass } from "@zuihitsu/wire/types/MaintenancePass.ts";
 import { tellerLabel, terminalCauseLabel } from "./labels.ts";
+
+/// The human-facing name for a maintenance pass — the sweep the operator sees in the maintenance
+/// history and the Events log.
+export function maintenancePassLabel(pass: MaintenancePass): string {
+  switch (pass) {
+    case "Consolidation":
+      return "consolidation";
+    case "Canonicalize":
+      return "canonicalize";
+    case "LinkCleanup":
+      return "link cleanup";
+  }
+}
 
 /// The authoring authorities offered as an author filter in the Events view — genesis first, then
 /// the agent's turns, the operator's console actions, and the system's background work. A platform
@@ -98,6 +112,7 @@ export function eventCategory(type: EventPayload["type"]): EventCategory {
     case "PromptTemplateRegistered":
     case "EmbeddingModelChanged":
     case "DescribePassCompleted":
+    case "MaintenancePassCompleted":
     case "ClassPrimaryDesignated":
       return "infra";
     default: {
@@ -205,6 +220,7 @@ export function eventTouchesMemory(payload: EventPayload, memoryId: string): boo
     case "PromptTemplateRegistered":
     case "EmbeddingModelChanged":
     case "DescribePassCompleted":
+    case "MaintenancePassCompleted":
     case "ClassPrimaryDesignated":
       return false;
     default: {
@@ -314,6 +330,8 @@ export function eventSummary(payload: EventPayload, nameById: Map<string, string
       return `${payload.from} → ${payload.to}`;
     case "DescribePassCompleted":
       return `described ${payload.memories.length} ${payload.memories.length === 1 ? "memory" : "memories"}`;
+    case "MaintenancePassCompleted":
+      return `${maintenancePassLabel(payload.pass)} — ${payload.actions} ${payload.actions === 1 ? "action" : "actions"}`;
     case "ClassPrimaryDesignated":
       return `${ref(payload.memory)} — ${payload.designated ? "primary" : "no longer primary"}`;
     default: {

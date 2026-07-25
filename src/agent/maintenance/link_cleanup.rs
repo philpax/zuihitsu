@@ -19,12 +19,12 @@ use crate::{
     InstanceError,
     agent::{
         TurnError,
-        maintenance::dedupe_by_class,
+        maintenance::{SweepOutcome, dedupe_by_class},
         templates,
         turn::{Recording, collect_written_memories},
     },
     engine::Engine,
-    event::{EventSource, ModelPhase, ProducedBy, PromptTemplateName, Teller},
+    event::{EventPayload, EventSource, ModelPhase, ProducedBy, PromptTemplateName, Teller},
     graph::EntryView,
     ids::{MemoryId, Seq, TurnId},
     memory::memory_block::{Authority, MemoryBlock},
@@ -32,15 +32,20 @@ use crate::{
     settings::{CaptureLevel, Settings},
 };
 
-/// Run one link-cleanup sweep. Returns `(new_cursor, memories_considered)`.
-pub async fn catch_up(
+/// Run one link-cleanup sweep. Returns the advanced cursor, the memories considered, and the entries
+/// retracted.
+pub(crate) async fn catch_up(
     engine: &Arc<Engine>,
     model: &dyn ModelClient,
     cursor: Seq,
-) -> Result<(Seq, usize), InstanceError> {
+) -> Result<SweepOutcome, InstanceError> {
     let head = engine.store.lock().head()?;
     if head <= cursor {
-        return Ok((cursor, 0));
+        return Ok(SweepOutcome {
+            cursor,
+            considered: 0,
+            actions: 0,
+        });
     }
 
     let Some(template) = templates::latest_template(
@@ -48,13 +53,21 @@ pub async fn catch_up(
         PromptTemplateName::LinkCleanup,
     )?
     else {
-        return Ok((head, 0));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: 0,
+            actions: 0,
+        });
     };
 
     let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
     let written = dedupe_by_class(engine, written)?;
     if written.is_empty() {
-        return Ok((head, 0));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: 0,
+            actions: 0,
+        });
     }
 
     let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
@@ -129,6 +142,10 @@ pub async fn catch_up(
     }
 
     let events = block.into_effects().events;
+    let actions = events
+        .iter()
+        .filter(|event| matches!(event, EventPayload::EntryRetracted { .. }))
+        .count() as u32;
     if !events.is_empty() {
         let now = engine.clock.now();
         engine
@@ -141,7 +158,11 @@ pub async fn catch_up(
             .materialize_from(engine.store.lock().as_ref())?;
     }
 
-    Ok((head, written.len()))
+    Ok(SweepOutcome {
+        cursor: head,
+        considered: written.len(),
+        actions,
+    })
 }
 
 /// The reason recorded on every link-redundant retraction.

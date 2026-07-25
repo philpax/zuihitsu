@@ -7,11 +7,13 @@ use crate::{
     brief::Brief,
     event::{
         ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
-        LinkInferenceResult, LinkSource, MergeProposalSource, ModelPhase, ProducedBy,
-        PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause, TurnRole,
-        Visibility, Volatility,
+        LinkInferenceResult, LinkSource, MaintenancePass, MergeProposalSource, ModelPhase,
+        ProducedBy, PromptTemplateName, RequestRecord, SessionEndCause, Teller, TerminalCause,
+        TurnRole, Visibility, Volatility,
     },
-    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
+    ids::{
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
+    },
     model::{Completion, Usage},
     settings::Settings,
     time::{TemporalRef, Timestamp},
@@ -288,6 +290,27 @@ pub enum EventPayload {
     /// per-memory pass records a batch of one. Log-derived state: the describe backlog survives a
     /// restart, since it is a function of the log rather than an in-memory cursor.
     DescribePassCompleted { memories: Vec<MemoryId> },
+    /// Records that one maintenance sweep ran (spec §Write path → maintenance passes): which pass, the
+    /// log window it swept (`from` exclusive lower bound, `to` the log head it swept to), and how many
+    /// effects it committed. Purely observational — the materializer ignores it, replay derives nothing
+    /// from it, and the fold does not depend on it; it exists so the operator can see when a pass ran,
+    /// over what window, and how much it did, without reconstructing that from the pass's scattered
+    /// effect events. Recorded for every sweep, including a zero-action one (a recorded quiet sweep tells
+    /// the operator the machinery is alive). The effects each pass committed sit at seqs after `to`,
+    /// since a pass reads the `[from, to]` window and appends its writes past the head it read.
+    MaintenancePassCompleted {
+        pass: MaintenancePass,
+        /// The exclusive lower bound of the swept window — the pass's cursor before this sweep (or
+        /// [`Seq::ZERO`] for an on-demand full re-sweep).
+        from: Seq,
+        /// The log head the sweep swept to — its cursor after this sweep.
+        to: Seq,
+        /// How many effects the sweep committed: consolidations performed (consolidation), canonical
+        /// profiles designated or minted (canonicalize), or entries retracted (link cleanup). Not the
+        /// number of identity classes or platform stubs the sweep *considered*, which is larger — this
+        /// counts only the writes it actually committed, so a gated-but-idle sweep records `0`.
+        actions: u32,
+    },
     MemoryVolatilitySet {
         id: MemoryId,
         volatility: Volatility,

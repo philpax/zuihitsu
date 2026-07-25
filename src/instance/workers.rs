@@ -13,7 +13,7 @@ use crate::{
         maintenance, run_describe_catch_up, run_describe_catch_up_for, run_link_inference_catch_up,
     },
     engine::Engine,
-    event::{EventPayload, EventSource},
+    event::{EventPayload, EventSource, MaintenancePass},
     ids::{MemoryId, MemoryName, Seq},
     instance::{BackgroundPasses, Instance},
     metrics::{observe_describe_priority_escape, observe_worker_error},
@@ -236,7 +236,9 @@ impl BackgroundPasses {
         Ok(())
     }
 
-    /// Catch the consolidation pass up to the log. Returns how many memories it considered. The
+    /// Catch the consolidation pass up to the log. Returns how many effects the sweep committed —
+    /// the same count its `MaintenancePassCompleted` record carries; the broader considered count is
+    /// traced. The
     /// activity gate (events since last cursor advance) must be checked by the caller before invoking
     /// this — the background driver does so; the on-demand CLI/console paths always run.
     ///
@@ -253,12 +255,25 @@ impl BackgroundPasses {
     ) -> Result<usize, InstanceError> {
         let _guard = self.consolidation_guard.lock().await;
         let cursor = start.cursor(&self.consolidation_cursor);
-        let (advanced, count) = maintenance::consolidation::catch_up(engine, model, cursor).await?;
-        *self.consolidation_cursor.lock() = advanced;
-        Ok(count)
+        let outcome = maintenance::consolidation::catch_up(engine, model, cursor).await?;
+        *self.consolidation_cursor.lock() = outcome.cursor;
+        record_maintenance_pass(
+            engine,
+            MaintenancePass::Consolidation,
+            cursor,
+            outcome.cursor,
+            outcome.actions,
+        )?;
+        tracing::debug!(
+            considered = outcome.considered,
+            actions = outcome.actions,
+            "maintenance sweep complete"
+        );
+        Ok(outcome.actions as usize)
     }
 
-    /// Catch the canonicalize pass up to the log. Returns how many stubs it considered. See
+    /// Catch the canonicalize pass up to the log. Returns how many effects the sweep committed,
+    /// matching its sweep record; the considered count is traced. See
     /// [`BackgroundPasses::consolidation_catch_up`] for the `start` (timer vs on-demand) asymmetry.
     pub async fn canonicalize_catch_up(
         &self,
@@ -268,12 +283,25 @@ impl BackgroundPasses {
     ) -> Result<usize, InstanceError> {
         let _guard = self.canonicalize_guard.lock().await;
         let cursor = start.cursor(&self.canonicalize_cursor);
-        let (advanced, count) = maintenance::canonicalize::catch_up(engine, model, cursor).await?;
-        *self.canonicalize_cursor.lock() = advanced;
-        Ok(count)
+        let outcome = maintenance::canonicalize::catch_up(engine, model, cursor).await?;
+        *self.canonicalize_cursor.lock() = outcome.cursor;
+        record_maintenance_pass(
+            engine,
+            MaintenancePass::Canonicalize,
+            cursor,
+            outcome.cursor,
+            outcome.actions,
+        )?;
+        tracing::debug!(
+            considered = outcome.considered,
+            actions = outcome.actions,
+            "maintenance sweep complete"
+        );
+        Ok(outcome.actions as usize)
     }
 
-    /// Catch the link-cleanup pass up to the log. Returns how many memories it considered. See
+    /// Catch the link-cleanup pass up to the log. Returns how many effects the sweep committed,
+    /// matching its sweep record; the considered count is traced. See
     /// [`BackgroundPasses::consolidation_catch_up`] for the `start` (timer vs on-demand) asymmetry.
     pub async fn link_cleanup_catch_up(
         &self,
@@ -283,9 +311,21 @@ impl BackgroundPasses {
     ) -> Result<usize, InstanceError> {
         let _guard = self.link_cleanup_guard.lock().await;
         let cursor = start.cursor(&self.link_cleanup_cursor);
-        let (advanced, count) = maintenance::link_cleanup::catch_up(engine, model, cursor).await?;
-        *self.link_cleanup_cursor.lock() = advanced;
-        Ok(count)
+        let outcome = maintenance::link_cleanup::catch_up(engine, model, cursor).await?;
+        *self.link_cleanup_cursor.lock() = outcome.cursor;
+        record_maintenance_pass(
+            engine,
+            MaintenancePass::LinkCleanup,
+            cursor,
+            outcome.cursor,
+            outcome.actions,
+        )?;
+        tracing::debug!(
+            considered = outcome.considered,
+            actions = outcome.actions,
+            "maintenance sweep complete"
+        );
+        Ok(outcome.actions as usize)
     }
 
     /// Seed the maintenance pass cursors to log-head, treating everything so far as already
@@ -300,6 +340,35 @@ impl BackgroundPasses {
         *self.link_cleanup_cursor.lock() = head;
         Ok(())
     }
+}
+
+/// Record one maintenance sweep as a `MaintenancePassCompleted` observation under
+/// [`EventSource::Orchestration`], then fold it (a no-op) into the graph so graph head keeps pace with
+/// the log. Called for every sweep the pass drivers run — timer or on-demand — including a zero-action
+/// one, so the operator's maintenance history shows the machinery is alive even when a sweep found
+/// nothing to do. `from` is the cursor the sweep began at and `to` the head it swept to; the effects it
+/// committed sit at seqs after `to`. The store append and the graph fold each take a brief
+/// `parking_lot` guard held over synchronous work only — never across an `.await`.
+fn record_maintenance_pass(
+    engine: &Engine,
+    pass: MaintenancePass,
+    from: Seq,
+    to: Seq,
+    actions: u32,
+) -> Result<(), InstanceError> {
+    let now = engine.clock.now();
+    engine.store.lock().append(
+        now,
+        EventSource::Orchestration,
+        vec![EventPayload::maintenance_pass_completed(
+            pass, from, to, actions,
+        )],
+    )?;
+    engine
+        .graph
+        .lock()
+        .materialize_from(engine.store.lock().as_ref())?;
+    Ok(())
 }
 
 impl Instance {

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../lib/model/labels.ts";
+import { maintenancePassLabel } from "../lib/model/events.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { relationColor } from "../lib/format/relationColor.ts";
 import { Fields, Field, Tree } from "./Tree.tsx";
@@ -323,6 +324,19 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.memory)}</Field>
           <Field label="primary">{payload.designated ? "pinned" : "released"}</Field>
+        </Fields>
+      );
+
+    case "MaintenancePassCompleted":
+      return (
+        <Fields>
+          <Field label="pass">{maintenancePassLabel(payload.pass)}</Field>
+          <Field label="window">
+            <Mono>
+              {payload.from} → {payload.to}
+            </Mono>
+          </Field>
+          <Field label="actions">{payload.actions}</Field>
         </Fields>
       );
 

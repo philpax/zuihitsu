@@ -31,9 +31,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     InstanceError,
-    agent::{templates, turn::Recording},
+    agent::{maintenance::SweepOutcome, templates, turn::Recording},
     engine::Engine,
-    event::{EventSource, ModelPhase, PromptTemplateName, Teller},
+    event::{EventPayload, EventSource, ModelPhase, PromptTemplateName, Teller},
     graph::EntryView,
     ids::{MemoryId, MemoryName, Namespace, Seq, TurnId},
     memory::memory_block::{Authority, LinkOptions, MemoryBlock, VisibilityChoice},
@@ -42,15 +42,20 @@ use crate::{
     vocabulary::RelationName,
 };
 
-/// Run one canonicalize sweep. Returns `(new_cursor, stubs_considered)`.
-pub async fn catch_up(
+/// Run one canonicalize sweep. Returns the advanced cursor, the stubs considered, and the canonical
+/// profiles designated or minted.
+pub(crate) async fn catch_up(
     engine: &Arc<Engine>,
     model: &dyn ModelClient,
     cursor: Seq,
-) -> Result<(Seq, usize), InstanceError> {
+) -> Result<SweepOutcome, InstanceError> {
     let head = engine.store.lock().head()?;
     if head <= cursor {
-        return Ok((cursor, 0));
+        return Ok(SweepOutcome {
+            cursor,
+            considered: 0,
+            actions: 0,
+        });
     }
 
     let Some(template) = templates::latest_template(
@@ -58,13 +63,21 @@ pub async fn catch_up(
         PromptTemplateName::NameIdentification,
     )?
     else {
-        return Ok((head, 0));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: 0,
+            actions: 0,
+        });
     };
 
     // Collect platform stubs identified since the cursor.
     let stubs = collect_platform_stubs(engine.store.lock().as_ref(), cursor)?;
     if stubs.is_empty() {
-        return Ok((head, 0));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: 0,
+            actions: 0,
+        });
     }
 
     let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
@@ -167,6 +180,13 @@ pub async fn catch_up(
     }
 
     let events = block.into_effects().events;
+    // One `ClassPrimaryDesignated` is committed per stub given a canonical primary — whether the pass
+    // minted a fresh `person/<name>` profile or designated an existing hand-merged bare member — so
+    // counting them counts the profiles designated or minted this sweep.
+    let actions = events
+        .iter()
+        .filter(|event| matches!(event, EventPayload::ClassPrimaryDesignated { .. }))
+        .count() as u32;
     if !events.is_empty() {
         let now = engine.clock.now();
         engine
@@ -179,7 +199,11 @@ pub async fn catch_up(
             .materialize_from(engine.store.lock().as_ref())?;
     }
 
-    Ok((head, stubs.len()))
+    Ok(SweepOutcome {
+        cursor: head,
+        considered: stubs.len(),
+        actions,
+    })
 }
 
 /// Mint the canonical profile for `stub_id`: a bare empty `person/<name>` memory, bound to the stub by

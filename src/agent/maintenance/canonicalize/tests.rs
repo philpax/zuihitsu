@@ -227,9 +227,10 @@ async fn a_hand_merged_stub_designates_its_bare_member_rather_than_minting() {
     let engine = engine_with(events);
     let model = ScriptedModel::new([]);
 
-    let (_, considered) = catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+    let considered = catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
         .await
-        .unwrap();
+        .unwrap()
+        .considered;
 
     assert_eq!(considered, 1, "the one identified stub is considered");
     assert_eq!(
@@ -372,9 +373,10 @@ async fn an_entryless_stub_is_left_unnamed() {
     let engine = engine_with(events);
     let model = ScriptedModel::new([]);
 
-    let (_, considered) = catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+    let considered = catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
         .await
-        .unwrap();
+        .unwrap()
+        .considered;
 
     assert_eq!(considered, 1);
     assert!(
@@ -413,9 +415,10 @@ async fn a_vague_stub_abstains_when_the_model_returns_no_name() {
     // The model abstains: an empty object parses to `NameIdentification { name: None }`.
     let model = ScriptedModel::new([Completion::Reply("{}".to_owned())]);
 
-    let (_, considered) = catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
+    let considered = catch_up(&engine, &model as &dyn ModelClient, Seq::ZERO)
         .await
-        .unwrap();
+        .unwrap()
+        .considered;
 
     assert_eq!(considered, 1);
     assert_eq!(

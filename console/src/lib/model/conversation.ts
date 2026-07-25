@@ -431,6 +431,7 @@ export function buildConversations(
       case "PromptTemplateRegistered":
       case "EmbeddingModelChanged":
       case "DescribePassCompleted":
+      case "MaintenancePassCompleted":
       case "ClassPrimaryDesignated": {
         if (currentTurnId && OUTCOME_TYPES.has(payload.type)) {
           candidates.push({

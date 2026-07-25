@@ -59,6 +59,12 @@ Retracts entries whose content is purely a description of a link that exists. Fo
 
 A connector-maintained entry (`EntryOrigin::PlatformConnector`) is dropped from the candidate set, so this pass never retracts a connector-owned entry: the connector holds its id and supersedes or retracts it as the platform-side account changes.
 
+## Sweep records
+
+Each sweep appends a `MaintenancePassCompleted` observation to the log under `EventSource::Orchestration`, whether it ran on the timer or was invoked on demand. The record names the pass, the log window it swept (`from` the cursor it began at, `to` the head it swept to), and `actions` — how many effects it committed: consolidations performed, canonical profiles designated or minted, or entries retracted. This is *not* the number of identity classes or platform stubs the sweep considered, which is larger; a gated-but-idle sweep records `actions: 0`, and a quiet sweep is recorded all the same so the operator can see the machinery is alive.
+
+The record is purely observational: the materialiser ignores it, replay derives nothing from it, and the sweep's actual effects still land as their own events (the `EntriesConsolidated`, retractions, and designations, which sit at seqs after `to`). It exists so the history is legible without reconstructing it from those scattered effects. The console surfaces the history in Settings → Maintenance: each sweep as a row with its pass name, swept seq window, action count, and time, newest first. That subtab reads the whole log rather than filtering by the viewer's timeline cursor, since it is an operator control surface reporting current standing.
+
 ## Authority::Agent
 
 Maintenance passes run under a new `Authority::Agent` authority tier, which is narrower than full self-evolution. All three passes drive their writes through the ordinary `MemoryBlock` write path under this authority — each buffering its events in a block and committing them under `EventSource::Orchestration` — so every consolidation, mint, `same_as`, designation, and retraction clears the same guards a turn's writes do rather than bypassing them as raw appends. The tier's distinguishing powers:

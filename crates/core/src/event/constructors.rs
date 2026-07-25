@@ -5,10 +5,12 @@ use smol_str::SmolStr;
 use crate::{
     event::{
         AmbientHit, ArbitrationResolution, ConversationRef, EventPayload, EventSource, Initiation,
-        LinkPosture, MergeProposalSource, ProducedBy, PromptTemplateName, SessionEndCause, Teller,
-        TerminalCause, TurnRole, Volatility,
+        LinkPosture, MaintenancePass, MergeProposalSource, ProducedBy, PromptTemplateName,
+        SessionEndCause, Teller, TerminalCause, TurnRole, Volatility,
     },
-    ids::{ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, SessionId, TurnId},
+    ids::{
+        ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Seq, SessionId, TurnId,
+    },
     settings::Settings,
     time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
@@ -211,6 +213,20 @@ impl EventPayload {
 
     pub fn describe_pass_completed(memories: Vec<MemoryId>) -> EventPayload {
         EventPayload::DescribePassCompleted { memories }
+    }
+
+    pub fn maintenance_pass_completed(
+        pass: MaintenancePass,
+        from: Seq,
+        to: Seq,
+        actions: u32,
+    ) -> EventPayload {
+        EventPayload::MaintenancePassCompleted {
+            pass,
+            from,
+            to,
+            actions,
+        }
     }
 
     pub fn tag_created(name: TagName, description: impl Into<String>) -> EventPayload {

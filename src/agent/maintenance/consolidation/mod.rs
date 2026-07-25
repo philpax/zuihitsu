@@ -42,12 +42,12 @@ use std::sync::Arc;
 use crate::{
     InstanceError,
     agent::{
-        maintenance::dedupe_by_class,
+        maintenance::{SweepOutcome, dedupe_by_class},
         templates,
         turn::{Recording, collect_written_memories},
     },
     engine::Engine,
-    event::{EventSource, ProducedBy, PromptTemplateName, Teller},
+    event::{EventPayload, EventSource, ProducedBy, PromptTemplateName, Teller},
     graph::EntryView,
     ids::{MemoryId, Seq, TurnId},
     memory::memory_block::{Authority, MemoryBlock},
@@ -68,15 +68,20 @@ use synthesis::synthesize_cluster;
 /// parameter — clustering is O(n²) but trivially fast for n ≤ 100.
 const MAX_ENTRIES_PER_CLASS: usize = 100;
 
-/// Run one consolidation sweep. Returns `(new_cursor, memories_considered)`.
-pub async fn catch_up(
+/// Run one consolidation sweep. Returns the advanced cursor, the memories considered, and the
+/// consolidations committed.
+pub(crate) async fn catch_up(
     engine: &Arc<Engine>,
     model: &dyn ModelClient,
     cursor: Seq,
-) -> Result<(Seq, usize), InstanceError> {
+) -> Result<SweepOutcome, InstanceError> {
     let head = engine.store.lock().head()?;
     if head <= cursor {
-        return Ok((cursor, 0));
+        return Ok(SweepOutcome {
+            cursor,
+            considered: 0,
+            actions: 0,
+        });
     }
 
     let Some(template) = templates::latest_template(
@@ -84,18 +89,30 @@ pub async fn catch_up(
         PromptTemplateName::EntryConsolidation,
     )?
     else {
-        return Ok((head, 0));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: 0,
+            actions: 0,
+        });
     };
 
     let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
     let written = dedupe_by_class(engine, written)?;
     if written.is_empty() {
-        return Ok((head, 0));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: 0,
+            actions: 0,
+        });
     }
 
     // Without retrieval there is nothing to embed, cluster, or dedup — the sweep advances its cursor.
     if engine.retrieval.is_none() {
-        return Ok((head, written.len()));
+        return Ok(SweepOutcome {
+            cursor: head,
+            considered: written.len(),
+            actions: 0,
+        });
     }
 
     let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
@@ -116,10 +133,14 @@ pub async fn catch_up(
         max_entry_chars: settings.memory.max_entry_chars.max(1) as usize,
     };
 
-    sweep.tier1(&written).await?;
-    sweep.tier2(&written).await?;
+    let tier1_actions = sweep.tier1(&written).await?;
+    let tier2_actions = sweep.tier2(&written).await?;
 
-    Ok((head, written.len()))
+    Ok(SweepOutcome {
+        cursor: head,
+        considered: written.len(),
+        actions: (tier1_actions + tier2_actions) as u32,
+    })
 }
 
 /// The shared inputs one sweep threads through both tiers: the engine and model seam, the recording
@@ -138,7 +159,8 @@ struct Sweep<'a> {
 
 impl Sweep<'_> {
     /// Tier 1: synthesize a richer replacement for each within-level cluster, committed as one block.
-    async fn tier1(&self, written: &[MemoryId]) -> Result<(), InstanceError> {
+    /// Returns how many consolidations the block committed.
+    async fn tier1(&self, written: &[MemoryId]) -> Result<usize, InstanceError> {
         let mut block = self.new_block()?;
         for &id in written {
             let entries: Vec<EntryView> = {
@@ -234,8 +256,9 @@ impl Sweep<'_> {
 
     /// Tier 2: retire more-private near-duplicates into their more-public counterparts, committed as
     /// one block. Structural only — no model call. Runs after tier 1 has committed, so it sees the
-    /// synthesized replacements and dedups against them too.
-    async fn tier2(&self, written: &[MemoryId]) -> Result<(), InstanceError> {
+    /// synthesized replacements and dedups against them too. Returns how many absorptions the block
+    /// committed.
+    async fn tier2(&self, written: &[MemoryId]) -> Result<usize, InstanceError> {
         let mut block = self.new_block()?;
         for &id in written {
             let entries: Vec<EntryView> = {
@@ -284,12 +307,18 @@ impl Sweep<'_> {
     }
 
     /// Commit a block's buffered events under [`EventSource::Orchestration`] and reproject, or do
-    /// nothing when the block wrote nothing.
-    fn commit(&self, block: MemoryBlock) -> Result<(), InstanceError> {
+    /// nothing when the block wrote nothing. Returns how many consolidations the commit recorded — the
+    /// [`EntriesConsolidated`](EventPayload::EntriesConsolidated) events among the buffered writes, one
+    /// per cluster synthesised (tier 1) or absorbed (tier 2).
+    fn commit(&self, block: MemoryBlock) -> Result<usize, InstanceError> {
         let events = block.into_effects().events;
         if events.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
+        let consolidations = events
+            .iter()
+            .filter(|event| matches!(event, EventPayload::EntriesConsolidated { .. }))
+            .count();
         let now = self.engine.clock.now();
         self.engine
             .store
@@ -299,6 +328,6 @@ impl Sweep<'_> {
             .graph
             .lock()
             .materialize_from(self.engine.store.lock().as_ref())?;
-        Ok(())
+        Ok(consolidations)
     }
 }

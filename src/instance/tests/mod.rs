@@ -11,6 +11,8 @@ mod idle_carryover;
 #[cfg(test)]
 mod lua_console;
 #[cfg(test)]
+mod maintenance;
+#[cfg(test)]
 mod observability;
 #[cfg(test)]
 mod priority;

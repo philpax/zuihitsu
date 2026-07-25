@@ -528,7 +528,7 @@ pub(super) async fn register_prompt(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Drive the consolidation pass on demand. Returns how many memories were considered.
+/// Drive the consolidation pass on demand. Returns how many effects the sweep committed.
 pub(super) async fn maintenance_consolidate(
     State(state): State<AppState>,
 ) -> Result<Json<usize>, ApiError> {
@@ -543,7 +543,7 @@ pub(super) async fn maintenance_consolidate(
     Ok(Json(count))
 }
 
-/// Drive the canonical-profile pass on demand. Returns how many stubs were considered.
+/// Drive the canonical-profile pass on demand. Returns how many effects the sweep committed.
 pub(super) async fn maintenance_canonicalize(
     State(state): State<AppState>,
 ) -> Result<Json<usize>, ApiError> {
@@ -558,7 +558,7 @@ pub(super) async fn maintenance_canonicalize(
     Ok(Json(count))
 }
 
-/// Drive the link-redundant entry cleanup pass on demand. Returns how many memories were considered.
+/// Drive the link-redundant entry cleanup pass on demand. Returns how many effects the sweep committed.
 pub(super) async fn maintenance_link_cleanup(
     State(state): State<AppState>,
 ) -> Result<Json<usize>, ApiError> {
