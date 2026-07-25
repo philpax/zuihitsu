@@ -57,3 +57,14 @@ export function formatTime(ms: number): string {
 export function formatDateTime(ms: number): string {
   return `${formatDate(ms)}, ${formatTime(ms)}`;
 }
+
+/// Epoch milliseconds as a local ISO 8601 timestamp to second precision: `"2026-07-25T15:43:12"`.
+/// The log-reading views' register — sortable at a glance, no locale ambiguity.
+export function formatIso(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
+}
