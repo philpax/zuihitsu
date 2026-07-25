@@ -463,8 +463,12 @@ impl Instance {
         // speech). Appended after `SessionStarted`, so it falls inside the buffer read from `start_seq`.
         // Bind the drain result so the graph guard from the scrutinee is released before the body
         // re-locks the graph below (the lock is not reentrant).
-        let drained =
-            scheduler::drain(&self.engine.graph.lock(), present_set, &settings.scheduler)?;
+        let drained = scheduler::drain(
+            &self.engine.graph.lock(),
+            present_set,
+            &settings.scheduler,
+            now,
+        )?;
         if let Some(drained) = drained {
             let surface_count = drained.entries.len();
             let turn_id = TurnId::generate();

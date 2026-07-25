@@ -179,10 +179,12 @@ impl MemoryBlock {
                     told_by,
                     visibility,
                     occurred_at,
+                    asserted_at,
                     ..
                 } if members.contains(id) && !exclude.contains(entry_id) => Some(EntryRef {
                     entry_id: *entry_id,
                     text: text.clone(),
+                    asserted_at: *asserted_at,
                     visibility: visibility.clone(),
                     teller: self.teller_label(told_by),
                     // A pending append carries only its founding attestation, so the read falls back
@@ -214,6 +216,7 @@ impl MemoryBlock {
         EntryRef {
             disputed: disputed.contains(&view.entry_id),
             entry_id: view.entry_id,
+            asserted_at: view.asserted_at,
             text: if withheld {
                 WITHHELD_STUB.to_owned()
             } else {

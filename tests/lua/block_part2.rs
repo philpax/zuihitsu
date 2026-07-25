@@ -318,7 +318,7 @@ async fn every_read_surface_renders_an_entry_with_its_full_id() {
         local e = dave:append("Leads the design team", { visibility = "public" })
         local id = e.id
         local line = tostring(dave:entries()[1])
-        -- The id leads the bracket, labelled: "[id <id> · public · from person/dave] Leads…".
+        -- The id leads the bracket, labelled: "[id <id> · recorded just now · public · from person/dave] Leads…".
         local leads_bracket = line:sub(1, #id + 5) == "[id " .. id .. " "
         local in_history = tostring(dave:history()[1]):find(id, 1, true) ~= nil
         local in_details = dave:details():find(id, 1, true) ~= nil

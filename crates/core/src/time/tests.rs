@@ -1,7 +1,8 @@
 use crate::time::{
-    MILLIS_PER_DAY, MILLIS_PER_WEEK, Rrule, Timestamp, add_days, add_months, civil_date_to_millis,
-    day_window, next_occurrence, next_weekday, parse_duration_millis, rrule_is_supported, today,
-    weekday,
+    CivilDate, MILLIS_PER_DAY, MILLIS_PER_HOUR, MILLIS_PER_MINUTE, MILLIS_PER_WEEK, Rrule,
+    TemporalRef, Timestamp, add_days, add_months, civil_date_to_millis, day_window,
+    format_entry_stamp, format_relative_age, next_occurrence, next_weekday, parse_duration_millis,
+    rrule_is_supported, today, weekday,
 };
 
 /// `next_occurrence` against a `dtstart`/`after` given in epoch millis, for brevity.
@@ -195,4 +196,53 @@ fn timestamp_serializes_as_a_bare_epoch_millisecond_number() {
     // A value that fits an i64 but falls outside jiff's representable range (year -9999..=9999) is a
     // proper deserialize error, never a panic — the seam untrusted wire input crosses.
     assert!(serde_json::from_str::<Timestamp>(&i64::MAX.to_string()).is_err());
+}
+
+/// The relative-age phrase coarsens as the recording recedes, so a stamped entry reads as old rather
+/// than fresh at any distance, and it never emits a negative span for a future (clock-skewed) instant.
+#[test]
+fn relative_age_coarsens_and_pluralizes() {
+    let now = Timestamp::from_millis(1_000 * MILLIS_PER_DAY);
+    let ago = |millis: i64| {
+        format_relative_age(Timestamp::from_millis(now.as_millisecond() - millis), now)
+    };
+    assert_eq!(ago(0), "just now");
+    assert_eq!(ago(30 * 1_000), "just now"); // Under a minute.
+    assert_eq!(ago(MILLIS_PER_MINUTE), "1 minute ago");
+    assert_eq!(ago(5 * MILLIS_PER_MINUTE), "5 minutes ago");
+    assert_eq!(ago(MILLIS_PER_HOUR), "1 hour ago");
+    assert_eq!(ago(3 * MILLIS_PER_HOUR), "3 hours ago");
+    assert_eq!(ago(MILLIS_PER_DAY), "1 day ago");
+    assert_eq!(ago(3 * MILLIS_PER_DAY), "3 days ago");
+    assert_eq!(ago(MILLIS_PER_WEEK), "1 week ago");
+    assert_eq!(ago(3 * MILLIS_PER_WEEK), "3 weeks ago");
+    assert_eq!(ago(30 * MILLIS_PER_DAY), "1 month ago");
+    assert_eq!(ago(120 * MILLIS_PER_DAY), "4 months ago");
+    assert_eq!(ago(365 * MILLIS_PER_DAY), "1 year ago");
+    assert_eq!(ago(800 * MILLIS_PER_DAY), "2 years ago");
+    // A future instant (clock skew) never renders a negative span.
+    assert_eq!(
+        format_relative_age(
+            Timestamp::from_millis(now.as_millisecond() + MILLIS_PER_DAY),
+            now
+        ),
+        "just now"
+    );
+}
+
+/// The combined entry stamp pairs the recording age with the occurrence when the fact is dated, and
+/// degrades to the recording clause alone for an undated note.
+#[test]
+fn entry_stamp_pairs_recording_age_with_the_occurrence() {
+    let now = Timestamp::from_millis(1_000 * MILLIS_PER_DAY);
+    let asserted = Timestamp::from_millis(now.as_millisecond() - 3 * MILLIS_PER_DAY);
+    assert_eq!(
+        format_entry_stamp(asserted, None, now),
+        "recorded 3 days ago"
+    );
+    let occurred = TemporalRef::Day(CivilDate("2027-03-15".into()));
+    assert_eq!(
+        format_entry_stamp(asserted, Some(&occurred), now),
+        "when 2027-03-15 · recorded 3 days ago"
+    );
 }

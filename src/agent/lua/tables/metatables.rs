@@ -1,25 +1,30 @@
 //! Handle and result metatables minted for the per-block Lua globals: memory and entry
 //! handles, date objects, and the search, tag, link, relation, and turn-window result rows.
 
-use crate::{agent::lua::tables::*, time::TemporalRef};
+use crate::{
+    agent::lua::tables::*,
+    time::{TemporalRef, Timestamp},
+};
 
 /// The metatable backing entry handles: `__tostring` and `__concat` render the handle as its
 /// `text`, so a content read stays ergonomic (printable, concatenable) while the handle remains an
-/// addressable entry for `mem:supersede`.
-pub(crate) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
+/// addressable entry for `mem:supersede`. `now` is the block's current time, captured here so the
+/// render can stamp each entry with how long ago it was recorded.
+pub(crate) fn entry_metatable(lua: &Lua, now: Timestamp) -> mlua::Result<Table> {
     let metatable = lua.create_table()?;
     // An entry renders self-describingly: its text prefixed by its id and by what governs reading it
-    // — when the fact occurs (if dated), a `disputed` marker when it is under an unresolved
-    // arbitration, the visibility, and who it came from, e.g.
-    // "[01JQ… · 2027-03-15 · disputed · private · from person/erin] …". The id leads the bracket so a
-    // read shows the stable handle to correct the entry by (pass it — or a unique prefix of it — to
-    // `mem:supersede`/`mem:retract`); text-scanning to re-find an entry misses on case and paraphrase.
-    // So printing a memory's entries shows at a glance which entry to address, when a dated fact
-    // happens, which are contested, which are confidences to hold, and whose they are — rather than
-    // bare text whose id, date, and provenance the agent has to reconstruct (or search for) separately.
+    // — when the fact occurs (if dated), how long ago it was recorded, a `disputed` marker when it is
+    // under an unresolved arbitration, the visibility, and who it came from, e.g.
+    // "[01JQ… · when 2027-03-15 · recorded 3 days ago · disputed · private · from person/erin] …". The id
+    // leads the bracket so a read shows the stable handle to correct the entry by (pass it — or a
+    // unique prefix of it — to `mem:supersede`/`mem:retract`); text-scanning to re-find an entry misses
+    // on case and paraphrase. So printing a memory's entries shows at a glance which entry to address,
+    // when a dated fact happens, how old the record is, which are contested, which are confidences to
+    // hold, and whose they are — rather than bare text whose coordinates the agent has to reconstruct
+    // (or search for) separately.
     metatable.set(
         "__tostring",
-        lua.create_function(|lua, this: Table| {
+        lua.create_function(move |lua, this: Table| {
             let text = this.get::<String>("text")?;
             let mut segments = Vec::new();
             // The full id leads the bracket, labelled so a bare ULID reads as the addressing
@@ -29,12 +34,23 @@ pub(crate) fn entry_metatable(lua: &Lua) -> mlua::Result<Table> {
             if let Some(id) = this.get::<Option<String>>("id")? {
                 segments.push(format!("id {id}"));
             }
-            // `occurred_at` is the structured tagged table; render it back to a date for display.
+            // `occurred_at` is the structured tagged table; render it back to a date for display. The
+            // `when` label keeps the date from being misread against the `recorded` age beside it —
+            // an unlabelled "2026-07-09 · recorded 1 hour ago" invites conflating the two axes.
+            // "when", not "occurred": an occurrence may be future, which "occurred" would mis-tense.
             let occurred = this.get::<Value>("occurred_at")?;
             if !occurred.is_nil()
                 && let Ok(temporal) = lua.from_value::<TemporalRef>(occurred)
             {
-                segments.push(time::format_occurrence(&temporal));
+                segments.push(format!("when {}", time::format_occurrence(&temporal)));
+            }
+            // How long ago the entry was recorded, beside its occurrence, so an old fact reads as old
+            // rather than fresh. `asserted_at` is the epoch-millisecond field the handle carries.
+            if let Some(asserted_at) = this.get::<Option<i64>>("asserted_at")? {
+                segments.push(format!(
+                    "recorded {}",
+                    time::format_relative_age(Timestamp::from_millis(asserted_at), now)
+                ));
             }
             if this.get::<Option<bool>>("disputed")?.unwrap_or(false) {
                 segments.push("disputed".to_owned());
@@ -185,13 +201,19 @@ pub(super) fn search_result_metatable(lua: &Lua) -> mlua::Result<Table> {
                 line.push_str(&format!(" match: \"{snippet}\""));
             }
             // The representative occurrence renders inline (like an entry's date on read), so a recall
-            // that relays the hit line still carries a scheduled or dated fact's date. The stored value
-            // is the structured tagged table; render it back to a date for display.
-            let occurred = this.get::<Value>("occurred_at")?;
-            if !occurred.is_nil()
-                && let Ok(temporal) = lua.from_value::<TemporalRef>(occurred)
-            {
-                line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
+            // that relays the hit line carries a scheduled or dated fact's date *and* how long ago it
+            // was recorded — the `stamp` pre-rendered when the result was built (see `run_memory_search`),
+            // which keeps an old date from reading as fresh. A result carrying only the raw occurrence
+            // and no stamp falls back to the bare `[when …]`, so the date still shows.
+            if let Some(stamp) = this.get::<Option<String>>("stamp")? {
+                line.push_str(&format!(" [{stamp}]"));
+            } else {
+                let occurred = this.get::<Value>("occurred_at")?;
+                if !occurred.is_nil()
+                    && let Ok(temporal) = lua.from_value::<TemporalRef>(occurred)
+                {
+                    line.push_str(&format!(" [when {}]", time::format_occurrence(&temporal)));
+                }
             }
             // The salient relations (its cast) render inline as `relation → name`, pre-rendered when the
             // result was built, so the printed hit reveals who already participates in this memory —

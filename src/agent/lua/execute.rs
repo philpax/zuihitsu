@@ -79,7 +79,10 @@ impl Session {
             let metatable = self.lua.create_table().map_err(LuaError::Vm)?;
             // `__index` is wired in `install_block_api`: it resolves `handle.name` / `handle.description`
             // lazily from the id and otherwise dispatches to `methods`.
-            let entry_metatable = entry_metatable(&self.lua).map_err(LuaError::Vm)?;
+            // The block's current time, captured so the entry metatable can stamp each read with how
+            // long ago the entry was recorded.
+            let now = engine.clock.now();
+            let entry_metatable = entry_metatable(&self.lua, now).map_err(LuaError::Vm)?;
 
             // Reset the per-attempt "made an MCP call" latch, so the no-retry decision below reflects
             // this attempt only.

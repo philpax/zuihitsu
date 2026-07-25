@@ -55,6 +55,10 @@ pub struct SearchHit {
     pub marker: Option<String>,
     pub snippet: Option<String>,
     pub occurred_at: Option<TemporalRef>,
+    /// The assertion time of the entry whose occurrence `occurred_at` carries, so a hit can stamp how
+    /// long ago its dated fact was recorded beside when it happens. `Some` exactly when `occurred_at`
+    /// is, since both are read off the same representative entry (see [`visible_occurrence`]).
+    pub occurred_asserted_at: Option<Timestamp>,
     pub relations: Vec<SalientRelation>,
     pub more_relations: usize,
 }
@@ -242,7 +246,11 @@ pub fn search(
         // (rather than drilling into `entries()`) still carries a scheduled or dated fact's date.
         // Filtered by the same predicate as the snippet: a date on an entry the present set cannot see
         // never leaks.
-        let occurred_at = visible_occurrence(&memory, graph, query.present_set, &class_of)?;
+        let (occurred_at, occurred_asserted_at) =
+            match visible_occurrence(&memory, graph, query.present_set, &class_of)? {
+                Some((occurred_at, asserted_at)) => (Some(occurred_at), Some(asserted_at)),
+                None => (None, None),
+            };
         // The most salient out-of-class links, so the hit line reveals the cast already on this memory
         // (spec §Search → informed creation). One class-traversing read per hit, bounded by `limit`.
         let (relations, more_relations) =
@@ -253,6 +261,7 @@ pub fn search(
             marker,
             snippet: snippets.get(&id).cloned(),
             occurred_at,
+            occurred_asserted_at,
             relations,
             more_relations,
         });
@@ -293,17 +302,20 @@ fn visible_occurrence(
     graph: &Graph,
     present_set: &[MemoryId],
     class_of: &visibility::ClassOf,
-) -> Result<Option<TemporalRef>, GraphError> {
+) -> Result<Option<(TemporalRef, Timestamp)>, GraphError> {
     let mut latest_authored = None;
     let mut latest_extracted = None;
     for entry in graph.class_entries(memory.id)? {
-        if entry.occurred_at.is_some()
+        if let Some(occurred_at) = entry.occurred_at.clone()
             && visibility::visible(&entry, memory, present_set, class_of)?
         {
+            // Pair the occurrence with the entry's assertion time, so the hit can stamp *when it was
+            // recorded* beside *when it happens*, keeping an old dated fact from reading as fresh.
+            let dated = (occurred_at, entry.asserted_at);
             if entry.occurred_authored {
-                latest_authored = entry.occurred_at;
+                latest_authored = Some(dated);
             } else {
-                latest_extracted = entry.occurred_at;
+                latest_extracted = Some(dated);
             }
         }
     }

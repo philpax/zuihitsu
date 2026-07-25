@@ -236,6 +236,58 @@ pub fn format_occurrence(occurred_at: &TemporalRef) -> String {
     }
 }
 
+/// How long before `now` the instant `at` was, as a compact, natural phrase — `just now`, `5 minutes
+/// ago`, `3 hours ago`, `2 days ago`, `3 weeks ago`, `4 months ago`, `2 years ago`. The single source
+/// of the relative-age wording every surfaced entry stamps its recording time with, so an old fact
+/// reads as old rather than fresh. Coarsens as it recedes (minutes, then hours, days, weeks, months,
+/// years) so the phrase stays short at any distance. A month is thirty days and a year is 365 — the same
+/// fixed widths [`parse_duration_millis`] uses, since this is a legibility cue, not calendar arithmetic.
+/// A future `at` (clock skew, or an occurrence mistaken for an assertion) renders `just now` rather than
+/// a negative span.
+pub fn format_relative_age(at: Timestamp, now: Timestamp) -> String {
+    let elapsed = now.as_millisecond() - at.as_millisecond();
+    if elapsed < MILLIS_PER_MINUTE {
+        return "just now".to_owned();
+    }
+    const MILLIS_PER_MONTH: i64 = 30 * MILLIS_PER_DAY;
+    const MILLIS_PER_YEAR: i64 = 365 * MILLIS_PER_DAY;
+    let (count, unit) = if elapsed < MILLIS_PER_HOUR {
+        (elapsed / MILLIS_PER_MINUTE, "minute")
+    } else if elapsed < MILLIS_PER_DAY {
+        (elapsed / MILLIS_PER_HOUR, "hour")
+    } else if elapsed < MILLIS_PER_WEEK {
+        (elapsed / MILLIS_PER_DAY, "day")
+    } else if elapsed < MILLIS_PER_MONTH {
+        (elapsed / MILLIS_PER_WEEK, "week")
+    } else if elapsed < MILLIS_PER_YEAR {
+        (elapsed / MILLIS_PER_MONTH, "month")
+    } else {
+        (elapsed / MILLIS_PER_YEAR, "year")
+    };
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} {unit}{plural} ago")
+}
+
+/// The temporal stamp a surfaced entry carries so the agent cannot mistake an old fact for a new one:
+/// when the fact happens (when dated), and how long ago it was recorded. Renders e.g.
+/// `when 2027-03-15 · recorded 3 days ago` or, for an undated note, `recorded 3 days ago` alone —
+/// building on [`format_occurrence`] and [`format_relative_age`]. Both clauses are labelled: a bare
+/// date beside a bare age invites conflating the two axes, and the occurrence leads since it is the
+/// fact's own time, with the recording age as provenance beside it. ("when", not "occurred": an
+/// occurrence may be future.) The caller brackets it as it sees fit; the surfaces that render an
+/// entry as a plain line wrap it in `[…]`.
+pub fn format_entry_stamp(
+    asserted_at: Timestamp,
+    occurred_at: Option<&TemporalRef>,
+    now: Timestamp,
+) -> String {
+    let recorded = format!("recorded {}", format_relative_age(asserted_at, now));
+    match occurred_at {
+        Some(occurred_at) => format!("when {} · {recorded}", format_occurrence(occurred_at)),
+        None => recorded,
+    }
+}
+
 /// Today's civil day (`YYYY-MM-DD`, UTC) for `now` — the anchor the relative-date constructors build
 /// on, so the agent names an operation ("next Friday", "in two weeks") instead of computing the date.
 pub fn today(now: Timestamp) -> String {

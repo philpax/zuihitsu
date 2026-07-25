@@ -7,6 +7,7 @@
 
 mod a_reminder_comes_due;
 mod a_week_with_the_team;
+mod an_old_reminder_is_not_fresh_news;
 mod applies_a_remembered_preference;
 mod attributed_conflicting_accounts;
 mod conflicting_accounts;
@@ -29,6 +30,7 @@ use crate::{
     scenario::Scenario,
     scenarios::sessions::conversations::{
         a_reminder_comes_due::AReminderComesDue, a_week_with_the_team::AWeekWithTheTeam,
+        an_old_reminder_is_not_fresh_news::AnOldReminderIsNotFreshNews,
         applies_a_remembered_preference::AppliesARememberedPreference,
         attributed_conflicting_accounts::AttributedConflictingAccounts,
         conflicting_accounts::ConflictingAccounts, getting_to_know_someone::GettingToKnowSomeone,
@@ -44,6 +46,7 @@ pub fn scenarios() -> Vec<Arc<dyn Scenario>> {
         Arc::new(ShiftingPlans),
         Arc::new(AppliesARememberedPreference),
         Arc::new(AReminderComesDue),
+        Arc::new(AnOldReminderIsNotFreshNews),
         Arc::new(GettingToKnowSomeone),
         Arc::new(ConflictingAccounts),
         Arc::new(AttributedConflictingAccounts),

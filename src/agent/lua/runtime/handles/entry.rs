@@ -22,6 +22,10 @@ pub(crate) fn make_entry_handle(
     let handle = lua.create_table()?;
     handle.set("id", entry.entry_id.0.to_string())?;
     handle.set("text", entry.text.as_str())?;
+    // The assertion time as epoch milliseconds, so the metatable's `__tostring` can stamp the read with
+    // how long ago the entry was recorded (against the block's `now`, captured when the metatable is
+    // built) — the coordinate that keeps an old fact from reading as fresh.
+    handle.set("asserted_at", entry.asserted_at.as_millisecond())?;
     // Carried so a read renders self-describingly (see the entry metatable's `__tostring`) and so a
     // script can branch on them: `entry.visibility` ("public"/"private"), `entry.told_by` (the teller),
     // `entry.disputed` (true when the fact is under an unresolved arbitration), and `entry.occurred_at`

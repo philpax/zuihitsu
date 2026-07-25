@@ -8,7 +8,7 @@ use crate::{
     ids::MemoryId,
     memory::search::{SalientRelation, SearchQuery, search},
     settings::Settings,
-    time::TemporalRef,
+    time::{TemporalRef, format_entry_stamp},
     vocabulary::TagName,
 };
 
@@ -44,6 +44,11 @@ pub(crate) struct SearchRow {
     pub(crate) marker: Option<String>,
     pub(crate) snippet: Option<String>,
     pub(crate) occurred_at: Option<TemporalRef>,
+    /// The pre-rendered temporal stamp for the hit's representative dated entry — how long ago it was
+    /// recorded, paired with when it happens — so a recall relayed from the result line reads the fact
+    /// as the age it is, not as fresh. `Some` exactly when `occurred_at` is; rendered here (not in the
+    /// metatable) because it needs the search's `now`, which the lazily-invoked metatable lacks.
+    pub(crate) occurrence_stamp: Option<String>,
     pub(crate) relations: Vec<SalientRelation>,
     pub(crate) more_relations: usize,
 }
@@ -107,6 +112,9 @@ pub(crate) async fn run_memory_search(
             score: hit.score,
             marker: hit.marker,
             snippet: hit.snippet,
+            occurrence_stamp: hit
+                .occurred_asserted_at
+                .map(|asserted_at| format_entry_stamp(asserted_at, hit.occurred_at.as_ref(), now)),
             occurred_at: hit.occurred_at,
             relations: hit.relations,
             more_relations: hit.more_relations,

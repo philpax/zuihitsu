@@ -209,10 +209,12 @@ impl MemoryBlock {
                 told_by,
                 visibility,
                 occurred_at,
+                asserted_at,
                 ..
             } if *appended == entry_id => Some(EntryRef {
                 entry_id: *appended,
                 text: text.clone(),
+                asserted_at: *asserted_at,
                 visibility: visibility.clone(),
                 teller: self.teller_label(told_by),
                 attesters: Vec::new(),

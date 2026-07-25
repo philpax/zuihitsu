@@ -194,10 +194,16 @@ pub(crate) fn memory_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua
                             table.set("snippet", snippet)?;
                         }
                         // The occurrence rides as the same tagged table `append` accepts (e.g.
-                        // `{ day = "…" }`), so a script can read `result.occurred_at.day` and the
-                        // metatable's `__tostring` renders the date on the result line.
+                        // `{ day = "…" }`), so a script can read `result.occurred_at.day`. Its
+                        // human-readable stamp — how long ago the dated fact was recorded, paired with
+                        // when it happens — is pre-rendered on `stamp` (the metatable's `__tostring`
+                        // renders it on the line), so a recall relayed from the result reads the fact's
+                        // age rather than mistaking an old date for a fresh one.
                         if let Some(occurred_at) = row.occurred_at {
                             table.set("occurred_at", lua.to_value(&occurred_at)?)?;
+                        }
+                        if let Some(stamp) = row.occurrence_stamp {
+                            table.set("stamp", stamp)?;
                         }
                         // The salient relations as a structural array the agent can read
                         // (`result.relations[1].name` to recognize the cast, `.relation`/`.direction`

@@ -90,14 +90,16 @@ async fn memory_search_carries_a_dated_hits_occurrence() {
     };
     assert_eq!(result, "2026-07-17");
 
-    // And the rendered line shows the date, so a recap relayed from the printed result keeps it.
+    // And the rendered line shows the date beside a recording-age stamp, so a recap relayed from the
+    // printed result keeps *when it happens* and reads *how old the record is* rather than fresh.
     let rendered = h
         .run(r#"return memory.search("shipping the billing migration")"#)
         .await;
     let BlockOutcome::Committed { result } = rendered else {
         panic!("expected commit, got {rendered:?}");
     };
-    assert!(result.contains("[when 2026-07-17]"), "rendered: {result:?}");
+    assert!(result.contains("when 2026-07-17"), "rendered: {result:?}");
+    assert!(result.contains("recorded"), "rendered: {result:?}");
 }
 
 #[tokio::test]

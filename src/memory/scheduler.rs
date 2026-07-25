@@ -104,6 +104,7 @@ pub fn drain(
     graph: &Graph,
     present_set: &[MemoryId],
     settings: &SchedulerSettings,
+    now: Timestamp,
 ) -> Result<Option<Drained>, SchedulerError> {
     let cap = settings.max_wakeups_per_session.max(0) as usize;
     if cap == 0 {
@@ -125,7 +126,7 @@ pub fn drain(
             filtered += 1;
             continue;
         }
-        lines.push(format_wakeup(&memory, &entry));
+        lines.push(format_wakeup(&memory, &entry, now));
         entries.push((entry.entry_id, memory.id));
     }
     // A fired item the drain saw but did not raise is otherwise invisible until the next session
@@ -164,17 +165,19 @@ pub fn drain(
     }))
 }
 
-/// One wake-up line: the entry's text, its memory's handle, and the occurrence date when known.
-fn format_wakeup(memory: &MemoryView, entry: &EntryView) -> String {
-    match entry.occurred_sort {
-        Some(at) => format!(
-            "- {} ({}), {}",
-            entry.text,
-            memory.name.as_str(),
-            time::format_day(at)
-        ),
-        None => format!("- {} ({})", entry.text, memory.name.as_str()),
-    }
+/// One wake-up line: the armed entry's live text, its memory's handle, and a temporal stamp grounding
+/// the reminder — how long ago the entry was recorded (which is when the wake-up was armed) and when the
+/// fact happens. The stamp is what keeps the agent from relaying a days-old reminder as breaking news:
+/// the substance rides on the line already, and the stamp names its age so it is raised as the standing
+/// item it is. The entry is always live (the drain reads only unsuperseded entries), so its text is the
+/// current version, not a stale snapshot.
+fn format_wakeup(memory: &MemoryView, entry: &EntryView, now: Timestamp) -> String {
+    format!(
+        "- {} ({}) [{}]",
+        entry.text,
+        memory.name.as_str(),
+        time::format_entry_stamp(entry.asserted_at, entry.occurred_at.as_ref(), now)
+    )
 }
 
 #[cfg(test)]
@@ -186,7 +189,7 @@ mod tests {
         ids::{EntryId, MemoryId, MemoryName, Namespace, Seq},
         settings::SchedulerSettings,
         store::{MemoryStore, Store},
-        time::{MILLIS_PER_WEEK, Rrule, TemporalRef, Timestamp},
+        time::{MILLIS_PER_DAY, MILLIS_PER_WEEK, Rrule, TemporalRef, Timestamp},
     };
 
     /// A store + graph materialized from `payloads`, committed at `at`.
@@ -416,8 +419,10 @@ mod tests {
         graph.materialize_from(&store).unwrap();
         let settings = SchedulerSettings::default();
 
-        // Marcus present: delivered, naming the memory and date.
-        let drained = drain(&graph, &[marcus], &settings)
+        // Marcus present: delivered, naming the memory and date. The entry was asserted at 1_000 and
+        // now is a day later, so the reminder line carries the grounding stamp.
+        let now = Timestamp::from_millis(1_000 + MILLIS_PER_DAY);
+        let drained = drain(&graph, &[marcus], &settings, now)
             .unwrap()
             .expect("eligible for Marcus");
         assert_eq!(drained.entries, vec![(entry, dentist)]);
@@ -427,9 +432,13 @@ mod tests {
                 .text
                 .contains(&Namespace::Event.with_name("dentist").to_string())
         );
+        // The line grounds the reminder: its live text, and a stamp naming how long ago it was recorded
+        // (when the wake-up was armed) so the agent does not relay a day-old item as fresh.
+        assert!(drained.text.contains("the thing"));
+        assert!(drained.text.contains("recorded 1 day ago"));
 
         // Only Erin present: Marcus is the target and isn't here, so nothing drains.
-        assert!(drain(&graph, &[erin], &settings).unwrap().is_none());
+        assert!(drain(&graph, &[erin], &settings, now).unwrap().is_none());
     }
 
     #[test]
@@ -458,9 +467,14 @@ mod tests {
         let settings = SchedulerSettings::default();
 
         // Erin alone: visible (teller present) and targeted (subject Marcus), so it drains to her.
-        assert!(drain(&graph, &[erin], &settings).unwrap().is_some());
+        let now = Timestamp::from_millis(6_000);
+        assert!(drain(&graph, &[erin], &settings, now).unwrap().is_some());
         // Marcus present too: the subject-guard suppresses the aside — not visible, so withheld.
-        assert!(drain(&graph, &[erin, marcus], &settings).unwrap().is_none());
+        assert!(
+            drain(&graph, &[erin, marcus], &settings, now)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -487,7 +501,7 @@ mod tests {
             max_wakeups_per_session: 2,
             ..SchedulerSettings::default()
         };
-        let drained = drain(&graph, &[marcus], &settings)
+        let drained = drain(&graph, &[marcus], &settings, Timestamp::from_millis(6_000))
             .unwrap()
             .expect("eligible");
         assert_eq!(drained.entries.len(), 2);

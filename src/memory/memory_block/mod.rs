@@ -20,7 +20,7 @@ use crate::{
     },
     graph::GraphError,
     ids::{ConversationId, EntryId, MemoryId, MemoryName, NamespacedMemoryName, TurnId},
-    time::TemporalRef,
+    time::{TemporalRef, Timestamp},
     vocabulary::{RelationName, TagName},
 };
 
@@ -186,6 +186,10 @@ pub struct MemoryBlock {
 pub struct EntryRef {
     pub entry_id: EntryId,
     pub text: String,
+    /// When the entry was recorded (its assertion time), so a read can stamp it with how long ago it was
+    /// noted — the coordinate that keeps the agent from relaying an old fact as a fresh one. Distinct
+    /// from [`EntryRef::occurred_at`], which is when the fact is *about*.
+    pub asserted_at: Timestamp,
     /// How widely the entry may surface — so a read renders it self-describingly and the agent sees at
     /// a glance whether a fact is a confidence to hold (`PrivateToTeller`/`Exclude`) or freely shareable.
     pub visibility: Visibility,
