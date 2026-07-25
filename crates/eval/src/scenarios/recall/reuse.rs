@@ -165,12 +165,14 @@ impl Scenario for AddsToAnExistingPerson {
     }
 
     async fn assess(&self, events: &[Event], judge: &Judge) -> Vec<Verdict> {
-        // Memories that name Dave — exactly one if the later fact accreted onto his existing memory, more
-        // if a second stub was started (the speakers' own memories do not name Dave, so they do not count).
-        let dave_memories: Vec<String> = analysis::memory_names(events)
-            .into_values()
-            .filter(|name| name.to_lowercase().contains("dave"))
-            .collect();
+        // Person memories that name Dave — exactly one if the later fact accreted onto his existing
+        // memory, more if a second stub was started (the speakers' own memories do not name Dave, so
+        // they do not count, and a coined non-person memory carrying the name is not a stub).
+        let dave_memories: Vec<String> =
+            analysis::memories_in_namespace(events, Namespace::Person.prefix())
+                .into_iter()
+                .filter(|name| name.to_lowercase().contains("dave"))
+                .collect();
         let single = dave_memories.len() == 1;
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let judged = judge
@@ -255,13 +257,16 @@ impl Scenario for LinksExistingMemories {
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
-        let names = analysis::memory_names(events);
-        let dave = names
-            .values()
+        // Count person memories only: the duplicate under test is a second *stub* for the same
+        // person, and a coined non-person memory that happens to carry a name (say a topic for the
+        // pair's relationship) is not a duplicate of anyone.
+        let people = analysis::memories_in_namespace(events, Namespace::Person.prefix());
+        let dave = people
+            .iter()
             .filter(|name| name.to_lowercase().contains("dave"))
             .count();
-        let erin = names
-            .values()
+        let erin = people
+            .iter()
             .filter(|name| name.to_lowercase().contains("erin"))
             .count();
         let no_duplicates = dave == 1 && erin == 1;
