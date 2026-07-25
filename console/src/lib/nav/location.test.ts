@@ -23,7 +23,9 @@ const SEARCHES: StreamSearch[] = [
   { turn: "01HTURN" },
   { focus: "person/rowan" },
   { relations: "origin,part_of", sameAs: "off", expand: "cluster (3)" },
-  { seq: 7, turn: "01HTURN", focus: "self" },
+  { event: "128" },
+  { entry: "01KYAHM6VRHA2ZTY3DVGGFY0AE" },
+  { seq: 7, turn: "01HTURN", focus: "self", event: "3" },
 ];
 
 // Selection values chosen to exercise encoding: a slash, the room separator with spaces, a plain slug.

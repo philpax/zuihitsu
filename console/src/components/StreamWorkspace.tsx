@@ -32,6 +32,7 @@ import { conversationNameById } from "../lib/model/conversationNameById.ts";
 import { channelKey } from "../views/conversation/channelUtilities.ts";
 import { type TurnRefTarget, TurnRefs } from "../lib/view/turnRefs.ts";
 import { type MemRefResolver, MemRefs } from "../lib/view/memRefs.ts";
+import { EntryEvents, buildEntryEvents } from "../lib/view/entryEvents.ts";
 
 // The relations view pulls a force-graph/canvas library, so it loads only when the Relations tab is opened.
 const RelationsView = lazy(() =>
@@ -167,6 +168,11 @@ export function StreamWorkspace({
     },
   };
 
+  // The entry → creating-append index, over the whole stream so an entry id shown in one event's
+  // detail (a consolidation's sources, a retraction's entry) can link back to its `MemoryContentAppended`.
+  // Cursor-independent: an append always precedes the event that references it, so it is in range regardless.
+  const entryEvents = buildEntryEvents(events);
+
   // The bottom dock a view can float its controls into (the conversation composer), held as state
   // rather than a ref so the provider re-renders its consumers once the element lands.
   const [dock, setDock] = useState<HTMLDivElement | null>(null);
@@ -224,91 +230,99 @@ export function StreamWorkspace({
           <ConversationNames.Provider value={convNames}>
             <TurnRefs.Provider value={refTargets}>
               <MemRefs.Provider value={memRefs}>
-                <DockContext.Provider value={dock}>
-                  <AnimatePresence mode="popLayout" custom={direction} initial={false}>
-                    <motion.div
-                      key={view}
-                      custom={direction}
-                      initial={{ x: direction * shift, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      exit={{ x: direction * -shift, opacity: 0 }}
-                      transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
-                    >
-                      {view === "state" && (
-                        <StateView
-                          replica={replica}
-                          events={events}
-                          cursor={cursor}
-                          onEditSelf={
-                            participant && cursor >= head
-                              ? (text, supersedes) =>
-                                  editSelf(participant.connection, text, supersedes).then(() => {})
-                              : undefined
-                          }
-                          onRetract={
-                            participant && cursor >= head
-                              ? (memory, entry, reason) =>
-                                  retractEntry(participant.connection, memory, entry, reason)
-                              : undefined
-                          }
-                        />
-                      )}
-                      {view === "relations" && (
-                        <Suspense
-                          fallback={
-                            <div className="py-16 text-center text-sm text-ink-faint">
-                              Loading relations…
-                            </div>
-                          }
-                        >
-                          <RelationsView
-                            key={cursor}
+                <EntryEvents.Provider value={entryEvents}>
+                  <DockContext.Provider value={dock}>
+                    <AnimatePresence mode="popLayout" custom={direction} initial={false}>
+                      <motion.div
+                        key={view}
+                        custom={direction}
+                        initial={{ x: direction * shift, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: direction * -shift, opacity: 0 }}
+                        transition={{ duration: reduce ? 0.12 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+                      >
+                        {view === "state" && (
+                          <StateView
                             replica={replica}
+                            events={events}
                             cursor={cursor}
-                            merge={
+                            onEditSelf={
                               participant && cursor >= head
-                                ? {
-                                    resolve: (from, to) =>
-                                      confirmMerge(participant.connection, from, to),
-                                    unmerge: (from, to) =>
-                                      unmerge(participant.connection, from, to),
-                                    designatePrimary: (memory, designated) =>
-                                      designatePrimary(participant.connection, memory, designated),
-                                  }
+                                ? (text, supersedes) =>
+                                    editSelf(participant.connection, text, supersedes).then(
+                                      () => {},
+                                    )
+                                : undefined
+                            }
+                            onRetract={
+                              participant && cursor >= head
+                                ? (memory, entry, reason) =>
+                                    retractEntry(participant.connection, memory, entry, reason)
                                 : undefined
                             }
                           />
-                        </Suspense>
-                      )}
-                      {view === "conversation" && (
-                        <ConversationView
-                          replica={replica}
-                          events={events}
-                          cursor={cursor}
-                          atHead={cursor >= head}
-                          participate={participant}
-                          progress={progress}
-                        />
-                      )}
-                      {view === "agenda" && (
-                        <AgendaView replica={replica} events={events} cursor={cursor} />
-                      )}
-                      {view === "background" && (
-                        <BackgroundView replica={replica} events={events} cursor={cursor} />
-                      )}
-                      {view === "events" && (
-                        <EventsView
-                          replica={replica}
-                          events={events}
-                          cursor={cursor}
-                          journal={journal}
-                          resumedFromStep={resumedFromStep}
-                        />
-                      )}
-                      {extra?.node}
-                    </motion.div>
-                  </AnimatePresence>
-                </DockContext.Provider>
+                        )}
+                        {view === "relations" && (
+                          <Suspense
+                            fallback={
+                              <div className="py-16 text-center text-sm text-ink-faint">
+                                Loading relations…
+                              </div>
+                            }
+                          >
+                            <RelationsView
+                              key={cursor}
+                              replica={replica}
+                              cursor={cursor}
+                              merge={
+                                participant && cursor >= head
+                                  ? {
+                                      resolve: (from, to) =>
+                                        confirmMerge(participant.connection, from, to),
+                                      unmerge: (from, to) =>
+                                        unmerge(participant.connection, from, to),
+                                      designatePrimary: (memory, designated) =>
+                                        designatePrimary(
+                                          participant.connection,
+                                          memory,
+                                          designated,
+                                        ),
+                                    }
+                                  : undefined
+                              }
+                            />
+                          </Suspense>
+                        )}
+                        {view === "conversation" && (
+                          <ConversationView
+                            replica={replica}
+                            events={events}
+                            cursor={cursor}
+                            atHead={cursor >= head}
+                            participate={participant}
+                            progress={progress}
+                          />
+                        )}
+                        {view === "agenda" && (
+                          <AgendaView replica={replica} events={events} cursor={cursor} />
+                        )}
+                        {view === "background" && (
+                          <BackgroundView replica={replica} events={events} cursor={cursor} />
+                        )}
+                        {view === "events" && (
+                          <EventsView
+                            replica={replica}
+                            events={events}
+                            cursor={cursor}
+                            journal={journal}
+                            resumedFromStep={resumedFromStep}
+                          />
+                        )}
+                        {extra?.node}
+                      </motion.div>
+                    </AnimatePresence>
+                  </DockContext.Provider>
+                </EntryEvents.Provider>
               </MemRefs.Provider>
             </TurnRefs.Provider>
           </ConversationNames.Provider>

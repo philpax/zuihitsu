@@ -231,6 +231,7 @@ export function EntryItem({
   expanded,
   memoryName,
   onRetract,
+  highlighted,
 }: {
   entry: EntryView;
   nameById: Map<string, string>;
@@ -244,6 +245,9 @@ export function EntryItem({
   memoryName?: string;
   /// Retract this entry under operator authority. Present only in the live agent frame at the head.
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
+  /// The entry-deep-link target (`?entry=<id>`): marked with a clay rule and tint so the eye lands on
+  /// exactly the entry the reference named.
+  highlighted?: boolean;
 }) {
   const priv = isPrivate(entry.visibility);
   // The founding attestation is `attestations[0]` (the reads order founding first), and it is the
@@ -253,7 +257,13 @@ export function EntryItem({
   const liveCorroborations = corroborations.filter((att) => att.retracted_reason === null);
   const liveCount = entry.attestations.filter((att) => att.retracted_reason === null).length;
   return (
-    <li className={faded ? "opacity-55" : undefined}>
+    <li
+      id={`entry-${entry.entry_id}`}
+      className={
+        (faded ? "opacity-55" : "") +
+        (highlighted ? " border-l-2 border-clay bg-clay-soft/15 py-1 pl-3" : "")
+      }
+    >
       <div className={"text-base/relaxed " + (faded ? "text-ink-soft line-through" : "text-ink")}>
         <ReactMarkdown remarkPlugins={entryMarkdownPlugins} components={turnComponents}>
           {entry.text}

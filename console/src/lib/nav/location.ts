@@ -42,6 +42,11 @@ export interface StreamSearch {
   relations?: string;
   sameAs?: string;
   expand?: string;
+  /// The Events view's deep-link anchor: the seq (as a string) of one event to page to and expand.
+  event?: string;
+  /// The State view's deep-link anchor: the entry id to highlight and scroll to on the selected
+  /// memory — the target of an entry reference in an event detail.
+  entry?: string;
 }
 
 /// Which grammar the URL follows: the full console (landing, eval, trends, live) or the embedded agent
@@ -174,7 +179,15 @@ function parseStreamSegments(
 
 /// The string-valued search keys, in a stable canonical order. `seq` is handled apart, since it
 /// coerces to a number.
-const SEARCH_STRINGS = ["turn", "focus", "relations", "sameAs", "expand"] as const;
+const SEARCH_STRINGS = [
+  "turn",
+  "focus",
+  "relations",
+  "sameAs",
+  "expand",
+  "event",
+  "entry",
+] as const;
 
 /// Parse a raw query string into the typed search — coercing the cursor to a number, dropping blank or
 /// absent keys, so the parsed object round-trips with what [`buildSearch`] emits.

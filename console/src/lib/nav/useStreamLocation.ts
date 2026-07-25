@@ -41,9 +41,9 @@ export interface StreamLink {
     view: ViewId,
     opts?: { seq?: number | null; selection?: string; search?: StreamSearch },
   ) => AppLocation;
-  state: (memory: string, opts?: { seq?: number | null }) => AppLocation;
+  state: (memory: string, opts?: { seq?: number | null; entry?: string }) => AppLocation;
   conversation: (opts?: { room?: string; turn?: string; seq?: number | null }) => AppLocation;
-  events: (opts?: { focus?: string; seq?: number | null }) => AppLocation;
+  events: (opts?: { focus?: string; event?: number; seq?: number | null }) => AppLocation;
   settings: (section?: string) => AppLocation;
 }
 
@@ -60,15 +60,27 @@ export function streamLink(frame: StreamFrame): StreamLink {
         ...(opts?.selection !== undefined ? { selection: opts.selection } : {}),
         search: opts?.search ?? seqSearch(opts?.seq),
       }),
-    state: (memory, opts) => at({ view: "state", selection: memory, search: seqSearch(opts?.seq) }),
+    state: (memory, opts) =>
+      at({
+        view: "state",
+        selection: memory,
+        search: { ...(opts?.entry ? { entry: opts.entry } : {}), ...seqSearch(opts?.seq) },
+      }),
     conversation: ({ room, turn, seq } = {}) =>
       at({
         view: "conversation",
         ...(room !== undefined ? { selection: room } : {}),
         search: { ...(turn ? { turn } : {}), ...seqSearch(seq) },
       }),
-    events: ({ focus, seq } = {}) =>
-      at({ view: "events", search: { ...(focus ? { focus } : {}), ...seqSearch(seq) } }),
+    events: ({ focus, event, seq } = {}) =>
+      at({
+        view: "events",
+        search: {
+          ...(focus ? { focus } : {}),
+          ...(event != null ? { event: String(event) } : {}),
+          ...seqSearch(seq),
+        },
+      }),
     settings: (section) =>
       at(
         section !== undefined

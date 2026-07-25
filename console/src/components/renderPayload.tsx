@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import type { EventPayload } from "@zuihitsu/wire/types/EventPayload.ts";
 import { isPrivate, tellerLabel, visibilityLabel } from "../lib/model/labels.ts";
@@ -6,7 +6,7 @@ import { maintenancePassLabel } from "../lib/model/events.ts";
 import { formatDateTime } from "../lib/format/format.ts";
 import { relationColor } from "../lib/format/relationColor.ts";
 import { Fields, Field, Tree } from "./Tree.tsx";
-import { Mono, Ref, ConversationRefLink } from "./eventDetailParts.tsx";
+import { EntryRef, Mono, Ref, ConversationRefLink } from "./eventDetailParts.tsx";
 import { producedByLabel, temporalRefLabel } from "./eventDetailUtilities.ts";
 import { renderInteractionPayload } from "./renderInteraction.tsx";
 
@@ -25,7 +25,7 @@ export interface RenderContext {
 /// Render the first half of payload cases: genesis, memory lifecycle, and entry-level events.
 export function renderMemoryPayload(ctx: RenderContext): ReactNode {
   const { payload, nameById, conversationNameById, seq } = ctx;
-  const ref = (id: string) => <Ref id={id} nameById={nameById} seq={seq} />;
+  const ref = (id: string) => <Ref id={id} nameById={nameById} />;
   switch (payload.type) {
     case "GenesisCompleted":
       return (
@@ -111,11 +111,14 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.id)}</Field>
           <Field label="replacement">
-            <Mono>{payload.replacement}</Mono>
+            <EntryRef id={payload.replacement} nameById={nameById} />
           </Field>
           <Field label="sources">
-            {payload.sources.map((s) => (
-              <Mono key={s}>{s}</Mono>
+            {payload.sources.map((s, index) => (
+              <Fragment key={s}>
+                {index > 0 && ", "}
+                <EntryRef id={s} nameById={nameById} />
+              </Fragment>
             ))}
           </Field>
           {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
@@ -127,7 +130,7 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
         <Fields>
           <Field label="memory">{ref(payload.memory)}</Field>
           <Field label="entry">
-            <Mono>{payload.entry}</Mono>
+            <EntryRef id={payload.entry} nameById={nameById} />
           </Field>
           <Field label="reason">{payload.reason}</Field>
           {payload.produced_by && <Field label="by">{producedByLabel(payload.produced_by)}</Field>}
@@ -157,7 +160,7 @@ export function renderMemoryPayload(ctx: RenderContext): ReactNode {
               sources. */}
           {payload.source_entry && (
             <Field label="carried from">
-              <Mono>{payload.source_entry}</Mono>
+              <EntryRef id={payload.source_entry} nameById={nameById} />
             </Field>
           )}
           {payload.told_in && (

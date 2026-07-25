@@ -1,6 +1,9 @@
+import { useEffect } from "react";
+
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { MemoryDetail } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { Arbitration, RecurringItem } from "../../lib/model/audit.ts";
+import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
 import { formatDateTime } from "../../lib/format/format.ts";
 import { relationColor } from "../../lib/format/relationColor.ts";
 import { rruleLabel } from "../../lib/model/audit.ts";
@@ -39,6 +42,14 @@ export function MemoryDetailPane({
   );
   const classPeers = detail.class.filter((peer) => peer.id !== memory.id);
   const disputed = new Set(detail.disputed);
+
+  // The entry deep-link anchor (`?entry=<id>`, minted by an EntryRef in an event detail): highlight
+  // the named entry — live, superseded, or retracted — and scroll it into view once per target.
+  const highlightId = useOptionalStream()?.search.entry ?? null;
+  useEffect(() => {
+    if (!highlightId) return;
+    document.getElementById(`entry-${highlightId}`)?.scrollIntoView({ block: "center" });
+  }, [highlightId]);
 
   return (
     <article className="max-w-184">
@@ -104,6 +115,7 @@ export function MemoryDetailPane({
                 expanded
                 memoryName={memory.name}
                 onRetract={onRetract}
+                highlighted={entry.entry_id === highlightId}
               />
             ))}
           </ul>
@@ -152,7 +164,14 @@ export function MemoryDetailPane({
         <Section label={`superseded · ${superseded.length}`}>
           <ul className="flex flex-col gap-4">
             {superseded.map((entry) => (
-              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded expanded />
+              <EntryItem
+                key={entry.entry_id}
+                entry={entry}
+                nameById={nameById}
+                faded
+                expanded
+                highlighted={entry.entry_id === highlightId}
+              />
             ))}
           </ul>
         </Section>
@@ -162,7 +181,14 @@ export function MemoryDetailPane({
         <Section label={`retracted · ${retracted.length}`}>
           <ul className="flex flex-col gap-4">
             {retracted.map((entry) => (
-              <EntryItem key={entry.entry_id} entry={entry} nameById={nameById} faded expanded />
+              <EntryItem
+                key={entry.entry_id}
+                entry={entry}
+                nameById={nameById}
+                faded
+                expanded
+                highlighted={entry.entry_id === highlightId}
+              />
             ))}
           </ul>
         </Section>

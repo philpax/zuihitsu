@@ -96,6 +96,22 @@ export function EventsView({
     // timestamp keep a stable, log-order-reversed sequence.
     .sort((a, b) => b.event.recorded_at - a.event.recorded_at || b.event.seq - a.event.seq);
 
+  // The deep-link anchor: an `?event=<seq>` names one event to page to and expand — the target of an
+  // `EntryRef` link from another view. When the seq is among the filtered rows, page to it and expand
+  // it once per distinct target (keyed on the seq, the guarded render-adjust pattern), so the operator
+  // can page or collapse freely afterwards. A seq the active filters exclude degrades silently: no
+  // state change, so the guard simply keeps looking should a filter later reveal it.
+  const targetEvent = streamSearch.event != null ? Number(streamSearch.event) : null;
+  const [anchoredEvent, setAnchoredEvent] = useState<number | null>(null);
+  if (targetEvent !== null && targetEvent !== anchoredEvent) {
+    const index = rows.findIndex((row) => row.event.seq === targetEvent);
+    if (index >= 0) {
+      setAnchoredEvent(targetEvent);
+      setPage(Math.floor(index / PAGE_SIZE));
+      setExpanded(targetEvent);
+    }
+  }
+
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const clampedPage = Math.min(page, pageCount - 1);
   const pageRows = pageOf(rows, clampedPage);

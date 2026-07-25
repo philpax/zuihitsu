@@ -6,6 +6,7 @@ import { Link } from "../lib/nav/history.tsx";
 import { useOptionalStream } from "../lib/nav/useStreamLocation.ts";
 import { Excerpt } from "../components/primitives.tsx";
 import { TurnRefs } from "../lib/view/turnRefs.ts";
+import { EntryEvents } from "../lib/view/entryEvents.ts";
 import { TurnRefChip } from "../views/conversation/TurnRefs.tsx";
 
 /// A memory reference: the memory's name, a link into the State view at this event's seq when the
@@ -122,6 +123,32 @@ export function RefList({
   );
 }
 
+/// A reference to a content entry by its id, resolved through the [`EntryEvents`] context to the
+/// `MemoryContentAppended` that created it. With a hit inside a stream frame, it renders a clay link
+/// labelled with a short clamped snippet of the entry's text — human-meaningful over the raw ULID —
+/// navigating to the State view with the owning memory selected and the entry highlighted; the ULID
+/// stays in the tooltip for precision. The link deliberately pins no seq: the log is append-only, so
+/// current state always still holds the entry — live, or in the superseded/retracted sections — and
+/// freezing the cursor at the referencing event would only lock the view into the past. With no hit
+/// (the append predates the loaded window), no stream frame, or an unresolvable memory name, it
+/// degrades to the bare id, exactly as an unresolved reference reads today.
+export function EntryRef({ id, nameById }: { id: string; nameById: Map<string, string> }) {
+  const index = useContext(EntryEvents);
+  const stream = useOptionalStream();
+  const target = index.get(id);
+  const memoryName = target ? nameById.get(target.memoryId) : undefined;
+  if (!target || !stream || !memoryName) return <Mono>{id}</Mono>;
+  return (
+    <Link
+      to={stream.link.state(memoryName, { entry: id })}
+      title={id}
+      className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+    >
+      {clampSnippet(target.snippet)}
+    </Link>
+  );
+}
+
 export function Mono({ children }: { children: ReactNode }) {
   return <span className="break-all text-ink-soft">{children}</span>;
 }
@@ -129,4 +156,12 @@ export function Mono({ children }: { children: ReactNode }) {
 /// A long text body (a brief, a prompt template) — the content itself, not a JSON dump.
 export function Prose({ children }: { children: string }) {
   return <Excerpt>{children}</Excerpt>;
+}
+
+/// Clamp an entry's text to a quoted one-line snippet (~40 characters), collapsing whitespace so a
+/// multi-line entry reads as a single label.
+function clampSnippet(text: string): string {
+  const collapsed = text.trim().replace(/\s+/g, " ");
+  const clamped = collapsed.length > 40 ? `${collapsed.slice(0, 40).trimEnd()}…` : collapsed;
+  return `"${clamped}"`;
 }
