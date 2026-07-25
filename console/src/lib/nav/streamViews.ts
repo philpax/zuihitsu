@@ -9,7 +9,6 @@ export const STREAM_VIEWS = [
   { id: "relations", label: "Relations" },
   { id: "agenda", label: "Agenda" },
   { id: "events", label: "Events" },
-  { id: "compare", label: "Time-travel" },
 ] as const;
 
 export type StreamViewId = (typeof STREAM_VIEWS)[number]["id"];

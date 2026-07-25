@@ -26,7 +26,6 @@ import {
 import { EventsView } from "../views/EventsView.tsx";
 import { AgendaView } from "../views/AgendaView.tsx";
 import { BackgroundView } from "../views/BackgroundView.tsx";
-import { DiffView } from "../views/DiffView.tsx";
 import { nameById } from "../lib/model/labels.ts";
 import { buildConversations } from "../lib/model/conversation.ts";
 import { conversationNameById } from "../lib/model/conversationNameById.ts";
@@ -305,9 +304,6 @@ export function StreamWorkspace({
                           journal={journal}
                           resumedFromStep={resumedFromStep}
                         />
-                      )}
-                      {view === "compare" && (
-                        <DiffView events={events} cursor={cursor} head={head} />
                       )}
                       {extra?.node}
                     </motion.div>
