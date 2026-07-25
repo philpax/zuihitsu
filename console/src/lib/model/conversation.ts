@@ -114,6 +114,8 @@ export interface TurnModel {
   /// True when this agent turn was produced by the checkpoint/end-of-session flush (its `produced_by`
   /// names the `Flush` template) — an internal bookkeeping turn that writes working state to memory
   /// and is delivered to no participant. Surfaced so the transcript marks it as internal at a glance.
+  /// The string compare below mirrors `ProducedBy::is_flush`, the Rust side's one named predicate for
+  /// this — the wire carries the template name as a string, so it is restated here; keep them in step.
   checkpoint: boolean;
 }
 

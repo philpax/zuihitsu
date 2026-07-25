@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, Initiation, PromptTemplateName, TEST_PLATFORM, TurnRole};
+use zuihitsu::{Event, EventPayload, Initiation, TEST_PLATFORM, TurnRole};
 
 use crate::{
     analysis,
@@ -174,7 +174,7 @@ impl Scenario for CheckpointSyncsParallelRooms {
             EventPayload::ConversationTurn {
                 produced_by: Some(produced),
                 ..
-            } if produced.template_name == PromptTemplateName::Flush => Some(event.seq),
+            } if produced.is_flush() => Some(event.seq),
             _ => None,
         });
         let checkpointed = flush_seq.is_some()
@@ -363,9 +363,7 @@ impl Scenario for FlushWritesMemoryNotAReply {
                 turn_id,
                 text,
                 ..
-            } if produced.template_name == PromptTemplateName::Flush => {
-                Some((*turn_id, text.clone()))
-            }
+            } if produced.is_flush() => Some((*turn_id, text.clone())),
             _ => None,
         });
         let Some((flush_turn_id, flush_text)) = flush else {

@@ -444,6 +444,15 @@ pub struct ProducedBy {
     pub template_version: u32,
 }
 
+impl ProducedBy {
+    /// Whether this record names the checkpoint-flush template. Several seams special-case a flush
+    /// turn — the undelivered-reply marker, the flush watermark, badge rendering — so the detection
+    /// lives here once, rather than as template-name compares scattered across the consumers.
+    pub fn is_flush(&self) -> bool {
+        self.template_name == PromptTemplateName::Flush
+    }
+}
+
 /// How a [`EventPayload::BeliefArbitrated`] was resolved: which competing entries the agent credited
 /// (by `EntryId`) and the one-line reconciling statement it wrote (spec §Write path → arbitration).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

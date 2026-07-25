@@ -104,9 +104,7 @@ pub fn buffer_turns(
                 // message for empty text) and needs no marker.
                 let is_undelivered_flush = role == TurnRole::Agent
                     && !text.is_empty()
-                    && produced_by
-                        .as_ref()
-                        .is_some_and(|p| p.template_name == PromptTemplateName::Flush);
+                    && produced_by.as_ref().is_some_and(ProducedBy::is_flush);
                 turns.push(TurnView {
                     seq: event.seq,
                     turn_id,
@@ -300,11 +298,7 @@ pub fn flushed_up_to(buffer: &[TurnView], session_start: Seq) -> Seq {
     buffer
         .iter()
         .rev()
-        .find(|turn| {
-            turn.produced_by
-                .as_ref()
-                .is_some_and(|produced| produced.template_name == PromptTemplateName::Flush)
-        })
+        .find(|turn| turn.produced_by.as_ref().is_some_and(ProducedBy::is_flush))
         .map(|turn| turn.seq)
         .unwrap_or(session_start)
 }

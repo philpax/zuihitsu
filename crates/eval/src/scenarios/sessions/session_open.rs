@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use zuihitsu::{Event, EventPayload, PromptTemplateName, TEST_PLATFORM_ALT};
+use zuihitsu::{Event, EventPayload, TEST_PLATFORM_ALT};
 
 use crate::{
     analysis,
@@ -146,7 +146,7 @@ impl Scenario for SessionOpenSyncsParallelRooms {
             matches!(
                 &event.payload,
                 EventPayload::ConversationTurn { produced_by: Some(produced), .. }
-                    if produced.template_name == PromptTemplateName::Flush
+                    if produced.is_flush()
             )
         });
         let every_session_open = !events
