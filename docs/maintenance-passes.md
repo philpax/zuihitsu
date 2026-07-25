@@ -53,6 +53,8 @@ Gives platform stubs (`person/<id>@<platform>`) readable named identities. The p
 
 The canonical profile is bound to the stub via a `same_as` link (asserted under `Authority::Agent`, which permits direct assertion without operator confirmation) and designated as the class primary. This is the "free merge" case — the canonical profile is empty, so there is no visibility risk.
 
+A stub can carry no entries of its own because the agent wrote the person's facts straight onto a bare `person/<stem>` profile of theirs, teller-stamped from the stub, leaving the stub empty. Before abstaining on such a stub, the pass looks for that borrowed evidence: if a bare, unbound `person/<stem>` profile exists carrying entries the stub told, it names the profile from those entries and, when the identified name reproduces the profile's own handle, binds the stub to it (a `same_as` plus a designation) rather than minting a fresh duplicate. This path only ever binds — it never mints — and it binds only to the profile the evidence came from: a name that does not match the profile (a relative sharing the name, say), an already-bound profile, or an abstention leaves the stub untouched.
+
 ### Link-redundant entry cleanup
 
 Retracts entries whose content is purely a description of a link that exists. For example, an entry "knows Dave" that spawned a `knows → person/dave` link is redundant once the link exists. The pass runs after consolidation, so it sees the consolidated entry set. An entry that carries detail beyond the link (e.g. "met Dave at the climbing gym last Tuesday") is preserved.
