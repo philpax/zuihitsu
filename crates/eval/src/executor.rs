@@ -139,23 +139,28 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
     Ok(false)
 }
 
-/// Confirm the first merge proposed in the live log, resolving the proposed pair at execution time.
-/// A proposal present is confirmed as an operator `same_as` merge; a proposal absent defers to
-/// `on_missing` — [`OnMissing::Skip`] records the step skipped and continues (the no-proposal case a
-/// hearsay scenario deliberately measures), [`OnMissing::Fail`] errors the run.
+/// Confirm every merge proposed in the live log, resolving the proposed pairs at execution time —
+/// the operator reviewing the queue and confirming what is sound, not picking one proposal blind.
+/// The agent may legitimately raise several proposals before the operator arrives (a canonical
+/// profile minted at first contact proposes its platform stub immediately, ahead of the proposal
+/// the scenario's later beat raises), and confirming only the first would land the wrong merge and
+/// leave the scenario's own pair unconfirmed. No proposal at all defers to `on_missing` —
+/// [`OnMissing::Skip`] records the step skipped and continues (the no-proposal case a hearsay
+/// scenario deliberately measures), [`OnMissing::Fail`] errors the run.
 fn confirm_proposed_merge(on_missing: OnMissing, ctx: &RunContext) -> Result<bool, EvalError> {
-    match proposed_merge(&ctx.events()?) {
-        Some((from, to)) => {
-            ctx.operator_merge(from, to)?;
-            Ok(false)
-        }
-        None => match on_missing {
+    let proposals = proposed_merges(&ctx.events()?);
+    if proposals.is_empty() {
+        return match on_missing {
             OnMissing::Skip => Ok(true),
             OnMissing::Fail => Err(EvalError::Executor(
                 "ConfirmProposedMerge found no merge proposal in the log".to_owned(),
             )),
-        },
+        };
     }
+    for (from, to) in proposals {
+        ctx.operator_merge(from, to)?;
+    }
+    Ok(false)
 }
 
 /// Resolve a step's text against the live log. A [`StepText::WithTurnRef`] substitutes the `{turn}`
@@ -186,12 +191,19 @@ fn head_seq(ctx: &RunContext) -> Result<Seq, EvalError> {
         .unwrap_or(Seq::ZERO))
 }
 
-/// The `(from, to)` of the first merge proposed in the log, if any — the pair the operator confirms.
-fn proposed_merge(events: &[Event]) -> Option<(MemoryId, MemoryId)> {
-    events.iter().find_map(|event| match &event.payload {
-        EventPayload::MergeProposed { from, to, .. } => Some((*from, *to)),
-        _ => None,
-    })
+/// The distinct `(from, to)` pairs of every merge proposed in the log, in proposal order — the
+/// queue the operator confirms. A pair proposed twice appears once.
+fn proposed_merges(events: &[Event]) -> Vec<(MemoryId, MemoryId)> {
+    let mut pairs = Vec::new();
+    for event in events {
+        if let EventPayload::MergeProposed { from, to, .. } = &event.payload {
+            let pair = (*from, *to);
+            if !pairs.contains(&pair) {
+                pairs.push(pair);
+            }
+        }
+    }
+    pairs
 }
 
 /// The id of the first participant `ConversationTurn` whose text is `text` — the earlier moment a later

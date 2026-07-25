@@ -68,10 +68,10 @@ pub enum EvalStep {
         #[serde(default = "default_flush_on_open")]
         flush_on_open: bool,
     },
-    /// Confirm the first merge proposed in the live log as the operator would, resolved at execution
-    /// time: the proposed pair is looked up against the run's log and, if found, an operator `same_as`
-    /// merge is authored. When no proposal is present, `on_missing` decides — skip the step or fail
-    /// the run.
+    /// Confirm every merge proposed in the live log as the operator would, resolved at execution
+    /// time: the distinct proposed pairs are looked up against the run's log and each is authored as
+    /// an operator `same_as` merge — the operator reviewing the queue, not picking one proposal
+    /// blind. When no proposal is present, `on_missing` decides — skip the step or fail the run.
     ConfirmProposedMerge { on_missing: OnMissing },
     /// Advance the run's clock just past the configured idle gap, so the next turn opens a fresh
     /// session. The millis are derived at execution time from the live `idle_gap_seconds` setting,
