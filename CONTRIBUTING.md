@@ -219,6 +219,17 @@ cargo run -p zuihitsu-eval --bin eval -- run --name <name> --config config.toml
 - When the model backend fails mid-run — an eviction, a crash, a network drop — turns defer and the affected runs complete with no model calls at all, recording infrastructure noise rather than behaviour. Resume with `--resume --retry-infra-failed` after the backend recovers: it re-drives exactly the runs bearing an infrastructure signature — a journal that drove a model-invoking step with zero `ModelCalled` events recorded (the backend down throughout), or a record with no event log at all (the drive itself erroring out mid-run, a stream dying, say) — superseding their poisoned records in the package. It never retries an oracle-failed run — a run the agent legitimately flunked is data, and redoing it would bias the rates toward passing. The heal also repairs an already-finished package: a completed run folds its sidecar into `eval/<name>.json` and deletes the sidecar, so when no sidecar remains the heal reconstructs the resume state from the package itself — seeding the healthy runs verbatim, re-driving only the poisoned ones, and superseding their records in the fold. A live sidecar still wins when both are present, since an interrupted run's sidecar is the fresher truth.
 - The exit code is the gating signal: success when every gating oracle held, failure (logging `a gating safety oracle regressed`) when one slipped. A gating bar (`Bar::gating()`, or `Bar::gating_at(rate)` for a tolerance) fails the harness when the held rate of its gating verdicts falls below `min_rate`. `Bar::holds` decides it: at the default `min_rate` of 1.0 it reads the pass/fail boolean directly — the one-slip discipline for must-not-surface safety properties — while a `min_rate` below 1.0 compares the held rate and suits model-judgement behaviours with a known error band. A metric bar is a should-surface rate, reported against a threshold but never failing the run.
 
+### Checking on a run
+
+```
+eval status                       # the run in flight (the most recently written sidecar)
+eval status <name>                # a named run, finished or not
+```
+
+A suite run is long, and its own log does not say how far along it is: the per-scenario result lines print in one batch when the suite finishes, so a log that has scrolled for hours can hold no progress at all, and its tail shows only whatever the last turn emitted — which looks the same whether the run is working or wedged. `status` reads the `.jsonl` sidecar, which is the authoritative record (one entry per completed run, written as the run goes), and reports elapsed, runs done against the total, scenarios at full N, what is left with a projection at the observed rate, and the verdicts so far — flagging any scenario whose *bar* would already fail the suite, judged by `Bar::holds` exactly as the final exit-code check will. A sidecar with no new completion for fifteen minutes reads `STALLED`, the signature of the model backend having gone away while the process stays alive retrying.
+
+Never infer a run's progress from its log — check the sidecar. It is a plain binary with no console or port involved (`./target/debug/eval status`), so it is the way to check on a run over SSH.
+
 ### Analysing an eval
 
 ```

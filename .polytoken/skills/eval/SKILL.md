@@ -28,6 +28,13 @@ Before asking, look for signals in the conversation that narrow what to run:
   - If it's a broad change (a refactor, a prompt edit, a shared path), the full suite is the
     safe choice — but **ask before running it**, because a full suite at high N can take hours of
     GPU time.
+
+**A full suite is expensive and is never yours to choose unilaterally.** At N=5 it is ~400 runs and
+6+ hours on the operator's GPU; at N=20 it is a day. Even when a change is genuinely global — a
+scaffold edit reaches every scenario's prompt — say so, give the estimate and the scoped
+alternative, and let the operator pick. "The scaffold changed, so everything is affected" is a
+reason to *offer* the full suite, not a licence to start one. Note the cost in wall-clock, not just
+in scenario count: the operator is deciding how to spend their afternoon.
 - **The operator said "quick"** → `--runs 1`, scoped to the touched area.
 - **The operator said "full eval"** → all scenarios, `--runs 20` — but **confirm before running**.
 - **A specific scenario was named** → use `--scenario <substring>`.
@@ -77,6 +84,33 @@ The eval must run to completion. Run it as a background job or with a very large
 background job — poll it with `job_status` / `job_block` until it finishes, then retrieve the
 result with `job_result`. **Never** treat a timeout as completion — a partial eval package is
 useless for gating.
+
+### Checking on it
+
+To ask how far along a run is, or whether it is still alive, run `eval status` — nothing else.
+
+```
+eval status            # the run in flight
+eval status <name>     # a named run
+```
+
+It reports elapsed, runs done against the total, what is left with a projection, whether anything
+has completed recently (`STALLED` when not), and which scenarios' bars would already fail.
+
+**Never infer progress from the run's log.** The per-scenario `scenario result` lines print in one
+batch when the whole suite finishes, so grepping for them in a running suite always returns zero
+however far along it is — and the log's tail shows only the last turn's output, which looks
+identical whether the run is working or wedged on a dead backend. Both readings have caused a
+healthy, hours-deep run to be killed. The `.jsonl` sidecar is the authoritative record; `status`
+reads it.
+
+**Never assume how long a run has been going.** Check `eval status` (or `ps -o lstart,etime`) rather
+than reasoning from a recent-looking log line.
+
+**Before killing a run, check `eval status` first.** A run that is merely slow, or one whose backend
+dropped and recovered, looks the same from the outside as one that is stuck. If it does need
+stopping, the sidecar survives — relaunch with `--resume` (adding `--retry-infra-failed` if the
+backend was down) and it continues from the last completed run rather than starting over.
 
 The eval writes `eval/<name>.jsonl` as it goes and `eval/<name>.json` on completion. The `.jsonl`
 is resumable: if the run was interrupted, re-run with `--resume` to continue from where it left

@@ -20,6 +20,7 @@ mod run;
 mod scenario;
 mod scenarios;
 mod serve;
+mod status;
 mod step;
 
 use std::{io::Write, net::SocketAddr, path::PathBuf, process::ExitCode};
@@ -37,6 +38,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Report a run's progress from its `.jsonl` sidecar — how many runs are done, what is left, and
+    /// whether it is still completing them. The authoritative view of an in-flight run: the suite's
+    /// per-scenario result lines print only when it finishes, so a running suite's log shows no
+    /// progress at all.
+    Status {
+        /// The run name (`2026-07-26-full-n5`), or a path to its sidecar or package. A bare name
+        /// resolves under `eval/`. Omit it to report the most recently written sidecar — the run in
+        /// flight, when there is one.
+        target: Option<String>,
+    },
     /// Run the scenario suite against the configured model and write an eval package.
     Run {
         /// How many times to run each scenario.
@@ -171,6 +182,13 @@ enum Command {
 async fn main() -> ExitCode {
     init_tracing();
     match Cli::parse().command {
+        Command::Status { target } => match status::report(target.as_deref()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                tracing::error!("{error}");
+                ExitCode::FAILURE
+            }
+        },
         Command::List => list_scenarios(),
         Command::Analyze {
             package,
