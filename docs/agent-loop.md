@@ -157,7 +157,7 @@ dave:entries(); dave:history(); dave:details()   -- live entries; full history; 
 dave:propose_merge(memory.get("person/dave@discord"), { rationale = "same climbing-gym Dave" })
 
 -- Link writes (the links.* module, not a handle method); the arguments read as a sentence
-links.create(dave, "works_at", memory.get("org/hooli"))   -- a One-cardinality relation replaces in place
+links.create(dave, "member_of", memory.get("org/hooli"))   -- a seeded relation; the object is an org/ memory
 links.create(dave, "knows", "person/erin")   -- the object may be a name string as well as a handle
 links.create(dave, "knows", "person/erin", { visibility = "attributed" })  -- opts.visibility forces the posture
 links.remove(dave, "knows", "person/erin")

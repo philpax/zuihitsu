@@ -52,18 +52,21 @@ impl From<ConcatError> for LuaError {
 }
 
 /// Append a lesson to a block's terminal message when Luau's own wording names a slip we can teach.
-/// The single funnel every runtime error passes through on its way to the agent, so a lesson lands
-/// wherever the slip happened rather than only at the surfaces that route through a typed error.
+/// Applied where a block's runtime error becomes its terminal cause, so a lesson lands wherever the
+/// slip happened rather than only at the surfaces that route through a typed error.
 ///
-/// Only `..` against a list is recognised. The read surfaces already give a handle a `__concat`, so a
-/// table reaching this is a *list* of them — `mem:entries()`, `hub:links()`, a search result — where
-/// Luau's "attempt to concatenate string with table" names the types and not the fix. The reword is
-/// additive: the original message, position and all, is kept ahead of the lesson.
+/// Only `..` against a table is recognized. The read surfaces already give a single handle a
+/// `__concat`, so a table reaching here is a collection — most often a handle list from
+/// `mem:entries()` or `hub:links()`. The lesson is worded as the likely case rather than a diagnosis,
+/// since the predicate cannot tell a handle list from any other table the script built, and a
+/// confidently wrong explanation is worse than Luau's bare one. The reword is additive: the original
+/// message, position and all, is kept ahead of the lesson.
 pub(in crate::agent::lua) fn with_lesson(message: String) -> String {
-    const CONCAT_LESSON: &str = "a list of handles has no text of its own — index one out and \
+    const CONCAT_LESSON: &str = "a table has no text of its own, only its elements do. If this is a \
+                                 handle list from mem:entries() or hub:links(), index one out and \
                                  interpolate it into a backtick string (`latest: {es[1]}`), or \
-                                 concatenate a single handle (\"- \" .. es[1]). To see the whole \
-                                 list, print(list) renders each handle on its own line";
+                                 concatenate it alone (\"- \" .. es[1]); print(list) renders the \
+                                 whole list, one handle per line.";
     if message.contains("attempt to concatenate")
         && message.contains("table")
         && !message.contains(CONCAT_LESSON)
