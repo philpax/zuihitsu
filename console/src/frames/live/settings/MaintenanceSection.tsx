@@ -14,12 +14,18 @@ import { EventRef } from "../../../components/eventDetailParts.tsx";
 /// did. Cursor-free like `PromptsView`: the maintenance subtab is an operator control surface reporting
 /// current standing, not part of the time-travelling deliberation timeline, so it reads the whole log
 /// rather than filtering by the viewer's seq cursor.
+///
+/// On a read-only instance the sweep history still reads — it is a record, and reading it is the point
+/// of inspection mode — but the section's one write, the on-demand snapshot, is refused with a `409`,
+/// so it is held closed with a note saying why.
 export function MaintenanceSection({
   connection,
   events,
+  readOnly = false,
 }: {
   connection: LiveConnection;
   events: Event[];
+  readOnly?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState<
     | { state: "idle" | "working" }
@@ -28,6 +34,7 @@ export function MaintenanceSection({
   >({ state: "idle" });
 
   async function takeSnapshot() {
+    if (readOnly) return;
     setSnapshot({ state: "working" });
     try {
       const written = await snapshotNow(connection);
@@ -78,9 +85,12 @@ export function MaintenanceSection({
           the latest snapshot and replays only the tail, so a fresh one shortens the next startup.
         </p>
         <div className="mt-4 flex items-center gap-4">
-          <Button onClick={takeSnapshot} disabled={snapshot.state === "working"}>
+          <Button onClick={takeSnapshot} disabled={readOnly || snapshot.state === "working"}>
             {snapshot.state === "working" ? "Snapshotting…" : "Snapshot now"}
           </Button>
+          {readOnly && (
+            <Hint className="text-2xs">read-only — nothing can be written in inspection mode</Hint>
+          )}
           {snapshot.state === "done" && <Hint className="text-ink-soft">{snapshot.message}</Hint>}
           {snapshot.state === "error" && <Hint tone="error">{snapshot.message}</Hint>}
         </div>

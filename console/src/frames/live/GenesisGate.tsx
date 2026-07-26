@@ -2,19 +2,23 @@ import { useState } from "react";
 
 import type { LiveConnection } from "../../lib/api/live.ts";
 import { type Seed, createAgent } from "../../lib/api/operator.ts";
-import { Button, Eyebrow } from "../../components/primitives.tsx";
+import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 
 /// Bring the agent into being before the workspace opens: name it, give it a persona, and
 /// plant any first-person seed entries in `self`. Shown by the agent frame when the connected
 /// instance has no agent yet (or an interrupted genesis to resume) — the one operator action that
 /// gates everything else, so it stands ahead of the views rather than inside them.
+/// On a read-only instance there is nothing to be done here — genesis is a write, refused with a
+/// `409` — so the form reads but its action is held closed with a note saying why.
 export function GenesisGate({
   connection,
   resuming,
+  readOnly = false,
   onCreated,
 }: {
   connection: LiveConnection;
   resuming: boolean;
+  readOnly?: boolean;
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
@@ -24,6 +28,7 @@ export function GenesisGate({
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
+    if (readOnly) return;
     setPending(true);
     setError(null);
     const seed: Seed = {
@@ -88,9 +93,21 @@ export function GenesisGate({
           />
         </Field>
         {error && <p className="text-sm text-clay">{error}</p>}
-        <Button primary className="self-start" onClick={submit} disabled={!ready || pending}>
-          {pending ? "Creating…" : resuming ? "Resume genesis" : "Create the agent"}
-        </Button>
+        <div className="flex items-center gap-4">
+          <Button
+            primary
+            className="self-start"
+            onClick={submit}
+            disabled={!ready || readOnly || pending}
+          >
+            {pending ? "Creating…" : resuming ? "Resume genesis" : "Create the agent"}
+          </Button>
+          {readOnly && (
+            <Hint className="text-2xs">
+              read-only — an agent cannot be created in inspection mode
+            </Hint>
+          )}
+        </div>
       </div>
     </div>
   );

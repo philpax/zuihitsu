@@ -15,9 +15,13 @@ import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 export function SelfEditor({
   entries,
   onEditSelf,
+  readOnly = false,
 }: {
   entries: EntryView[];
   onEditSelf: (text: string, supersedes?: EntryId) => Promise<void>;
+  /// Whether the instance is booted for inspection only, so the write would be refused with a `409`.
+  /// The panel still reads and still drafts; only the committing verb is held closed.
+  readOnly?: boolean;
 }) {
   // The edit target: `"new"` appends, an `entry_id` revises that entry. `text` is the draft; `original`
   // is the chosen entry's text, so a revision can disable Save until the operator actually changes it.
@@ -44,7 +48,7 @@ export function SelfEditor({
   }
 
   async function commit() {
-    if (!ready) return;
+    if (!ready || readOnly) return;
     setSaving(true);
     setError(null);
     try {
@@ -98,7 +102,7 @@ export function SelfEditor({
         {revising && confirming ? (
           <>
             <Hint tone="error">revise this entry? it drops from the live profile.</Hint>
-            <Button primary disabled={saving || !ready} onClick={commit}>
+            <Button primary disabled={saving || readOnly || !ready} onClick={commit}>
               revise
             </Button>
             <Button disabled={saving} onClick={() => setConfirming(false)}>
@@ -108,13 +112,16 @@ export function SelfEditor({
         ) : (
           <Button
             primary
-            disabled={saving || !ready}
+            disabled={saving || readOnly || !ready}
             onClick={() => (revising ? setConfirming(true) : commit())}
           >
             {revising ? "revise" : "append entry"}
           </Button>
         )}
         {saving && <Hint>working…</Hint>}
+        {readOnly && (
+          <Hint className="text-2xs">read-only — self cannot be edited in inspection mode</Hint>
+        )}
       </div>
       {error && <Hint tone="error">{error}</Hint>}
     </section>

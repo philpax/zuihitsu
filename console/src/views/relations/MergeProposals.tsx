@@ -30,11 +30,15 @@ export function MergeProposals({
   onResolve,
   onUnmerge,
   onDesignatePrimary,
+  readOnly = false,
 }: {
   proposals: MergeProposalView[];
   onResolve?: (from: MemoryId, to: MemoryId) => Promise<void>;
   onUnmerge?: (from: MemoryId, to: MemoryId) => Promise<void>;
   onDesignatePrimary?: (memory: MemoryId, designated: boolean) => Promise<void>;
+  /// Booted for inspection only: every decision below would be refused with a `409`, so the cards keep
+  /// their verbs but hold them closed, with the reason stated once at the foot of the surface.
+  readOnly?: boolean;
 }) {
   // The pair currently being acted on (keyed by its two ids), and the last failure, so the buttons
   // disable in flight and a rejected request surfaces its reason. `confirming` holds the pair whose
@@ -48,6 +52,7 @@ export function MergeProposals({
   // One runner behind every action: key the pair busy, clear the last error, run, and surface any
   // rejection. Every handler funnels through here so the in-flight and failure behaviour is uniform.
   async function run(key: string, action: () => Promise<void>) {
+    if (readOnly) return;
     setBusy(key);
     setError(null);
     try {
@@ -71,6 +76,7 @@ export function MergeProposals({
               proposal={proposal}
               working={busy === key}
               busy={busy !== null}
+              readOnly={readOnly}
               isConfirming={confirming === key}
               onResolve={
                 onResolve && (() => run(key, () => onResolve(proposal.from_id, proposal.to_id)))
@@ -93,6 +99,11 @@ export function MergeProposals({
         })}
       </ul>
       {error && <Hint tone="error">{error}</Hint>}
+      {readOnly && (
+        <Hint className="text-2xs">
+          read-only — merge decisions cannot be recorded in inspection mode
+        </Hint>
+      )}
     </section>
   );
 }
@@ -105,6 +116,7 @@ function MergeCard({
   proposal,
   working,
   busy,
+  readOnly,
   isConfirming,
   onResolve,
   onUnmerge,
@@ -115,6 +127,7 @@ function MergeCard({
   proposal: MergeProposalView;
   working: boolean;
   busy: boolean;
+  readOnly: boolean;
   isConfirming: boolean;
   onResolve?: () => void;
   onUnmerge?: () => void;
@@ -125,6 +138,9 @@ function MergeCard({
   const pending = proposal.status === "pending";
   const merged = proposal.status === "merged";
   const [lead, folded] = orderedMembers(proposal);
+  // Every verb on the card is closed while another pair is in flight, and while the instance is
+  // booted read-only.
+  const locked = busy || readOnly;
 
   return (
     <li className="flex flex-col gap-3 rounded-sm border border-line bg-paper-raised p-4">
@@ -134,13 +150,13 @@ function MergeCard({
             member={lead}
             merged={merged}
             lead
-            action={merged ? designateAction(lead, onDesignate, working) : null}
+            action={merged ? designateAction(lead, onDesignate, working || readOnly) : null}
           />
           <MemberRow
             member={folded}
             merged={merged}
             lead={false}
-            action={merged ? designateAction(folded, onDesignate, working) : null}
+            action={merged ? designateAction(folded, onDesignate, working || readOnly) : null}
           />
         </div>
         <StatusMark status={proposal.status} />
@@ -150,7 +166,7 @@ function MergeCard({
 
       {pending && onResolve && (
         <div className="flex items-center gap-3">
-          <RowAction tone="affirm" disabled={busy} onClick={onResolve}>
+          <RowAction tone="affirm" disabled={locked} onClick={onResolve}>
             confirm merge
           </RowAction>
           {working && <WorkingPulse className="self-center" />}
@@ -162,7 +178,7 @@ function MergeCard({
         (isConfirming ? (
           <div className="flex flex-wrap items-center gap-3">
             <Hint tone="error">retract this merge? the two identities split apart.</Hint>
-            <RowAction tone="destructive" disabled={busy} onClick={onUnmerge}>
+            <RowAction tone="destructive" disabled={locked} onClick={onUnmerge}>
               unmerge
             </RowAction>
             <RowAction disabled={busy} onClick={onCancelConfirm}>
@@ -172,7 +188,7 @@ function MergeCard({
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <RowAction tone="destructive" disabled={busy} onClick={onStartConfirm}>
+            <RowAction tone="destructive" disabled={locked} onClick={onStartConfirm}>
               unmerge
             </RowAction>
             {working && <WorkingPulse className="self-center" />}
@@ -216,23 +232,24 @@ function MemberRow({
 
 /// The primary control a merged stub carries: a non-primary stub can be made primary; a stub the
 /// operator has pinned can be released back to the earliest-ULID default. A stub that is primary by
-/// default carries nothing — the way to move it is to make its partner primary instead.
+/// default carries nothing — the way to move it is to make its partner primary instead. `locked`
+/// closes the control while this pair is in flight, or while the instance is booted read-only.
 function designateAction(
   member: Member,
   onDesignate: ((memory: MemoryId, designated: boolean) => void) | undefined,
-  working: boolean,
+  locked: boolean,
 ): ReactNode {
   if (!onDesignate) return null;
   if (!member.primary) {
     return (
-      <RowAction disabled={working} onClick={() => onDesignate(member.id, true)}>
+      <RowAction disabled={locked} onClick={() => onDesignate(member.id, true)}>
         make primary
       </RowAction>
     );
   }
   if (member.designated) {
     return (
-      <RowAction disabled={working} onClick={() => onDesignate(member.id, false)}>
+      <RowAction disabled={locked} onClick={() => onDesignate(member.id, false)}>
         release
       </RowAction>
     );

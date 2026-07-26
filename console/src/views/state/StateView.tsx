@@ -16,12 +16,17 @@ export function StateView({
   replica,
   events,
   cursor,
+  readOnly = false,
   onEditSelf,
   onRetract,
 }: {
   replica: Replica;
   events: Event[];
   cursor: number;
+  /// Whether the instance is booted for inspection only, so the operator writes below would be refused
+  /// with a `409`. The affordances still render — the record is worth reading — with their actions
+  /// held closed and a note saying why.
+  readOnly?: boolean;
   /// Present only in the live agent frame at the head: the operator's `self`-editing callback, threaded
   /// to the `self` memory's detail pane.
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
@@ -50,6 +55,7 @@ export function StateView({
       selected={selected}
       onSelect={onSelect}
       onShowEvents={showEvents}
+      readOnly={readOnly}
       onEditSelf={onEditSelf}
       onRetract={onRetract}
     />

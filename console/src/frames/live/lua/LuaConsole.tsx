@@ -38,7 +38,16 @@ interface Run {
 /// the calendar. MCP is off unless opted in (a real external effect, even in the sandbox). The agent's
 /// own Lua API stands alongside as a filterable reference — the editor and the reference are the two
 /// halves of the same act, writing a call and knowing what to call.
-export function LuaConsole({ connection }: { connection: LiveConnection }) {
+/// `readOnly` marks an instance booted for inspection: the sandbox commits nothing, but the run
+/// endpoint is refused with a `409` all the same, so the run control is held closed with a note
+/// rather than left to fail.
+export function LuaConsole({
+  connection,
+  readOnly = false,
+}: {
+  connection: LiveConnection;
+  readOnly?: boolean;
+}) {
   const [script, setScript] = useState(
     '-- read-only: nothing here persists\nreturn memory.get("self"):entries()',
   );
@@ -64,7 +73,7 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
 
   async function run() {
     const text = script.trim();
-    if (!text || pending) return;
+    if (!text || pending || readOnly) return;
     setPending(true);
     const id = runs.length;
     try {
@@ -90,7 +99,11 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-x-5 gap-y-2">
           <div className="flex items-center gap-4">
-            <Button primary onClick={run} disabled={pending || script.trim().length === 0}>
+            <Button
+              primary
+              onClick={run}
+              disabled={pending || readOnly || script.trim().length === 0}
+            >
               {pending ? "running…" : "run"}
             </Button>
             <Checkbox
@@ -124,7 +137,11 @@ export function LuaConsole({ connection }: { connection: LiveConnection }) {
               }
             />
           </div>
-          <Hint className="hidden sm:inline">⌘/ctrl + ↵ to run</Hint>
+          {readOnly ? (
+            <Hint className="text-2xs">read-only — a block cannot be run in inspection mode</Hint>
+          ) : (
+            <Hint className="hidden sm:inline">⌘/ctrl + ↵ to run</Hint>
+          )}
         </div>
 
         <div className="mt-6 lg:hidden">

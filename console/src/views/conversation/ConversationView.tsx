@@ -56,6 +56,7 @@ export function ConversationView({
   cursor,
   atHead = false,
   participate,
+  readOnly = false,
   progress,
 }: {
   replica: Replica;
@@ -66,6 +67,9 @@ export function ConversationView({
   /// head auto-scrolls while a scrub back into history is left undisturbed.
   atHead?: boolean;
   participate?: Participation;
+  /// Whether the instance is booted for inspection only, so a message would be refused with a `409`.
+  /// Holds the composer closed with a note rather than letting the send fail.
+  readOnly?: boolean;
   /// Each conversation's in-flight generation (live mode only): the open room renders its own at
   /// the transcript tail, so the operator watches the deliberation arrive rather than a silence.
   progress?: ReadonlyMap<string, InFlightGeneration>;
@@ -293,6 +297,7 @@ export function ConversationView({
                         (selected.conversation && progress?.get(selected.conversation.id)) || null
                       }
                       participate={participate}
+                      readOnly={readOnly}
                       unknownTurn={
                         linkedTurnId !== null && linkedChannel === null ? linkedTurnId : null
                       }

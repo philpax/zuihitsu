@@ -34,12 +34,16 @@ function title(text: string): string {
 /// The behavioral draft lives here at the view level, so the save bar stays global: an unsaved edit
 /// in any group stays reachable to save no matter which section the operator has since opened, with
 /// a hint naming the dirty groups when they are out of sight.
+/// On a read-only instance the fields still read and still take edits — the tree is worth composing
+/// against — but the save is refused with a `409`, so it is held closed with a note saying why.
 export function SettingsView({
   connection,
   events,
+  readOnly = false,
 }: {
   connection: LiveConnection;
   events: Event[];
+  readOnly?: boolean;
 }) {
   const navigate = useNavigate();
   const { selection, link } = useStream();
@@ -95,7 +99,7 @@ export function SettingsView({
   }
 
   async function save() {
-    if (!tree) return;
+    if (!tree || readOnly) return;
     setStatus("saving");
     setError(null);
     try {
@@ -129,13 +133,19 @@ export function SettingsView({
           so it never moves with the height of the open section. */}
       <div className="mb-5 flex items-center justify-end gap-4">
         {status === "error" && error && <Hint tone="error">{error}</Hint>}
-        {!dirty && status === "ready" && <Hint>no unsaved changes</Hint>}
-        {dirty && status !== "saving" && hiddenDirty.length > 0 && (
-          <Hint>
-            unsaved changes in {hiddenDirty.map((group) => title(label(group))).join(", ")}
-          </Hint>
+        {readOnly ? (
+          <Hint className="text-2xs">read-only — settings cannot be saved in inspection mode</Hint>
+        ) : (
+          <>
+            {!dirty && status === "ready" && <Hint>no unsaved changes</Hint>}
+            {dirty && status !== "saving" && hiddenDirty.length > 0 && (
+              <Hint>
+                unsaved changes in {hiddenDirty.map((group) => title(label(group))).join(", ")}
+              </Hint>
+            )}
+          </>
         )}
-        <Button primary onClick={save} disabled={!dirty || status === "saving"}>
+        <Button primary onClick={save} disabled={!dirty || readOnly || status === "saving"}>
           {status === "saving" ? "Saving…" : "Save"}
         </Button>
       </div>
@@ -161,7 +171,7 @@ export function SettingsView({
                   onChange={update}
                 />
               )}
-              <MaintenanceSection connection={connection} events={events} />
+              <MaintenanceSection connection={connection} events={events} readOnly={readOnly} />
             </div>
           ) : (
             <BehavioralSettings

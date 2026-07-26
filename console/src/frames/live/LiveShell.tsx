@@ -41,6 +41,9 @@ export function LiveShell({
   const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
   // The model transport's health, polled for the degraded-backend banner below the header.
   const health = useInstanceHealth(connection);
+  // Whether the instance is booted for inspection only. Every mutating control below is disabled on
+  // it — the server refuses the request with a `409`, so an enabled control would only ever fail.
+  const readOnly = health?.read_only ?? false;
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +87,7 @@ export function LiveShell({
         </div>
       </header>
 
-      {health?.read_only && <ReadOnlyBanner />}
+      {readOnly && <ReadOnlyBanner />}
 
       {health && isDegraded(health.model) && <BackendBanner health={health.model} />}
 
@@ -101,6 +104,7 @@ export function LiveShell({
           <GenesisGate
             connection={connection}
             resuming={genesis === "Incomplete"}
+            readOnly={readOnly}
             onCreated={() => setGenesis("Complete")}
           />
         </ShellBody>
@@ -117,18 +121,25 @@ export function LiveShell({
             following.current = value;
           }}
           participant={{ connection, sender, setSender }}
+          readOnly={readOnly}
           progress={log.progress}
           extraViews={[
-            { id: "console", label: "Console", node: <LuaConsole connection={connection} /> },
+            {
+              id: "console",
+              label: "Console",
+              node: <LuaConsole connection={connection} readOnly={readOnly} />,
+            },
             {
               id: "prompts",
               label: "Prompts",
-              node: <PromptsView connection={connection} events={log.events} />,
+              node: <PromptsView connection={connection} events={log.events} readOnly={readOnly} />,
             },
             {
               id: "settings",
               label: "Settings",
-              node: <SettingsView connection={connection} events={log.events} />,
+              node: (
+                <SettingsView connection={connection} events={log.events} readOnly={readOnly} />
+              ),
             },
           ]}
         />

@@ -7,7 +7,7 @@ import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
 import { formatDateTime, formatIso } from "../../lib/format/format.ts";
 import { relationColor } from "../../lib/format/relationColor.ts";
 import { rruleLabel } from "../../lib/model/audit.ts";
-import { Eyebrow } from "../../components/primitives.tsx";
+import { Eyebrow, Hint } from "../../components/primitives.tsx";
 import { EntryItem, Section } from "./MemoryList.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 import { SelfEditor } from "./SelfEditor.tsx";
@@ -18,6 +18,7 @@ export function MemoryDetailPane({
   arbitrations,
   recurring,
   onShowEvents,
+  readOnly = false,
   onEditSelf,
   onRetract,
 }: {
@@ -26,6 +27,10 @@ export function MemoryDetailPane({
   arbitrations: Arbitration[];
   recurring: RecurringItem[];
   onShowEvents?: (id: string, name: string) => void;
+  /// Whether the instance is booted for inspection only. The retract affordance and the `self` editor
+  /// still render, with their actions held closed — the retract note is stated once for the contents
+  /// section rather than beside every entry.
+  readOnly?: boolean;
   /// Present only in the live agent frame at the head, and exercised only on `self`: append a charter
   /// entry, or revise one under operator authority (the operator side of self-editing).
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
@@ -114,15 +119,21 @@ export function MemoryDetailPane({
                 expanded
                 memoryName={memory.name}
                 onRetract={onRetract}
+                readOnly={readOnly}
                 highlighted={entry.entry_id === highlightId}
               />
             ))}
           </ul>
         )}
+        {readOnly && onRetract && entries.length > 0 && (
+          <Hint className="mt-3 block text-2xs">
+            read-only — entries cannot be retracted in inspection mode
+          </Hint>
+        )}
       </Section>
 
       {memory.name === "self" && onEditSelf && (
-        <SelfEditor entries={entries} onEditSelf={onEditSelf} />
+        <SelfEditor entries={entries} onEditSelf={onEditSelf} readOnly={readOnly} />
       )}
 
       {links.length > 0 && (
