@@ -28,16 +28,6 @@ mod replay;
 mod schema;
 mod search;
 
-/// A temporary file path for a graph database, cleaned up on drop. `#[cfg(test)]` only — never
-/// available to non-test code, so the read-only constructors' file-based tests cannot leak into
-/// production paths.
-#[cfg(test)]
-pub(super) fn temp_graph_path() -> tempfile::TempPath {
-    tempfile::NamedTempFile::new()
-        .expect("a temp file for a graph database")
-        .into_temp_path()
-}
-
 /// Standard mentor relation for the link tests: asymmetric, many-to-many.
 pub(super) fn mentor_relation() -> EventPayload {
     EventPayload::LinkTypeRegistered {

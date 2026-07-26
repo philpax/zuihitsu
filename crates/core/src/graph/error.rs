@@ -12,6 +12,10 @@ pub enum GraphError {
     /// means the projection is corrupt (a materializer bug or external tampering), not a typed
     /// failure with a source to delegate to.
     Malformed(String),
+    /// A read-only open found a graph stamped under another build's schema (or no stamp at all).
+    /// A read-write open resets and re-materializes such a graph; a read-only one cannot write, so
+    /// it refuses rather than read a table shape this build did not create.
+    SchemaMismatch { expected: i64, stored: Option<i64> },
 }
 
 impl std::fmt::Display for GraphError {
@@ -22,6 +26,18 @@ impl std::fmt::Display for GraphError {
             GraphError::Serialize(error) => write!(f, "materialized graph (serde): {error}"),
             GraphError::Malformed(message) => {
                 write!(f, "materialized graph (malformed): {message}")
+            }
+            GraphError::SchemaMismatch { expected, stored } => {
+                let stored = match stored {
+                    Some(stamp) => stamp.to_string(),
+                    None => "unstamped".to_owned(),
+                };
+                write!(
+                    f,
+                    "materialized graph (schema): the graph is stamped {stored} but this build's \
+                     projection schema is {expected}; boot the instance read-write once to \
+                     re-materialize it, then reopen read-only"
+                )
             }
         }
     }
@@ -34,6 +50,7 @@ impl std::error::Error for GraphError {
             GraphError::Store(error) => Some(error),
             GraphError::Serialize(error) => Some(error),
             GraphError::Malformed(_) => None,
+            GraphError::SchemaMismatch { .. } => None,
         }
     }
 }

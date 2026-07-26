@@ -1,9 +1,16 @@
 //! Schema-guard tests: a graph stamped under another schema fingerprint is reset by `guard_schema`
 //! (rebuilt from the log by the next `materialize_from`), while a matching stamp preserves the
-//! graph. The guard is driven directly on an in-memory graph — the reset decision is pure logic
-//! over the stored stamp, and file persistence between opens is SQLite's property, not ours.
+//! graph, and a read-only open — which cannot make that repair — refuses a graph it did not stamp.
+//! The reset cases are driven directly on an in-memory graph, the decision being pure logic over the
+//! stored stamp; the read-only cases need a file, because the flag they exercise is an open flag.
 
-use crate::graph::{Graph, schema::schema_fingerprint};
+use crate::{
+    event::{EventPayload, EventSource},
+    graph::{Graph, GraphError, schema::schema_fingerprint},
+    ids::{MemoryId, Namespace},
+    store::{MemoryStore, Store},
+    time::Timestamp,
+};
 
 fn graph_with_a_row() -> Graph {
     let graph = Graph::open_in_memory().unwrap();
@@ -66,32 +73,25 @@ fn a_graph_stamped_under_another_schema_is_reset() {
     );
 }
 
-/// A read-only open of an existing graph file reads without writing — no `guard_schema`, no DDL.
-/// The file is seeded by a normal `open` + `materialize_from`, then reopened read-only; reads
-/// return the materialized state and the head is unchanged (no reset).
+/// A read-only open of an existing graph file reads without writing — it checks the schema stamp but
+/// runs no DDL and no reset. The file is seeded by a normal `open` + `materialize_from`, then
+/// reopened read-only; reads return the materialized state and the head is unchanged.
 #[test]
 fn open_read_only_reads_without_writing() {
-    use crate::{
-        event::{EventPayload, EventSource},
-        store::{MemoryStore, Store},
-        time::Timestamp,
-    };
-
-    let path = super::temp_graph_path();
-    // `Graph::open` creates the file; `temp_graph_path` gave us a path that does not yet exist
-    // (NamedTempFile creates then detaches), so open it at the path.
-    let file_path = path.keep().expect("keep the temp file");
+    // The directory guard cleans up the database and its WAL siblings on drop, panic or not.
+    let dir = tempfile::tempdir().expect("a temp directory for a graph database");
+    let file_path = dir.path().join("graph.sqlite");
 
     // Seed a graph on disk: create a memory so the graph holds a row and a non-zero head.
     let mut store = MemoryStore::new();
-    let memory = crate::ids::MemoryId::generate();
+    let memory = MemoryId::generate();
     store
         .append(
             Timestamp::from_millis(1_000),
             EventSource::Agent,
             vec![EventPayload::memory_created(
                 memory,
-                crate::ids::Namespace::Person.with_name("rowan@direct"),
+                Namespace::Person.with_name("rowan@direct"),
             )],
         )
         .unwrap();
@@ -110,7 +110,7 @@ fn open_read_only_reads_without_writing() {
     );
     // The memory we seeded is readable — the projection survived the read-only reopen.
     let memory_view = graph
-        .memory_by_name(crate::ids::Namespace::Person.with_name("rowan@direct"))
+        .memory_by_name(Namespace::Person.with_name("rowan@direct"))
         .unwrap()
         .expect("the seeded memory survives a read-only reopen");
     assert_eq!(memory_view.id, memory);
@@ -127,6 +127,48 @@ fn open_read_only_reads_without_writing() {
             .is_err(),
         "a read-only connection must refuse writes"
     );
+}
 
-    let _ = std::fs::remove_file(&file_path);
+/// A graph stamped under another build's schema is refused by a read-only open rather than read.
+/// `guard_schema` would reset and re-materialize such a graph, but that repair is a write, so the
+/// read-only path has only the two honest options — refuse, or serve a projection this build did not
+/// create. It refuses.
+#[test]
+fn open_read_only_refuses_a_graph_stamped_under_another_schema() {
+    let dir = tempfile::tempdir().expect("a temp directory for a graph database");
+    let file_path = dir.path().join("graph.sqlite");
+
+    {
+        let graph = Graph::open(&file_path).unwrap();
+        graph
+            .conn
+            .execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'schema_fingerprint'",
+                [schema_fingerprint().wrapping_add(1)],
+            )
+            .unwrap();
+    }
+
+    // `Graph` is not `Debug`, so the outcome is matched rather than unwrapped.
+    match Graph::open_read_only(&file_path) {
+        Err(GraphError::SchemaMismatch { .. }) => {}
+        Err(error) => panic!("a foreign stamp must read as a schema mismatch, not: {error}"),
+        Ok(_) => panic!("a foreign stamp must be refused"),
+    }
+}
+
+/// An unstamped graph is refused too. A read-write open resets one (recreating empty tables is
+/// free), so an unstamped file reaching a read-only open is either empty or older than the stamp,
+/// and neither holds a projection worth serving.
+#[test]
+fn open_read_only_refuses_an_unstamped_graph() {
+    let dir = tempfile::tempdir().expect("a temp directory for a graph database");
+    let file_path = dir.path().join("graph.sqlite");
+    std::fs::write(&file_path, []).expect("an empty database file");
+
+    match Graph::open_read_only(&file_path) {
+        Err(GraphError::SchemaMismatch { stored: None, .. }) => {}
+        Err(error) => panic!("an empty file must read as unstamped, not: {error}"),
+        Ok(_) => panic!("an unstamped graph must be refused"),
+    }
 }
