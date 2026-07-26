@@ -14,6 +14,7 @@ mod console;
 mod control;
 mod error;
 mod platform;
+mod read_only;
 mod serve_error;
 mod stream;
 
@@ -45,6 +46,7 @@ use control::{
     sessions, set_settings, settings, snapshot as snapshot_handler, unmerge,
 };
 use platform::{join, link, message, message_stream, project, roster, self_memory, write_context};
+use read_only::refuse_mutations_when_read_only;
 
 /// Shared HTTP handler state: the agent server behind an `Arc`, and the model client the conversing
 /// endpoints (`imprint`, `route_message`) drive — `None` when no model endpoint is configured, in
@@ -406,22 +408,11 @@ async fn serve(config: EnvConfig, cli_read_only: bool) -> Result<(), ServeError>
     });
 
     let app = router(AppState {
-        live: Arc::new(stream::LiveEvents::start(&server)),
-        shutdown: shutdown.clone(),
-        server: server.clone(),
         model,
         backend,
         snapshot_dir: config.snapshots.enabled.then_some(snapshot_dir),
-        metrics,
         boot,
-        control_keys: config.serving.control_keys.into(),
-        platform_connectors: config
-            .platform_connectors
-            .iter()
-            .map(|(platform, connector)| (platform.clone(), connector.key.clone()))
-            .collect(),
-        config: env_config,
-        read_only: false,
+        ..shared_app_state(server.clone(), shutdown.clone(), metrics, env_config)
     });
     let mcp_summary = server.mcp_summary();
     tracing::info!(
@@ -529,19 +520,21 @@ async fn serve_until_shutdown(
     Ok(())
 }
 
-/// Build the [`AppState`] fields every boot path shares, so each path overrides only what its
-/// scenario exercises. The `server` is already `Arc`-wrapped; `model`, `backend`, and
-/// `snapshot_dir` are `None` for the read-only path.
+/// The [`AppState`] fields both boot paths share. The read-only path takes it whole; the live path
+/// takes it with `..` and overrides the four fields it alone has (`model`, `backend`, `snapshot_dir`,
+/// and a `boot` instant taken before its longer startup). `config` arrives already `Arc`-wrapped
+/// because the live path captures it before the MCP table and the API keys are moved out of the owned
+/// config, and it is the config *as booted*, so `serving.read_only` reads true under `--read-only`
+/// even when the file said otherwise.
 fn shared_app_state(
     server: Arc<Server>,
     shutdown: ShutdownFlag,
     metrics: Option<metrics_exporter_prometheus::PrometheusHandle>,
-    config: &EnvConfig,
-    read_only: bool,
+    config: Arc<EnvConfig>,
 ) -> AppState {
     AppState {
         live: Arc::new(stream::LiveEvents::start(&server)),
-        shutdown: shutdown.clone(),
+        shutdown,
         server,
         model: None,
         backend: None,
@@ -554,19 +547,26 @@ fn shared_app_state(
             .iter()
             .map(|(platform, connector)| (platform.clone(), connector.key.clone()))
             .collect(),
-        config: Arc::new(config.clone()),
-        read_only,
+        read_only: config.serving.read_only,
+        config,
     }
 }
 
 /// Serve the console against an at-rest instance's data **without taking the single-writer lock**,
 /// performing no writes, and spawning no background work (spec §Boot). The store, graph, and vector
 /// index all open read-only; `boot()` is skipped entirely (the at-rest graph is already materialized
-/// from the last live boot); no drivers spawn; no model client or arbiter is built. Mutating handlers
-/// return `409` via the `read_only` flag on [`AppState`]. The data is a snapshot at boot — the SSE
-/// stream serves its initial snapshot then idles (a read-only store has no subscriber feed). The
-/// operator restarts to see new data.
-async fn serve_read_only(config: EnvConfig) -> Result<(), ServeError> {
+/// from the last live boot); no drivers spawn; no model client or arbiter is built. Mutating requests
+/// return `409` from [`refuse_mutations_when_read_only`].
+///
+/// **What is frozen and what is not.** The graph and the vector index are frozen at boot: nothing
+/// re-materializes them, so every graph-backed read (memories, entries, briefs, relations) answers
+/// from the state the last live boot left behind. The event log is *not* frozen — each read is a fresh
+/// query against the SQLite file — so if the agent is running concurrently (which this mode permits,
+/// since it takes no lock), the log and the SSE catch-up serve events newer than the graph that has
+/// not seen them. The two agree only while the instance is genuinely at rest, which is the intended
+/// use. The SSE stream never pushes a live tail regardless: a read-only store has no subscriber feed,
+/// so the stream serves its initial catch-up and then idles. Restart to advance the frozen half.
+async fn serve_read_only(mut config: EnvConfig) -> Result<(), ServeError> {
     let bind = config.serving.bind;
     let event_log = config.storage.event_log();
     let graph_path = config.storage.graph();
@@ -615,14 +615,17 @@ async fn serve_read_only(config: EnvConfig) -> Result<(), ServeError> {
     let server = Arc::new(server);
     let shutdown = ShutdownFlag::install();
     let metrics = install_metrics();
+    // The config the state serves is the config *as booted*, so `/control/config` agrees with
+    // `/control/health` for an operator who reached read-only mode through the CLI flag rather than
+    // through the file.
+    config.serving.read_only = true;
+    let (storage_dir, model_endpoint, embedding_endpoint) = boot_log_fields(&config);
     let app = router(shared_app_state(
         server.clone(),
         shutdown.clone(),
         metrics,
-        &config,
-        true,
+        Arc::new(config),
     ));
-    let (storage_dir, model_endpoint, embedding_endpoint) = boot_log_fields(&config);
     tracing::info!(
         %bind,
         %storage_dir,
@@ -643,6 +646,12 @@ async fn serve_read_only(config: EnvConfig) -> Result<(), ServeError> {
 /// a top-level layer would also wrap the nested platform routes and force platform clients to present a
 /// control key. Under `.nest`, the sub-router routes are spelled relative (`/agent`, not
 /// `/control/agent`).
+///
+/// Each surface also carries [`refuse_mutations_when_read_only`], inside its auth layer, which is what
+/// makes a read-only boot's `409` structural: the gate reads the request method, so a mutating route
+/// added later is refused without anyone remembering to guard it. It sits per sub-router rather than
+/// at the top for a second reason — the top-level router's fallback is the console, and a `POST` to an
+/// unknown path should stay a routing failure rather than become a read-only refusal.
 fn router(state: AppState) -> Router {
     // The operator surface: agent creation and read-only inspection (spec §Clients → control clients).
     // The CLI and the future web console drive these.
@@ -680,6 +689,10 @@ fn router(state: AppState) -> Router {
         .route("/maintenance/link-cleanup", post(maintenance_link_cleanup))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
+            refuse_mutations_when_read_only,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
             require_control_key,
         ));
     // The participant surface: delivering turns, mid-session joins, and roster resyncs (spec §Clients
@@ -693,6 +706,10 @@ fn router(state: AppState) -> Router {
         .route("/project", post(project))
         .route("/self", get(self_memory))
         .route("/link", post(link))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            refuse_mutations_when_read_only,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_platform_key,

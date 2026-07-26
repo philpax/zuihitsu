@@ -1,6 +1,8 @@
-//! Read-only mode: every mutating handler returns `409` when the server is booted read-only, and
-//! read handlers return `200`. The gate is centralised in `refuse_if_read_only`, so representative
-//! coverage exercises the representative mutating endpoints across both surfaces.
+//! Read-only mode: every mutating request returns `409` when the server is booted read-only, and
+//! reads return `200`. The gate is a per-surface middleware keyed on the request method, so these
+//! cases are checking the *wiring* — that the layer sits on both surfaces, inside auth, and ahead of
+//! each handler's own conflict paths — rather than enumerating handlers. No handler carries a guard
+//! of its own, so a route reaching a handler at all would fail here.
 
 use crate::http_server::{
     router,
@@ -210,6 +212,24 @@ async fn read_only_serves_lua_api() {
     .await;
 }
 
+/// `HEAD` is a read, not a mutation. Axum answers it from the `get` handler, so gating on "not a
+/// `GET`" rather than on the read set would refuse an ordinary probe.
+#[tokio::test]
+async fn read_only_serves_a_head_probe() {
+    let response = read_only_app()
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("HEAD")
+                .uri("/control/genesis")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 // --- Platform surface: mutating handlers return 409 ---
 
 #[tokio::test]
@@ -301,9 +321,8 @@ async fn read_only_refuses_platform_project() {
 
 #[tokio::test]
 async fn read_only_refuses_platform_message_stream() {
-    // `message_stream` returns `Result<impl IntoResponse, ApiError>` rather than `Result<Json<T>,
-    // ApiError>`, so its `refuse_if_read_only` early-return path is structurally different — this
-    // test confirms the `ApiError` short-circuits before the SSE stream is built.
+    // The one streaming route: the refusal must be an ordinary `409` response rather than an SSE
+    // stream whose first frame reports the failure, since the gate runs before the handler.
     let body = serde_json::json!({
         "scope_path": "general",
         "messages": [{ "sender": "dave", "text": "hello" }],

@@ -19,9 +19,7 @@ use zuihitsu::{
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
-use crate::http_server::{
-    AppState, auth::PlatformConnectorScope, control::refuse_if_read_only, error::ApiError,
-};
+use crate::http_server::{AppState, auth::PlatformConnectorScope, error::ApiError};
 
 /// The locator for `scope_path` under the request's connector — the platform is the scope's, never the
 /// body's.
@@ -58,7 +56,6 @@ pub(super) async fn message(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<Json<PlatformResponse>, ApiError> {
-    refuse_if_read_only(&state)?;
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let locator = locator(&scope, request.scope_path);
     let messages: Vec<MessageInput> = request
@@ -107,7 +104,6 @@ pub(super) async fn join(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<JoinRequest>,
 ) -> Result<StatusCode, ApiError> {
-    refuse_if_read_only(&state)?;
     state
         .server
         .platform()
@@ -145,7 +141,6 @@ pub(super) async fn roster(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<RosterRequest>,
 ) -> Result<Json<RosterResyncBody>, ApiError> {
-    refuse_if_read_only(&state)?;
     let roster: Vec<PersonId> = request
         .roster
         .into_iter()
@@ -187,7 +182,6 @@ pub(super) async fn write_context(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ContextRequest>,
 ) -> Result<Json<ContextOutcome>, ApiError> {
-    refuse_if_read_only(&state)?;
     let outcome = state.server.platform().write_context(
         &locator(&scope, request.scope_path),
         &scope.platform,
@@ -212,7 +206,6 @@ pub(super) async fn project(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<ProjectRequest>,
 ) -> Result<Json<ProjectOutcome>, ApiError> {
-    refuse_if_read_only(&state)?;
     let outcome = state.server.platform().project(
         &link_node(&scope, request.target),
         &scope.platform,
@@ -262,7 +255,6 @@ pub(super) async fn link(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<LinkRequest>,
 ) -> Result<StatusCode, ApiError> {
-    refuse_if_read_only(&state)?;
     let from = link_node(&scope, request.from);
     let to = link_node(&scope, request.to);
     state
@@ -320,7 +312,6 @@ pub(super) async fn message_stream(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
-    refuse_if_read_only(&state)?;
     let model = state.model.clone().ok_or(ApiError::NoModel)?;
     let locator = locator(&scope, request.scope_path);
     let messages: Vec<MessageInput> = request

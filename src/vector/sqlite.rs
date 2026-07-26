@@ -362,23 +362,15 @@ mod tests {
         assert_eq!(index.model_id().unwrap().as_deref(), Some("bge-small"));
     }
 
-    /// A temporary file path for a vector index database, cleaned up on drop. `#[cfg(test)]` only
-    /// — never available to non-test code, so the read-only constructor's file-based test cannot
-    /// leak into production paths.
-    fn temp_vectors_path() -> tempfile::TempPath {
-        tempfile::NamedTempFile::new()
-            .expect("a temp file for a vector index")
-            .into_temp_path()
-    }
-
     /// `open_read_only` opens an existing index file and `search` succeeds, reading the vectors a
     /// prior live boot populated. The file is seeded by a normal `open` + `upsert`, then reopened
     /// read-only; the search returns the same hit as the read-write index.
     #[tokio::test]
     async fn open_read_only_searches_an_existing_index() {
         let embedder = CpuEmbedder::shared();
-        let path = temp_vectors_path();
-        let file_path = path.keep().expect("keep the temp file");
+        // The directory guard cleans up the database and its WAL siblings on drop, panic or not.
+        let dir = tempfile::tempdir().expect("a temp directory for a vector index");
+        let file_path = dir.path().join("vectors.sqlite");
 
         // Seed the index on disk with one vector.
         {
@@ -401,7 +393,5 @@ mod tests {
             index.upsert(record(&embedder, "new", "new").await).is_err(),
             "a read-only connection must refuse writes"
         );
-
-        let _ = std::fs::remove_file(&file_path);
     }
 }

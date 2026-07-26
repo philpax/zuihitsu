@@ -43,7 +43,11 @@ struct Cli {
     /// Boot the server read-only: serve the console and inspection surface against existing data
     /// without taking the writer lock or running any background work. Mutating endpoints return
     /// `409`. Overrides `[serving] read_only = false` in the config.
-    #[arg(long = "read-only", global = true)]
+    ///
+    /// Deliberately not `global`: it applies to the default no-subcommand boot and nothing else.
+    /// Several `debug` subcommands write by design, and accepting a flag there that could not be
+    /// honoured would read as a guarantee the write then broke.
+    #[arg(long = "read-only")]
     read_only: bool,
     /// The operation to perform. With none, `zuihitsu` boots the long-running server.
     #[command(subcommand)]
