@@ -380,16 +380,22 @@ impl Scenario for FlushWritesMemoryNotAReply {
         let reply_chars = flush_text.trim().chars().count();
         let no_reply = reply_chars <= FLUSH_REPLY_NEAR_EMPTY;
 
-        // Wrote memory: a content append attributed to the flush turn — its writes carry the flush's
-        // turn id in `told_in`, so a real durable write is distinguishable from having said nothing.
+        // Wrote memory: any durable write attributed to the flush turn — its writes carry the flush's
+        // turn id in `told_in`, so a real write is distinguishable from having said nothing. Content
+        // is not the only shape working state takes: a flush that finds the facts already recorded
+        // turn-by-turn may have only the structure left to lay down, and a link or an attestation is
+        // as durable as an append. Narrowing this to content would score a diligent agent — one that
+        // recorded as it went — as having flushed nothing.
         let wrote_memory = events.iter().any(|event| {
-            matches!(
-                &event.payload,
-                EventPayload::MemoryContentAppended {
-                    told_in: Some(reference),
-                    ..
-                } if reference.turn == Some(flush_turn_id)
-            )
+            let told_in = match &event.payload {
+                EventPayload::MemoryContentAppended { told_in, .. }
+                | EventPayload::EntryAttested { told_in, .. }
+                | EventPayload::LinkCreated { told_in, .. } => told_in,
+                _ => return false,
+            };
+            told_in
+                .as_ref()
+                .is_some_and(|reference| reference.turn == Some(flush_turn_id))
         });
 
         vec![
@@ -405,8 +411,8 @@ impl Scenario for FlushWritesMemoryNotAReply {
             Verdict::metric_outcome(
                 "the checkpoint flush wrote working state to memory",
                 wrote_memory,
-                "the flush turn appended durable content",
-                "the flush turn wrote no content to memory",
+                "the flush turn laid down a durable write",
+                "the flush turn wrote nothing durable to memory",
             ),
         ]
     }
