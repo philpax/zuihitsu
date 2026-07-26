@@ -17,7 +17,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 28,
+            version: 29,
             body: scaffold_body(features),
             description: "The system-prompt scaffold: the standing instructions every turn is \
                           framed by.",
