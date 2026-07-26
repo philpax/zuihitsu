@@ -7,10 +7,11 @@ import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
 import { formatDateTime, formatIso } from "../../lib/format/format.ts";
 import { relationColor } from "../../lib/format/relationColor.ts";
 import { rruleLabel } from "../../lib/model/audit.ts";
-import { Eyebrow } from "../../components/primitives.tsx";
+import { Eyebrow, Hint } from "../../components/primitives.tsx";
 import { EntryItem, Section } from "./MemoryList.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 import { SelfEditor } from "./SelfEditor.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 export function MemoryDetailPane({
   detail,
@@ -33,6 +34,10 @@ export function MemoryDetailPane({
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const { memory, entries, history, links } = detail;
+  // Booted for inspection only: the retract affordance and the `self` editor still render, holding
+  // their actions closed. The note is stated once for the contents section rather than beside every
+  // entry, so this pane reads the flag even though each control below reads it for itself.
+  const readOnly = useReadOnly();
   // A retraction tombstones an entry with its own id in superseded_by and a reason; a plain
   // supersession points at a distinct successor. Split them so each reads as what it is.
   const retracted = history.filter((entry) => entry.retracted_reason !== null);
@@ -118,6 +123,11 @@ export function MemoryDetailPane({
               />
             ))}
           </ul>
+        )}
+        {readOnly && onRetract && entries.length > 0 && (
+          <Hint className="mt-3 block text-2xs">
+            read-only — entries cannot be retracted in inspection mode
+          </Hint>
         )}
       </Section>
 

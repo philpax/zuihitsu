@@ -40,6 +40,15 @@ struct Cli {
     /// Path to the environmental config file (selects the instance).
     #[arg(long, default_value = "config.toml", global = true)]
     config: PathBuf,
+    /// Boot the server read-only: serve the console and inspection surface against existing data
+    /// without taking the writer lock or running any background work. Mutating endpoints return
+    /// `409`. Overrides `[serving] read_only = false` in the config.
+    ///
+    /// Deliberately not `global`: it applies to the default no-subcommand boot and nothing else.
+    /// Several `debug` subcommands write by design, and accepting a flag there that could not be
+    /// honoured would read as a guarantee the write then broke.
+    #[arg(long = "read-only")]
+    read_only: bool,
     /// The operation to perform. With none, `zuihitsu` boots the long-running server.
     #[command(subcommand)]
     command: Option<Command>,
@@ -114,7 +123,7 @@ fn init_tracing() {
 
 fn dispatch(cli: &Cli) -> Result<(), CliError> {
     let Some(command) = &cli.command else {
-        return http_server(&cli.config);
+        return http_server(&cli.config, cli.read_only);
     };
     let config = EnvConfig::load(&cli.config).map_err(|source| CliError::LoadConfig { source })?;
     let client = Client::new(config.serving.bind);
@@ -135,6 +144,6 @@ fn dispatch(cli: &Cli) -> Result<(), CliError> {
 }
 
 /// Boot the long-running HTTP server (the primary operation, the default with no subcommand).
-fn http_server(config_path: &Path) -> Result<(), CliError> {
-    crate::http_server::run_blocking(config_path).map_err(CliError::HttpServer)
+fn http_server(config_path: &Path, cli_read_only: bool) -> Result<(), CliError> {
+    crate::http_server::run_blocking(config_path, cli_read_only).map_err(CliError::HttpServer)
 }

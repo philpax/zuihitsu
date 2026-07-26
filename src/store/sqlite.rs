@@ -49,6 +49,12 @@ impl SqliteStore {
     /// Open a file-backed log read-only, taking no lock — safe to read while another process holds the
     /// write lock (an operator inspecting a running agent's log). The connection is read-only and the
     /// tables it reads already exist, so no `CREATE` runs; an append against it would error.
+    ///
+    /// The log is a WAL database, and SQLite reads a WAL database through its shared-memory index. So
+    /// this open succeeds in the two ordinary cases — a cleanly closed log, whose WAL was checkpointed
+    /// away, and a log a live writer is holding, whose index is already up — but fails on a log left
+    /// hot by a killed process, where recovering the WAL would be a write. The remedy is to boot the
+    /// instance read-write once, which recovers and checkpoints it.
     pub fn open_read_only(path: impl AsRef<Path>) -> Result<SqliteStore, StoreError> {
         let conn = Connection::open_with_flags(
             path.as_ref(),

@@ -13,6 +13,7 @@ import {
 import { useNavigate } from "../../lib/nav/historyContext.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { Button, Hint, Select } from "../../components/primitives.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// The Prompts view: the agent's prompt templates — the system-prompt scaffold and the framing
 /// templates — read from the log and editable (spec §Initialization → prompt templates). A save
@@ -31,6 +32,9 @@ import { Button, Hint, Select } from "../../components/primitives.tsx";
 /// surface is sovereign and adopts a new default only on the operator's explicit choice
 /// (`debug upgrade-prompts --force`). The build defaults live in Rust, so the badge state is fetched
 /// from `/control/prompt-status` rather than derived from the event log.
+///
+/// On a read-only instance the bodies still read and still take edits, but registering a version is
+/// refused with a `409`, so the save is held closed with a note saying why.
 export function PromptsView({
   connection,
   events,
@@ -183,12 +187,14 @@ function PromptEditor({
   status: TemplateStatus | undefined;
   connection: LiveConnection;
 }) {
+  const readOnly = useReadOnly();
   const [draft, setDraft] = useState(template.body);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dirty = draft !== template.body;
 
   async function save() {
+    if (readOnly) return;
     setSaving(true);
     setError(null);
     try {
@@ -221,9 +227,14 @@ function PromptEditor({
         className="w-full resize-y rounded-xs border border-line bg-paper-raised p-3 font-mono text-xs/relaxed text-ink focus:border-ink-faint focus:outline-none"
       />
       <div className="mt-3 flex items-center gap-4">
-        <Button primary onClick={save} disabled={!dirty || saving}>
+        <Button primary onClick={save} disabled={!dirty || readOnly || saving}>
           {saving ? "Saving…" : `Save as version ${template.version + 1}`}
         </Button>
+        {readOnly && (
+          <Hint className="text-2xs">
+            read-only — a new version cannot be registered in inspection mode
+          </Hint>
+        )}
         {dirty && (
           <button
             onClick={() => setDraft(template.body)}

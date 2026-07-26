@@ -20,6 +20,7 @@ import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
 import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { clusterByClass, groupByNamespace, leafName } from "./memoryUtilities.ts";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 // Module-level plugin array so the React Compiler sees a stable object. Memory entries are
 // agent-authored Markdown — GFM tables, lists, emphasis — but carry no turn references, so the
@@ -432,6 +433,9 @@ function RetractButton({
   entryId: EntryId;
   onRetract: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
+  // Booted for inspection only: the trigger renders disabled rather than opening a reason field for
+  // a retraction the server would refuse.
+  const readOnly = useReadOnly();
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -439,7 +443,7 @@ function RetractButton({
 
   async function commit() {
     const trimmed = reason.trim();
-    if (!trimmed) return;
+    if (!trimmed || readOnly) return;
     setBusy(true);
     setError(null);
     try {
@@ -459,7 +463,8 @@ function RetractButton({
         <span className="text-ink-faint/45">·</span>
         <button
           onClick={() => setConfirming(true)}
-          className="text-clay transition-colors hover:text-ink"
+          disabled={readOnly}
+          className="text-clay transition-colors hover:text-ink disabled:text-ink-faint/40 disabled:hover:text-ink-faint/40"
           title="Retract this entry under operator authority"
         >
           retract

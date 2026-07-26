@@ -121,6 +121,10 @@ pub struct ServingConfig {
     /// cannot leak a secret.
     #[serde(default, serialize_with = "redact_keys")]
     pub control_keys: Vec<String>,
+    /// Boot read-only: serve the console and inspection surface against existing data without taking
+    /// the writer lock or running any background work. The `--read-only` CLI flag forces this on
+    /// regardless of the config value.
+    pub read_only: bool,
 }
 
 /// Serialize a list of API keys as its length — the count is informative ("two keys configured"); the

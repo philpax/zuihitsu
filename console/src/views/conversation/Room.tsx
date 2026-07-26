@@ -20,6 +20,7 @@ import { turnTokens } from "./turnUtilities.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { ScrollContainer } from "../../lib/nav/scrollContainer.ts";
 import { useTranscriptScroll } from "./useTranscriptScroll.ts";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// One conversation, open: its header, sessions, and transcript, plus — live and at the head — a
 /// composer routed to the room's authority (the imprint room writes `self`; the rest are ordinary
@@ -47,6 +48,10 @@ export function Room({
   /// A `?turn` deep link whose id resolved to no folded turn — surfaced as a quiet notice.
   unknownTurn?: string | null;
 }) {
+  // Booted for inspection only: a message would be refused with a `409`, so the composer is held
+  // closed with a note rather than left to fail on send. Folded into the `Composer`'s own
+  // `disabled`/`disabledHint` pair below, alongside the other reasons a room takes no message.
+  const readOnly = useReadOnly();
   const isOperator = channel.authority === "operator";
   // The console is the operator's loopback `direct` interface: the server scopes every message it
   // sends to `direct`, so composing into a room that belongs to another platform's connector would
@@ -242,13 +247,19 @@ export function Room({
                 <Composer
                   onSend={onSend}
                   onPendingChange={setThinking}
-                  disabled={foreignRoom || (!isOperator && (handle.length === 0 || handleScoped))}
+                  disabled={
+                    readOnly ||
+                    foreignRoom ||
+                    (!isOperator && (handle.length === 0 || handleScoped))
+                  }
                   disabledHint={
-                    foreignRoom
-                      ? `View-only — ${channel.locator.platform} rooms belong to that platform's connector, not the console.`
-                      : handleScoped
-                        ? "The handle should be a bare name, not a memory path."
-                        : "Set who you are to start."
+                    readOnly
+                      ? "Read-only — the agent is booted for inspection, so it takes no messages."
+                      : foreignRoom
+                        ? `View-only — ${channel.locator.platform} rooms belong to that platform's connector, not the console.`
+                        : handleScoped
+                          ? "The handle should be a bare name, not a memory path."
+                          : "Set who you are to start."
                   }
                   placeholder={
                     isOperator

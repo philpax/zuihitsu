@@ -3,7 +3,7 @@
 //! the next materialisation), and the open paths. The fingerprint is a digest of the DDL itself,
 //! so any schema edit moves the stamp with no manually-bumped version to forget.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::graph::{Graph, GraphError, backend};
@@ -17,6 +17,25 @@ impl Graph {
     /// Open an ephemeral in-memory graph — the no-file-I/O configuration tests use.
     pub fn open_in_memory() -> Result<Graph, GraphError> {
         Self::init(Connection::open_in_memory().map_err(backend)?)
+    }
+
+    /// Open an existing graph file read-only, taking no lock and running no DDL — a read-only boot
+    /// serves the console against an at-rest instance's data without writing or taking the single-writer
+    /// lock. No `init` (which runs the schema batch): the file must already exist and be materialized
+    /// by a prior live boot. The stamp is still *checked*, because [`Graph::guard_schema`]'s repair is
+    /// a write this path cannot make — a graph stamped under another build's schema is refused with
+    /// [`GraphError::SchemaMismatch`] rather than read. Checking matters most where the shapes are
+    /// compatible: a dropped column fails loudly on the next read anyway, but a schema whose *meaning*
+    /// moved with the DDL unchanged in shape would otherwise serve a plausible, wrong projection.
+    pub fn open_read_only(path: impl AsRef<std::path::Path>) -> Result<Graph, GraphError> {
+        let conn = Connection::open_with_flags(
+            path.as_ref(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(backend)?;
+        let graph = Graph { conn };
+        graph.check_schema()?;
+        Ok(graph)
     }
 
     fn init(conn: Connection) -> Result<Graph, GraphError> {
@@ -35,15 +54,7 @@ impl Graph {
     /// empty tables is free, and it is the only safe reading of an unstamped file.
     pub(super) fn guard_schema(&self) -> Result<(), GraphError> {
         let expected = schema_fingerprint();
-        let stored: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = 'schema_fingerprint'",
-                [],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(backend)?;
+        let stored = self.stored_fingerprint()?;
         if stored != Some(expected) {
             // The FTS shadow tables (`memories_fts_*`) drop with their virtual table, so they are
             // excluded from the sweep rather than dropped twice.
@@ -72,6 +83,48 @@ impl Graph {
                 .map_err(backend)?;
         }
         Ok(())
+    }
+
+    /// [`Graph::guard_schema`]'s check without its repair, for a connection that cannot write. The
+    /// unstamped case is a mismatch here too: a read-write open resets an unstamped graph, so an
+    /// unstamped file reaching a read-only open is either empty or older than the stamp, and neither
+    /// is safe to read as this build's projection.
+    fn check_schema(&self) -> Result<(), GraphError> {
+        let expected = schema_fingerprint();
+        let stored = self.stored_fingerprint()?;
+        if stored == Some(expected) {
+            Ok(())
+        } else {
+            Err(GraphError::SchemaMismatch { expected, stored })
+        }
+    }
+
+    /// The schema stamp this graph file carries, or `None` when it carries none. An absent `meta`
+    /// table reads as `None` rather than as a backend failure, because a read-only open may be the
+    /// first thing to touch an empty or pre-stamp file; the existence check goes through
+    /// `sqlite_master` rather than matching on the "no such table" message text.
+    fn stored_fingerprint(&self) -> Result<Option<i64>, GraphError> {
+        let meta_exists = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+                [],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(backend)?
+            .is_some();
+        if !meta_exists {
+            return Ok(None);
+        }
+        self.conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_fingerprint'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(backend)
     }
 
     /// The projection schema, one idempotent DDL batch, included from `schema.sql` beside this

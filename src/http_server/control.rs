@@ -28,6 +28,7 @@ use crate::http_server::{AppState, error::ApiError};
 pub(super) struct Health {
     genesis: GenesisStatus,
     model: Option<BackendHealth>,
+    read_only: bool,
 }
 
 pub(super) async fn health(State(state): State<AppState>) -> Result<Json<Health>, ApiError> {
@@ -35,6 +36,7 @@ pub(super) async fn health(State(state): State<AppState>) -> Result<Json<Health>
     Ok(Json(Health {
         genesis,
         model: state.backend.as_ref().map(|backend| backend.health()),
+        read_only: state.read_only,
     }))
 }
 
