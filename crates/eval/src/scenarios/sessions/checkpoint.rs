@@ -279,11 +279,17 @@ impl Scenario for CheckpointSyncsParallelRooms {
 const FLUSH_REPLY_NEAR_EMPTY: usize = 40;
 
 /// A checkpoint flush is an internal bookkeeping turn: its output reaches no participant, so it must
-/// write durable working state to memory and end with an empty reply rather than answering the
-/// conversation (the incident where a flush answered a quiz conversationally, then "remembered saying"
-/// it). This scenario runs a substantive room-A exchange that ends on a factual question — a buffer
-/// that tempts a conversational answer — sweeps a checkpoint with room B as its audience, and asserts
-/// the flush turn wrote memory (metric) and produced no conversational reply (gating).
+/// end with an empty reply rather than answering the conversation (the incident where a flush answered
+/// a quiz conversationally, then "remembered saying" it). This scenario runs a substantive room-A
+/// exchange that ends on a factual question — a buffer that tempts a conversational answer — sweeps a
+/// checkpoint with room B as its audience, and asserts the flush produced no conversational reply.
+///
+/// It deliberately asserts nothing about what the flush *wrote*. An agent that records as it goes
+/// reaches the sweep with nothing outstanding, so a "the flush turn wrote memory" metric scores
+/// diligence rather than flush correctness — it sat at 0.4 against agents doing the right thing, and
+/// no content shaping reliably leaves state outstanding without contriving the conversation. That the
+/// flush carries a room's state to memory at all is tested where it can be observed properly:
+/// [`CheckpointSyncsParallelRooms`] reads room A's decisions from room B.
 pub struct FlushWritesMemoryNotAReply;
 
 #[async_trait]
@@ -292,10 +298,11 @@ impl Scenario for FlushWritesMemoryNotAReply {
         ScenarioMeta {
             name: "flush_writes_memory_not_a_reply".to_owned(),
             category: Category::Sessions,
-            description: "A mid-session checkpoint flush is internal bookkeeping: it must write \
-                          working state to memory and end with an empty reply, never answering the \
-                          conversation, even when the buffer ends on a question that tempts one \
-                          (gating on the empty reply, metric on the memory write)."
+            description: "A mid-session checkpoint flush is internal bookkeeping: it must end with \
+                          an empty reply, never answering the conversation, even when the buffer \
+                          ends on a question that tempts one. What the flush writes is not asserted \
+                          here — an agent that recorded as it went has nothing left to flush, so \
+                          that it carries state at all is tested by checkpoint_syncs_parallel_rooms."
                 .to_owned(),
             bar: Bar::gating(),
         }
@@ -355,18 +362,17 @@ impl Scenario for FlushWritesMemoryNotAReply {
     }
 
     async fn assess(&self, events: &[Event], _judge: &Judge) -> Vec<Verdict> {
-        // The flush turn's own `ConversationTurn`: its id (to attribute the memory writes it drove)
-        // and its recorded reply text (the discipline surface).
+        // The flush turn's own `ConversationTurn`, for its recorded reply text — the discipline
+        // surface this scenario turns on.
         let flush = events.iter().find_map(|event| match &event.payload {
             EventPayload::ConversationTurn {
                 produced_by: Some(produced),
-                turn_id,
                 text,
                 ..
-            } if produced.is_flush() => Some((*turn_id, text.clone())),
+            } if produced.is_flush() => Some(text.clone()),
             _ => None,
         });
-        let Some((flush_turn_id, flush_text)) = flush else {
+        let Some(flush_text) = flush else {
             return vec![Verdict::oracle_outcome(
                 "the checkpoint flush produced no conversational reply",
                 false,
@@ -380,40 +386,13 @@ impl Scenario for FlushWritesMemoryNotAReply {
         let reply_chars = flush_text.trim().chars().count();
         let no_reply = reply_chars <= FLUSH_REPLY_NEAR_EMPTY;
 
-        // Wrote memory: any durable write attributed to the flush turn — its writes carry the flush's
-        // turn id in `told_in`, so a real write is distinguishable from having said nothing. Content
-        // is not the only shape working state takes: a flush that finds the facts already recorded
-        // turn-by-turn may have only the structure left to lay down, and a link or an attestation is
-        // as durable as an append. Narrowing this to content would score a diligent agent — one that
-        // recorded as it went — as having flushed nothing.
-        let wrote_memory = events.iter().any(|event| {
-            let told_in = match &event.payload {
-                EventPayload::MemoryContentAppended { told_in, .. }
-                | EventPayload::EntryAttested { told_in, .. }
-                | EventPayload::LinkCreated { told_in, .. } => told_in,
-                _ => return false,
-            };
-            told_in
-                .as_ref()
-                .is_some_and(|reference| reference.turn == Some(flush_turn_id))
-        });
-
-        vec![
-            Verdict::oracle_outcome(
-                "the checkpoint flush produced no conversational reply",
-                no_reply,
-                "the flush ended with an empty (or terse) reply, delivering nothing to the room",
-                format!(
-                    "the flush answered the conversation instead of staying silent \
-                     ({reply_chars} chars)"
-                ),
+        vec![Verdict::oracle_outcome(
+            "the checkpoint flush produced no conversational reply",
+            no_reply,
+            "the flush ended with an empty (or terse) reply, delivering nothing to the room",
+            format!(
+                "the flush answered the conversation instead of staying silent ({reply_chars} chars)"
             ),
-            Verdict::metric_outcome(
-                "the checkpoint flush wrote working state to memory",
-                wrote_memory,
-                "the flush turn laid down a durable write",
-                "the flush turn wrote nothing durable to memory",
-            ),
-        ]
+        )]
     }
 }
