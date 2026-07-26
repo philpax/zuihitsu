@@ -40,8 +40,8 @@ pub(super) fn seed_tags() -> Vec<TagDef> {
 pub(super) fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, LocatedAt, LocationOf,
-        OperatedBy, OperatorOf, PartOf, ParticipatesIn, SameAs,
+        Contains, Created, CreatedBy, HasMember, HasParticipant, KnownBy, Knows, LocatedAt,
+        LocationOf, MemberOf, OperatedBy, OperatorOf, PartOf, ParticipatesIn, SameAs,
     };
     vec![
         RelationDef {
@@ -114,6 +114,22 @@ pub(super) fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "Where a thing is held or found — an event's venue, a team's office, a \
                 thing's place. Many things can share one place.",
+        },
+        // Standing membership is the same story as placement: with no seed for it the agent split a
+        // person's belonging across part_of and participates_in — stretching both past their stated
+        // scope, part_of explicitly disclaiming people and participates_in meaning an event — and
+        // coined member_of, works_at, employed_by, and involved_in around the edges. One relation for
+        // belonging to an organisation or group, employment being its commonest case.
+        RelationDef {
+            name: MemberOf,
+            inverse: HasMember,
+            from_card: Many,
+            to_card: Many,
+            symmetric: false,
+            reflexive: false,
+            description: "A person belongs to an organisation or group — an employer, a team, a \
+                board, a school. Standing membership, not attendance at an event \
+                (participates_in) and not composition of a topic (part_of).",
         },
     ]
 }

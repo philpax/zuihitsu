@@ -281,7 +281,8 @@ struct RankedRelationship {
 
 /// The type-weight of a relation for brief ranking (higher sorts earlier). The ordering floats the
 /// structural, identity-bearing relations the system seeds — origin, operatorship, composition,
-/// participation, and placement (see `seed_relations`) — above the high-volume social edges, so a hub
+/// membership, participation, and placement (see `seed_relations`) — above the high-volume social
+/// edges, so a hub
 /// memory's `created_by` survives a tight cap while its many `knows` edges are the first to fall away.
 /// The weights are deliberately spaced constants gathered here so the ranking is legible and tunable
 /// in one place; an agent-coined relation ([`RelationName::Other`]) sits mid-table, above bare
@@ -291,6 +292,9 @@ fn relation_weight(relation: &RelationName) -> u8 {
         RelationName::CreatedBy | RelationName::Created => 100,
         RelationName::OperatorOf | RelationName::OperatedBy => 90,
         RelationName::PartOf | RelationName::Contains => 80,
+        // Standing membership outranks event participation: who someone belongs to identifies them
+        // for as long as it holds, where attendance describes one occasion.
+        RelationName::MemberOf | RelationName::HasMember => 75,
         RelationName::ParticipatesIn | RelationName::HasParticipant => 70,
         RelationName::LocatedAt | RelationName::LocationOf => 60,
         RelationName::Other(_) => 50,

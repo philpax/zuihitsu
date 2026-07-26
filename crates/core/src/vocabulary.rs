@@ -90,6 +90,9 @@ pub enum RelationName {
     LocatedAt,
     /// The inverse label of [`RelationName::LocatedAt`].
     LocationOf,
+    MemberOf,
+    /// The inverse label of [`RelationName::MemberOf`].
+    HasMember,
     Other(SmolStr),
 }
 
@@ -113,6 +116,8 @@ impl RelationName {
             "contains" => RelationName::Contains,
             "located_at" => RelationName::LocatedAt,
             "location_of" => RelationName::LocationOf,
+            "member_of" => RelationName::MemberOf,
+            "has_member" => RelationName::HasMember,
             _ => RelationName::Other(SmolStr::new(name)),
         }
     }
@@ -132,6 +137,8 @@ impl RelationName {
             RelationName::Contains => "contains",
             RelationName::LocatedAt => "located_at",
             RelationName::LocationOf => "location_of",
+            RelationName::MemberOf => "member_of",
+            RelationName::HasMember => "has_member",
             RelationName::Other(name) => name.as_str(),
         }
     }
