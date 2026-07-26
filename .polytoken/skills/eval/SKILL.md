@@ -29,6 +29,10 @@ Before asking, look for signals in the conversation that narrow what to run:
     safe choice — but **ask before running it**, because a full suite at high N can take hours of
     GPU time.
 
+The run logs its own projected wall-clock before it starts driving, summed per scenario from the
+tracked history — use that number when quoting a cost, rather than estimating from scenario count.
+Scenario cost is wildly uneven (seconds to minutes), so "N scenarios" says little about the hours.
+
 **A full suite is expensive and is never yours to choose unilaterally.** At N=5 it is ~400 runs and
 6+ hours on the operator's GPU; at N=20 it is a day. Even when a change is genuinely global — a
 scaffold edit reaches every scenario's prompt — say so, give the estimate and the scoped

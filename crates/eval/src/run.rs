@@ -324,6 +324,35 @@ async fn run(
         .addr
         .map(|addr| tokio::spawn(crate::serve::serve(addr, sink.clone())));
 
+    // What this run is about to cost, before it starts costing it. The plan is per scenario — how
+    // many of its runs are still to drive — because scenario cost spans two orders of magnitude and a
+    // resume's remaining tail is usually its slowest scenarios, not a uniform slice.
+    let plan: Vec<(String, u32)> = active
+        .iter()
+        .enumerate()
+        .map(|(index, scenario)| {
+            let outstanding = (0..runs)
+                .filter(|run| !done.contains(&(index as u32, *run)))
+                .count() as u32;
+            (scenario.meta().name, outstanding)
+        })
+        .collect();
+    let to_drive: u32 = plan.iter().map(|(_, runs)| runs).sum();
+    match crate::history::estimate(&plan, concurrency) {
+        Some(estimate) => tracing::info!(
+            runs = to_drive,
+            scenarios = plan.iter().filter(|(_, runs)| *runs > 0).count(),
+            projected = %humane_span(estimate.total_ms),
+            untimed = estimate.unknown,
+            "projected wall-clock from the tracked history"
+        ),
+        None => tracing::info!(
+            runs = to_drive,
+            scenarios = active.len(),
+            "no timing history yet — wall-clock unprojected"
+        ),
+    }
+
     // Warm the endpoints before the clock starts, so the first run isn't charged for cold-start.
     tracing::info!("warming up the model endpoints");
     crate::harness::warm_up(&deps).await;
@@ -423,6 +452,20 @@ pub(crate) fn git_dirty() -> bool {
         return false;
     };
     output.status.success() && !String::from_utf8_lossy(&output.stdout).trim().is_empty()
+}
+
+/// A duration in milliseconds as a coarse human span, for the pre-flight projection — the operator is
+/// deciding how to spend an afternoon, and `22140000` does not read as one.
+fn humane_span(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let (hours, minutes) = (seconds / 3600, (seconds % 3600) / 60);
+    if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else if minutes > 0 {
+        format!("{minutes}m")
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 #[cfg(test)]

@@ -88,14 +88,22 @@ pub fn report(target: Option<&str>) -> Result<(), EvalError> {
         "  progress  {done}/{total} runs · {complete}/{} scenarios at N={full}",
         state.scenarios.len()
     );
-    if done > 0 && done < total {
-        // Extrapolate from what this run has actually managed, not from a historical average: a
-        // resumed run's elapsed covers only the runs it drove, which is the rate that matters.
-        let per_run = elapsed / i64::from(done);
+    if done < total {
+        // Project per scenario, not from this run's average rate: scenario cost spans two orders of
+        // magnitude, and what is left at any point is rarely a uniform slice — the tail of a suite is
+        // typically its slowest scenarios, where an average-rate projection reads far too optimistic.
+        let plan: Vec<(String, u32)> = state
+            .scenarios
+            .iter()
+            .zip(&per_scenario)
+            .map(|(scenario, count)| (scenario.name.clone(), full.saturating_sub(*count)))
+            .collect();
+        let projected = crate::history::estimate(&plan, state.meta.concurrency.max(1) as usize)
+            .map(|estimate| humane(estimate.total_ms as i64))
+            .unwrap_or_else(|| "unknown".to_owned());
         println!(
-            "  remaining {} scenarios, ~{} at the observed rate",
-            remaining.len(),
-            humane(per_run * i64::from(total - done))
+            "  remaining {} scenarios, ~{projected} left",
+            remaining.len()
         );
     }
     if !remaining.is_empty() {
