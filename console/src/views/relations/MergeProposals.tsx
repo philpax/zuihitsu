@@ -6,6 +6,7 @@ import type { MergeProposalView } from "@zuihitsu/wire/wasm/console_wasm.js";
 import type { MergeStatus } from "@zuihitsu/wire/wasm/console_wasm.js";
 import { Eyebrow, Hint, WorkingPulse } from "../../components/primitives.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// The operator's merge-decision surface: every cross-platform merge proposal the folded log holds,
 /// each with the proposer's stated grounds, its two stubs (linked into State), and where it now stands
@@ -30,16 +31,15 @@ export function MergeProposals({
   onResolve,
   onUnmerge,
   onDesignatePrimary,
-  readOnly = false,
 }: {
   proposals: MergeProposalView[];
   onResolve?: (from: MemoryId, to: MemoryId) => Promise<void>;
   onUnmerge?: (from: MemoryId, to: MemoryId) => Promise<void>;
   onDesignatePrimary?: (memory: MemoryId, designated: boolean) => Promise<void>;
-  /// Booted for inspection only: every decision below would be refused with a `409`, so the cards keep
-  /// their verbs but hold them closed, with the reason stated once at the foot of the surface.
-  readOnly?: boolean;
 }) {
+  // Booted for inspection only: every decision below would be refused with a `409`, so the cards keep
+  // their verbs but hold them closed, with the reason stated once at the foot of the surface.
+  const readOnly = useReadOnly();
   // The pair currently being acted on (keyed by its two ids), and the last failure, so the buttons
   // disable in flight and a rejected request surfaces its reason. `confirming` holds the pair whose
   // unmerge is awaiting the second, deliberate click — retracting a merge is destructive.
@@ -76,7 +76,6 @@ export function MergeProposals({
               proposal={proposal}
               working={busy === key}
               busy={busy !== null}
-              readOnly={readOnly}
               isConfirming={confirming === key}
               onResolve={
                 onResolve && (() => run(key, () => onResolve(proposal.from_id, proposal.to_id)))
@@ -116,7 +115,6 @@ function MergeCard({
   proposal,
   working,
   busy,
-  readOnly,
   isConfirming,
   onResolve,
   onUnmerge,
@@ -127,7 +125,6 @@ function MergeCard({
   proposal: MergeProposalView;
   working: boolean;
   busy: boolean;
-  readOnly: boolean;
   isConfirming: boolean;
   onResolve?: () => void;
   onUnmerge?: () => void;
@@ -135,6 +132,7 @@ function MergeCard({
   onStartConfirm: () => void;
   onCancelConfirm: () => void;
 }) {
+  const readOnly = useReadOnly();
   const pending = proposal.status === "pending";
   const merged = proposal.status === "merged";
   const [lead, folded] = orderedMembers(proposal);

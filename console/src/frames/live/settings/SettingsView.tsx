@@ -12,6 +12,7 @@ import { FIXED_SECTIONS, type SectionId } from "./sectionConstants.ts";
 import { BehavioralSettings } from "./BehavioralSettings.tsx";
 import { EnvironmentSection } from "./EnvironmentSection.tsx";
 import { MaintenanceSection } from "./MaintenanceSection.tsx";
+import { useReadOnly } from "../../../lib/view/readOnly.ts";
 
 /// Sentence-case a settings group label, so the derived sections match the fixed tail's casing.
 function title(text: string): string {
@@ -39,12 +40,11 @@ function title(text: string): string {
 export function SettingsView({
   connection,
   events,
-  readOnly = false,
 }: {
   connection: LiveConnection;
   events: Event[];
-  readOnly?: boolean;
 }) {
+  const readOnly = useReadOnly();
   const navigate = useNavigate();
   const { selection, link } = useStream();
 
@@ -171,7 +171,7 @@ export function SettingsView({
                   onChange={update}
                 />
               )}
-              <MaintenanceSection connection={connection} events={events} readOnly={readOnly} />
+              <MaintenanceSection connection={connection} events={events} />
             </div>
           ) : (
             <BehavioralSettings

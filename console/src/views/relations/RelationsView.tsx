@@ -69,17 +69,7 @@ const SUBTABS = [
 
 type SubtabId = (typeof SUBTABS)[number]["id"];
 
-export function RelationsView({
-  replica,
-  merge,
-  readOnly = false,
-}: {
-  replica: Replica;
-  merge?: MergeControls;
-  /// Whether the instance is booted for inspection only, so an operator merge decision would be
-  /// refused with a `409`. The proposals keep their affordances, held closed with a note saying why.
-  readOnly?: boolean;
-}) {
+export function RelationsView({ replica, merge }: { replica: Replica; merge?: MergeControls }) {
   const navigate = useNavigate();
   const { search, link, patchSearch, selection, seq } = useStream();
   const palette = readPalette();
@@ -210,7 +200,6 @@ export function RelationsView({
             onResolve={merge?.resolve}
             onUnmerge={merge?.unmerge}
             onDesignatePrimary={merge?.designatePrimary}
-            readOnly={readOnly}
           />
         )
       ) : raw.nodes.length === 0 ? (

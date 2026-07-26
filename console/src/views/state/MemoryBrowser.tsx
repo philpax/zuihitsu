@@ -24,7 +24,6 @@ export function MemoryBrowser({
   selected,
   onSelect,
   onShowEvents,
-  readOnly = false,
   onEditSelf,
   onRetract,
 }: {
@@ -34,9 +33,6 @@ export function MemoryBrowser({
   selected: string | null;
   onSelect: (name: string) => void;
   onShowEvents?: (id: string, name: string) => void;
-  /// Whether the instance is booted for inspection only: the operator affordances below render but
-  /// hold their actions closed.
-  readOnly?: boolean;
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
@@ -128,7 +124,6 @@ export function MemoryBrowser({
             arbitrations={arbitrationsFor(events, detail.memory.id, cursor)}
             recurring={recurring.get(detail.memory.id) ?? []}
             onShowEvents={onShowEvents}
-            readOnly={readOnly}
             onEditSelf={onEditSelf}
             onRetract={onRetract}
           />

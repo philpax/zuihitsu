@@ -20,6 +20,7 @@ import { turnTokens } from "./turnUtilities.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { ScrollContainer } from "../../lib/nav/scrollContainer.ts";
 import { useTranscriptScroll } from "./useTranscriptScroll.ts";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// One conversation, open: its header, sessions, and transcript, plus — live and at the head — a
 /// composer routed to the room's authority (the imprint room writes `self`; the rest are ordinary
@@ -31,7 +32,6 @@ export function Room({
   channel,
   inflight,
   participate,
-  readOnly = false,
   unknownTurn,
 }: {
   replica: Replica;
@@ -45,12 +45,13 @@ export function Room({
   /// the agent deliberates.
   inflight?: InFlightGeneration | null;
   participate?: Participation;
-  /// Whether the instance is booted for inspection only: a message would be refused with a `409`, so
-  /// the composer is held closed with a note rather than left to fail on send.
-  readOnly?: boolean;
   /// A `?turn` deep link whose id resolved to no folded turn — surfaced as a quiet notice.
   unknownTurn?: string | null;
 }) {
+  // Booted for inspection only: a message would be refused with a `409`, so the composer is held
+  // closed with a note rather than left to fail on send. Folded into the `Composer`'s own
+  // `disabled`/`disabledHint` pair below, alongside the other reasons a room takes no message.
+  const readOnly = useReadOnly();
   const isOperator = channel.authority === "operator";
   // The console is the operator's loopback `direct` interface: the server scopes every message it
   // sends to `direct`, so composing into a room that belongs to another platform's connector would

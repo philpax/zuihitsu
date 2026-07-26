@@ -7,6 +7,7 @@ import { formatDateTime } from "../../../lib/format/format.ts";
 import { snapshotNow } from "../../../lib/api/operator.ts";
 import { Button, Eyebrow, Hint } from "../../../components/primitives.tsx";
 import { EventRef } from "../../../components/eventDetailParts.tsx";
+import { useReadOnly } from "../../../lib/view/readOnly.ts";
 
 /// Maintenance actions against the running instance, and the history of autonomous maintenance
 /// sweeps. The history folds every `MaintenancePassCompleted` on the log — the sweep-level record each
@@ -21,12 +22,11 @@ import { EventRef } from "../../../components/eventDetailParts.tsx";
 export function MaintenanceSection({
   connection,
   events,
-  readOnly = false,
 }: {
   connection: LiveConnection;
   events: Event[];
-  readOnly?: boolean;
 }) {
+  const readOnly = useReadOnly();
   const [snapshot, setSnapshot] = useState<
     | { state: "idle" | "working" }
     | { state: "done"; message: string }

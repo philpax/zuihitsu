@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { EntryId } from "@zuihitsu/wire/types/EntryId.ts";
 import type { EntryView } from "@zuihitsu/wire/types/EntryView.ts";
 import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// The operator's `self`-editing panel, shown on the `self` memory in the live agent frame at the head.
 /// The console-direct counterpart to the imprint interview: where the imprint writes `self` by running
@@ -15,14 +16,13 @@ import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 export function SelfEditor({
   entries,
   onEditSelf,
-  readOnly = false,
 }: {
   entries: EntryView[];
   onEditSelf: (text: string, supersedes?: EntryId) => Promise<void>;
-  /// Whether the instance is booted for inspection only, so the write would be refused with a `409`.
-  /// The panel still reads and still drafts; only the committing verb is held closed.
-  readOnly?: boolean;
 }) {
+  // Booted for inspection only: the panel still reads and still drafts, and only the committing verb
+  // is held closed, since the write itself would be refused with a `409`.
+  const readOnly = useReadOnly();
   // The edit target: `"new"` appends, an `entry_id` revises that entry. `text` is the draft; `original`
   // is the chosen entry's text, so a revision can disable Save until the operator actually changes it.
   const [target, setTarget] = useState<string>("new");

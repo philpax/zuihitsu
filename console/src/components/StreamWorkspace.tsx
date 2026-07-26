@@ -83,7 +83,6 @@ export function StreamWorkspace({
   onSeq,
   onFollowingChange,
   participant,
-  readOnly = false,
   extraViews = [],
   journal,
   resumedFromStep,
@@ -98,11 +97,6 @@ export function StreamWorkspace({
   onSeq: (seq: number | null) => void;
   onFollowingChange?: (following: boolean) => void;
   participant?: Participant;
-  /// Whether the connected instance is booted for inspection only, so its mutating endpoints refuse
-  /// with a `409`. The operator surfaces still render — the composer, the `self` editor, the retract
-  /// and merge affordances — but each holds its action closed with a note saying why, rather than
-  /// offering a control that can only fail.
-  readOnly?: boolean;
   extraViews?: ExtraView[];
   // The eval run's step journal, forwarded to the Events view; a live tail passes none, so its stream
   // renders without step markers. `resumedFromStep`, when set, marks a resumed run's live boundary.
@@ -253,7 +247,6 @@ export function StreamWorkspace({
                             replica={replica}
                             events={events}
                             cursor={cursor}
-                            readOnly={readOnly}
                             onEditSelf={
                               participant && cursor >= head
                                 ? (text, supersedes) =>
@@ -281,7 +274,6 @@ export function StreamWorkspace({
                             <RelationsView
                               key={cursor}
                               replica={replica}
-                              readOnly={readOnly}
                               merge={
                                 participant && cursor >= head
                                   ? {
@@ -308,7 +300,6 @@ export function StreamWorkspace({
                             cursor={cursor}
                             atHead={cursor >= head}
                             participate={participant}
-                            readOnly={readOnly}
                             progress={progress}
                           />
                         )}

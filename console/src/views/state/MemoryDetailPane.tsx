@@ -11,6 +11,7 @@ import { Eyebrow, Hint } from "../../components/primitives.tsx";
 import { EntryItem, Section } from "./MemoryList.tsx";
 import { MemoryNameLink } from "../../components/eventDetailParts.tsx";
 import { SelfEditor } from "./SelfEditor.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 export function MemoryDetailPane({
   detail,
@@ -18,7 +19,6 @@ export function MemoryDetailPane({
   arbitrations,
   recurring,
   onShowEvents,
-  readOnly = false,
   onEditSelf,
   onRetract,
 }: {
@@ -27,10 +27,6 @@ export function MemoryDetailPane({
   arbitrations: Arbitration[];
   recurring: RecurringItem[];
   onShowEvents?: (id: string, name: string) => void;
-  /// Whether the instance is booted for inspection only. The retract affordance and the `self` editor
-  /// still render, with their actions held closed — the retract note is stated once for the contents
-  /// section rather than beside every entry.
-  readOnly?: boolean;
   /// Present only in the live agent frame at the head, and exercised only on `self`: append a charter
   /// entry, or revise one under operator authority (the operator side of self-editing).
   onEditSelf?: (text: string, supersedes?: EntryId) => Promise<void>;
@@ -38,6 +34,10 @@ export function MemoryDetailPane({
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
 }) {
   const { memory, entries, history, links } = detail;
+  // Booted for inspection only: the retract affordance and the `self` editor still render, holding
+  // their actions closed. The note is stated once for the contents section rather than beside every
+  // entry, so this pane reads the flag even though each control below reads it for itself.
+  const readOnly = useReadOnly();
   // A retraction tombstones an entry with its own id in superseded_by and a reason; a plain
   // supersession points at a distinct successor. Split them so each reads as what it is.
   const retracted = history.filter((entry) => entry.retracted_reason !== null);
@@ -119,7 +119,6 @@ export function MemoryDetailPane({
                 expanded
                 memoryName={memory.name}
                 onRetract={onRetract}
-                readOnly={readOnly}
                 highlighted={entry.entry_id === highlightId}
               />
             ))}
@@ -133,7 +132,7 @@ export function MemoryDetailPane({
       </Section>
 
       {memory.name === "self" && onEditSelf && (
-        <SelfEditor entries={entries} onEditSelf={onEditSelf} readOnly={readOnly} />
+        <SelfEditor entries={entries} onEditSelf={onEditSelf} />
       )}
 
       {links.length > 0 && (

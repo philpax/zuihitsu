@@ -20,6 +20,7 @@ import { useOptionalStream } from "../../lib/nav/useStreamLocation.ts";
 import { temporalRefLabel } from "../../components/eventDetailUtilities.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { clusterByClass, groupByNamespace, leafName } from "./memoryUtilities.ts";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 // Module-level plugin array so the React Compiler sees a stable object. Memory entries are
 // agent-authored Markdown — GFM tables, lists, emphasis — but carry no turn references, so the
@@ -221,7 +222,6 @@ export function EntryItem({
   expanded,
   memoryName,
   onRetract,
-  readOnly = false,
   highlighted,
 }: {
   entry: EntryView;
@@ -237,10 +237,6 @@ export function EntryItem({
   memoryName?: string;
   /// Retract this entry under operator authority. Present only in the live agent frame at the head.
   onRetract?: (memory: string, entry: EntryId, reason: string) => Promise<void>;
-  /// Whether the instance is booted for inspection only, so the retraction would be refused with a
-  /// `409`. The control still renders, held closed; the detail pane states why once for the section
-  /// rather than repeating it beside every entry.
-  readOnly?: boolean;
   /// The entry-deep-link target (`?entry=<id>`): marked with a clay rule and tint so the eye lands on
   /// exactly the entry the reference named.
   highlighted?: boolean;
@@ -370,12 +366,7 @@ export function EntryItem({
           </>
         )}
         {!faded && memoryName && onRetract && (
-          <RetractButton
-            memoryName={memoryName}
-            entryId={entry.entry_id}
-            onRetract={onRetract}
-            readOnly={readOnly}
-          />
+          <RetractButton memoryName={memoryName} entryId={entry.entry_id} onRetract={onRetract} />
         )}
       </p>
       {/* Operator archaeology: the corroborating attestations in full, each attester with its own
@@ -437,15 +428,14 @@ function RetractButton({
   memoryName,
   entryId,
   onRetract,
-  readOnly = false,
 }: {
   memoryName: string;
   entryId: EntryId;
   onRetract: (memory: string, entry: EntryId, reason: string) => Promise<void>;
-  /// Booted for inspection only: the trigger renders disabled rather than opening a reason field for
-  /// a retraction the server would refuse.
-  readOnly?: boolean;
 }) {
+  // Booted for inspection only: the trigger renders disabled rather than opening a reason field for
+  // a retraction the server would refuse.
+  const readOnly = useReadOnly();
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);

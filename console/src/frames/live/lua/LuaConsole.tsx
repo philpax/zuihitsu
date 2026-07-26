@@ -13,6 +13,7 @@ import {
 import { CodeEditor } from "./CodeEditor.tsx";
 import { ApiReference } from "./ApiReference.tsx";
 import { Lua } from "../../../components/Lua.tsx";
+import { useReadOnly } from "../../../lib/view/readOnly.ts";
 
 /// Read-only one-liners offered while the scrollback is empty — click one to load it into the
 /// editor. Each is a safe read against the live graph, chosen to show the console's range: recall,
@@ -38,16 +39,10 @@ interface Run {
 /// the calendar. MCP is off unless opted in (a real external effect, even in the sandbox). The agent's
 /// own Lua API stands alongside as a filterable reference — the editor and the reference are the two
 /// halves of the same act, writing a call and knowing what to call.
-/// `readOnly` marks an instance booted for inspection: the sandbox commits nothing, but the run
-/// endpoint is refused with a `409` all the same, so the run control is held closed with a note
-/// rather than left to fail.
-export function LuaConsole({
-  connection,
-  readOnly = false,
-}: {
-  connection: LiveConnection;
-  readOnly?: boolean;
-}) {
+/// On an instance booted for inspection the sandbox commits nothing, but the run endpoint is refused
+/// with a `409` all the same, so the run control is held closed with a note rather than left to fail.
+export function LuaConsole({ connection }: { connection: LiveConnection }) {
+  const readOnly = useReadOnly();
   const [script, setScript] = useState(
     '-- read-only: nothing here persists\nreturn memory.get("self"):entries()',
   );

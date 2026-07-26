@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { LiveConnection } from "../../lib/api/live.ts";
 import { type Seed, createAgent } from "../../lib/api/operator.ts";
 import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// Bring the agent into being before the workspace opens: name it, give it a persona, and
 /// plant any first-person seed entries in `self`. Shown by the agent frame when the connected
@@ -13,14 +14,13 @@ import { Button, Eyebrow, Hint } from "../../components/primitives.tsx";
 export function GenesisGate({
   connection,
   resuming,
-  readOnly = false,
   onCreated,
 }: {
   connection: LiveConnection;
   resuming: boolean;
-  readOnly?: boolean;
   onCreated: () => void;
 }) {
+  const readOnly = useReadOnly();
   const [name, setName] = useState("");
   const [persona, setPersona] = useState("");
   const [seeds, setSeeds] = useState("");

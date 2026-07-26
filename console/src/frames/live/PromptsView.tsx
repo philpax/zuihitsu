@@ -13,6 +13,7 @@ import {
 import { useNavigate } from "../../lib/nav/historyContext.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { Button, Hint, Select } from "../../components/primitives.tsx";
+import { useReadOnly } from "../../lib/view/readOnly.ts";
 
 /// The Prompts view: the agent's prompt templates — the system-prompt scaffold and the framing
 /// templates — read from the log and editable (spec §Initialization → prompt templates). A save
@@ -37,11 +38,9 @@ import { Button, Hint, Select } from "../../components/primitives.tsx";
 export function PromptsView({
   connection,
   events,
-  readOnly = false,
 }: {
   connection: LiveConnection;
   events: Event[];
-  readOnly?: boolean;
 }) {
   const templates = deriveTemplates(events, Number.MAX_SAFE_INTEGER);
   const navigate = useNavigate();
@@ -102,7 +101,6 @@ export function PromptsView({
         template={active}
         status={statuses.get(active.name)}
         connection={connection}
-        readOnly={readOnly}
       />
     </div>
   );
@@ -184,13 +182,12 @@ function PromptEditor({
   template,
   status,
   connection,
-  readOnly,
 }: {
   template: PromptTemplate;
   status: TemplateStatus | undefined;
   connection: LiveConnection;
-  readOnly: boolean;
 }) {
+  const readOnly = useReadOnly();
   const [draft, setDraft] = useState(template.body);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
