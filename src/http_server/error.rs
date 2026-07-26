@@ -18,6 +18,9 @@ pub(super) enum ApiError {
     NoModel,
     /// The snapshot endpoint was called but snapshotting is disabled (`[snapshots] enabled = false`).
     SnapshotsDisabled,
+    /// The server is booted in read-only mode, which refuses every mutating endpoint. Restart
+    /// without `--read-only` to converse, mutate, or act.
+    ReadOnly,
     /// The metrics endpoint was called but the recorder could not be installed at boot.
     MetricsDisabled,
     /// A detached task backing the request failed to join — a panic in the turn task, surfaced as
@@ -47,6 +50,12 @@ impl IntoResponse for ApiError {
             ApiError::SnapshotsDisabled => (
                 StatusCode::CONFLICT,
                 "snapshots are disabled ([snapshots] enabled = false)".to_owned(),
+            ),
+            ApiError::ReadOnly => (
+                StatusCode::CONFLICT,
+                "the server is booted in read-only mode; restart without --read-only to converse, \
+                 mutate, or act"
+                    .to_owned(),
             ),
             ApiError::MetricsDisabled => (
                 StatusCode::SERVICE_UNAVAILABLE,

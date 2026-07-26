@@ -5,9 +5,10 @@ import { useLiveLog } from "../../lib/api/live.ts";
 import { useDocumentTitle } from "../../lib/nav/useDocumentTitle.ts";
 import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../../lib/api/operator.ts";
-import { isDegraded, useBackendHealth } from "../../lib/api/health.ts";
+import { isDegraded, useInstanceHealth } from "../../lib/api/health.ts";
 import { Dot } from "../../components/primitives.tsx";
 import { BackendBanner } from "./BackendBanner.tsx";
+import { ReadOnlyBanner } from "./ReadOnlyBanner.tsx";
 import { StreamWorkspace } from "../../components/StreamWorkspace.tsx";
 import { GenesisGate } from "./GenesisGate.tsx";
 import { LuaConsole } from "./lua/LuaConsole.tsx";
@@ -39,7 +40,7 @@ export function LiveShell({
   const [sender, setSender] = useState("");
   const [genesis, setGenesis] = useState<GenesisStatus | "loading" | "unreachable">("loading");
   // The model transport's health, polled for the degraded-backend banner below the header.
-  const backend = useBackendHealth(connection);
+  const health = useInstanceHealth(connection);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +84,9 @@ export function LiveShell({
         </div>
       </header>
 
-      {isDegraded(backend) && <BackendBanner health={backend} />}
+      {health?.read_only && <ReadOnlyBanner />}
+
+      {health && isDegraded(health.model) && <BackendBanner health={health.model} />}
 
       {!log.replica ? (
         <ShellBody>

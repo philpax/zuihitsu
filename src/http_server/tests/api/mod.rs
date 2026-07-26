@@ -3,4 +3,5 @@
 
 mod control;
 mod platform;
+mod read_only;
 mod stream;

@@ -43,6 +43,16 @@ fn test_state(server: Arc<Server>) -> AppState {
         control_keys: no_keys(),
         platform_connectors: no_platform_connectors(),
         config: Arc::new(zuihitsu::EnvConfig::default()),
+        read_only: false,
+    }
+}
+
+/// A read-only [`AppState`] — `read_only: true` with the rest from [`test_state`], for testing the
+/// `409` gate every mutating handler returns under read-only mode.
+fn test_state_read_only(server: Arc<Server>) -> AppState {
+    AppState {
+        read_only: true,
+        ..test_state(server)
     }
 }
 

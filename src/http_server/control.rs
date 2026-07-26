@@ -28,6 +28,7 @@ use crate::http_server::{AppState, error::ApiError};
 pub(super) struct Health {
     genesis: GenesisStatus,
     model: Option<BackendHealth>,
+    read_only: bool,
 }
 
 pub(super) async fn health(State(state): State<AppState>) -> Result<Json<Health>, ApiError> {
@@ -35,7 +36,17 @@ pub(super) async fn health(State(state): State<AppState>) -> Result<Json<Health>
     Ok(Json(Health {
         genesis,
         model: state.backend.as_ref().map(|backend| backend.health()),
+        read_only: state.read_only,
     }))
+}
+
+/// Refuse the request when the server is booted read-only. Every mutating handler calls this first.
+pub(super) fn refuse_if_read_only(state: &AppState) -> Result<(), ApiError> {
+    if state.read_only {
+        Err(ApiError::ReadOnly)
+    } else {
+        Ok(())
+    }
 }
 
 /// `POST /control/agent` — create the agent (or resume an interrupted genesis); idempotent.
@@ -43,6 +54,7 @@ pub(super) async fn create_agent(
     State(state): State<AppState>,
     Json(seed): Json<SeedSelf>,
 ) -> Result<Json<Rollout>, ApiError> {
+    refuse_if_read_only(&state)?;
     Ok(Json(state.server.control().create_agent(&seed)?))
 }
 
@@ -192,6 +204,7 @@ pub(super) async fn confirm_merge(
     State(state): State<AppState>,
     Json(request): Json<MergeConfirmation>,
 ) -> Result<StatusCode, ApiError> {
+    refuse_if_read_only(&state)?;
     state
         .server
         .control()
@@ -216,6 +229,7 @@ pub(super) async fn unmerge(
     State(state): State<AppState>,
     Json(request): Json<UnmergeRequest>,
 ) -> Result<StatusCode, ApiError> {
+    refuse_if_read_only(&state)?;
     match state.server.control().unmerge(request.from, request.to)? {
         UnmergeOutcome::Removed => Ok(StatusCode::NO_CONTENT),
         UnmergeOutcome::UnknownMemory(id) => {
@@ -243,6 +257,7 @@ pub(super) async fn designate_primary(
     State(state): State<AppState>,
     Json(request): Json<DesignateRequest>,
 ) -> Result<StatusCode, ApiError> {
+    refuse_if_read_only(&state)?;
     match state
         .server
         .control()
@@ -287,6 +302,7 @@ pub(super) async fn events(
 pub(super) async fn snapshot(
     State(state): State<AppState>,
 ) -> Result<Json<SnapshotResponse>, ApiError> {
+    refuse_if_read_only(&state)?;
     let dir = state
         .snapshot_dir
         .as_ref()
@@ -314,6 +330,7 @@ pub(super) async fn set_settings(
     State(state): State<AppState>,
     Json(settings): Json<Settings>,
 ) -> Result<StatusCode, ApiError> {
+    refuse_if_read_only(&state)?;
     state.server.control().set_settings(settings)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -329,6 +346,7 @@ pub(super) async fn imprint(
     State(state): State<AppState>,
     Json(request): Json<ImprintRequest>,
 ) -> Result<Json<PlatformResponse>, ApiError> {
+    refuse_if_read_only(&state)?;
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let outcome = state
         .server
@@ -365,6 +383,7 @@ pub(super) async fn edit_self(
     State(state): State<AppState>,
     Json(request): Json<SelfEditRequest>,
 ) -> Result<Json<SelfEditResponse>, ApiError> {
+    refuse_if_read_only(&state)?;
     match state
         .server
         .control()
@@ -404,6 +423,7 @@ pub(super) async fn retract_entry(
     State(state): State<AppState>,
     Json(request): Json<RetractRequest>,
 ) -> Result<Json<()>, ApiError> {
+    refuse_if_read_only(&state)?;
     match state
         .server
         .control()
@@ -443,6 +463,7 @@ pub(super) async fn retract_attestation(
     State(state): State<AppState>,
     Json(request): Json<RetractAttestationRequest>,
 ) -> Result<Json<()>, ApiError> {
+    refuse_if_read_only(&state)?;
     match state.server.control().retract_attestation(
         &request.memory,
         request.entry,
@@ -484,6 +505,7 @@ pub(super) async fn run_lua(
     State(state): State<AppState>,
     Json(request): Json<LuaRequest>,
 ) -> Result<Json<LuaConsoleOutcome>, ApiError> {
+    refuse_if_read_only(&state)?;
     let outcome = state
         .server
         .control()
@@ -521,6 +543,7 @@ pub(super) async fn register_prompt(
     State(state): State<AppState>,
     Json(request): Json<PromptRequest>,
 ) -> Result<StatusCode, ApiError> {
+    refuse_if_read_only(&state)?;
     state
         .server
         .control()
@@ -532,6 +555,7 @@ pub(super) async fn register_prompt(
 pub(super) async fn maintenance_consolidate(
     State(state): State<AppState>,
 ) -> Result<Json<usize>, ApiError> {
+    refuse_if_read_only(&state)?;
     let Some(model) = &state.model else {
         return Err(ApiError::NoModel);
     };
@@ -547,6 +571,7 @@ pub(super) async fn maintenance_consolidate(
 pub(super) async fn maintenance_canonicalize(
     State(state): State<AppState>,
 ) -> Result<Json<usize>, ApiError> {
+    refuse_if_read_only(&state)?;
     let Some(model) = &state.model else {
         return Err(ApiError::NoModel);
     };
@@ -562,6 +587,7 @@ pub(super) async fn maintenance_canonicalize(
 pub(super) async fn maintenance_link_cleanup(
     State(state): State<AppState>,
 ) -> Result<Json<usize>, ApiError> {
+    refuse_if_read_only(&state)?;
     let Some(model) = &state.model else {
         return Err(ApiError::NoModel);
     };

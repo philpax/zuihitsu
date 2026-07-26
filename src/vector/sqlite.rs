@@ -3,7 +3,7 @@
 
 use std::{path::Path, sync::Once};
 
-use rusqlite::{Connection, OptionalExtension, ffi::sqlite3_auto_extension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, ffi::sqlite3_auto_extension, params};
 use smol_str::SmolStr;
 use sqlite_vec::sqlite3_vec_init;
 
@@ -35,6 +35,23 @@ impl SqliteVectorIndex {
         register_sqlite_vec();
         let conn = Connection::open(path).map_err(backend)?;
         SqliteVectorIndex::init(conn, dimensions)
+    }
+
+    /// Open an existing index file read-only, taking no lock and running no DDL — a read-only boot
+    /// serves the console against an at-rest instance's data without writing. No `init` (which creates
+    /// the virtual table): the file must already exist and be populated by a prior live boot. The
+    /// `dimensions` parameter is still needed for the dimension-mismatch guard on search.
+    pub fn open_read_only(
+        path: impl AsRef<Path>,
+        dimensions: usize,
+    ) -> Result<SqliteVectorIndex, VectorError> {
+        register_sqlite_vec();
+        let conn = Connection::open_with_flags(
+            path.as_ref(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(backend)?;
+        Ok(SqliteVectorIndex { conn, dimensions })
     }
 
     fn init(conn: Connection, dimensions: usize) -> Result<SqliteVectorIndex, VectorError> {
@@ -343,5 +360,48 @@ mod tests {
             })
             .unwrap();
         assert_eq!(index.model_id().unwrap().as_deref(), Some("bge-small"));
+    }
+
+    /// A temporary file path for a vector index database, cleaned up on drop. `#[cfg(test)]` only
+    /// — never available to non-test code, so the read-only constructor's file-based test cannot
+    /// leak into production paths.
+    fn temp_vectors_path() -> tempfile::TempPath {
+        tempfile::NamedTempFile::new()
+            .expect("a temp file for a vector index")
+            .into_temp_path()
+    }
+
+    /// `open_read_only` opens an existing index file and `search` succeeds, reading the vectors a
+    /// prior live boot populated. The file is seeded by a normal `open` + `upsert`, then reopened
+    /// read-only; the search returns the same hit as the read-write index.
+    #[tokio::test]
+    async fn open_read_only_searches_an_existing_index() {
+        let embedder = CpuEmbedder::shared();
+        let path = temp_vectors_path();
+        let file_path = path.keep().expect("keep the temp file");
+
+        // Seed the index on disk with one vector.
+        {
+            let mut index = SqliteVectorIndex::open(&file_path, DIMS).unwrap();
+            index
+                .upsert(record(&embedder, "climbing gym", "climbing gym").await)
+                .unwrap();
+        }
+
+        // Reopen read-only and search — the seeded vector is found.
+        let mut index = SqliteVectorIndex::open_read_only(&file_path, DIMS).unwrap();
+        let query = vector(&embedder, "climbing gym").await;
+        let hits = index.search(&query, 1).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, VectorId::new("climbing gym"));
+
+        // A write against the read-only connection must fail — SQLite refuses writes under
+        // SQLITE_OPEN_READ_ONLY, proving the flag is effective.
+        assert!(
+            index.upsert(record(&embedder, "new", "new").await).is_err(),
+            "a read-only connection must refuse writes"
+        );
+
+        let _ = std::fs::remove_file(&file_path);
     }
 }

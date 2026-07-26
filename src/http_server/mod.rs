@@ -84,6 +84,8 @@ struct AppState {
     /// The environmental config this instance booted from, for the read-only config view. Serializing
     /// it redacts the secrets (API keys serialize as counts, MCP env and HTTP headers as their names).
     config: Arc<EnvConfig>,
+    /// Whether the server is booted in read-only mode — mutating handlers return `409` when true.
+    read_only: bool,
 }
 
 /// How often the background indexer catches the vector index up to the log. Indexing is off the hot
@@ -120,22 +122,30 @@ const MAINTENANCE_TICK_SECONDS: u64 = 60;
 
 /// Build the multi-thread tokio runtime and run the server to completion — the synchronous entry the
 /// CLI calls when invoked with no subcommand.
-pub fn run_blocking(config_path: &Path) -> Result<(), ServeError> {
+pub fn run_blocking(config_path: &Path, cli_read_only: bool) -> Result<(), ServeError> {
     let config = EnvConfig::load(config_path).map_err(ServeError::Config)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(ServeError::Runtime)?;
-    runtime.block_on(serve(config))
+    runtime.block_on(serve(config, cli_read_only))
 }
 
 /// Open the instance, start the scheduler driver, and serve the HTTP API until interrupted, then shut
 /// down gracefully (stop accepting, stop the driver, tear down live sessions).
-async fn serve(config: EnvConfig) -> Result<(), ServeError> {
+async fn serve(config: EnvConfig, cli_read_only: bool) -> Result<(), ServeError> {
+    // The CLI flag overrides the config: `--read-only` forces read-only even when
+    // `[serving] read_only = false`.
+    let read_only = config.serving.read_only || cli_read_only;
+    if read_only {
+        return serve_read_only(config).await;
+    }
     let bind = config.serving.bind;
     // Capture the booted config for the read-only config view before its parts are moved out below
     // (the MCP table into `connect_mcp`, the API keys into the auth layers).
     let env_config = Arc::new(config.clone());
+    // Capture the boot-log fields early, before `config.mcp` is moved into `connect_mcp`.
+    let (storage_dir, model_endpoint, embedding_endpoint) = boot_log_fields(&config);
     // The three databases share one directory (the storage config); ensuring the event log's parent
     // creates that directory for all of them.
     let event_log = config.storage.event_log();
@@ -200,24 +210,7 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     // §Observability → metrics). The recorder is process-global (one agent per process); the handle
     // renders the `/control/metrics` text. A failure to install is non-fatal — the server serves on
     // without the metrics endpoint.
-    let metrics = match metrics_exporter_prometheus::PrometheusBuilder::new()
-        .set_buckets(LATENCY_BUCKETS)
-    {
-        Ok(builder) => match builder.install_recorder() {
-            Ok(handle) => {
-                describe();
-                Some(handle)
-            }
-            Err(error) => {
-                tracing::warn!(%error, "could not install the metrics recorder; /control/metrics is disabled");
-                None
-            }
-        },
-        Err(error) => {
-            tracing::warn!(%error, "could not configure the metrics recorder; /control/metrics is disabled");
-            None
-        }
-    };
+    let metrics = install_metrics();
     let boot = std::time::Instant::now();
 
     // If the embedding model changed since the vectors were last built, re-embed the whole log before
@@ -428,28 +421,8 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
             .map(|(platform, connector)| (platform.clone(), connector.key.clone()))
             .collect(),
         config: env_config,
+        read_only: false,
     });
-    let listener = TcpListener::bind(bind)
-        .await
-        .map_err(|source| ServeError::Bind { addr: bind, source })?;
-    // A structured boot summary so an operator reading the log sees what this instance is and what it
-    // talks to — the resolved storage directory, the bind, the model and embedding endpoints (host +
-    // model id, no secrets — keys are never logged), the genesis status, and each MCP server's tool
-    // count (spec §Observability → boot log).
-    let storage_dir = config.storage.dir.display().to_string();
-    let model_endpoint = if config.model.endpoint.is_empty() {
-        "(none)".to_owned()
-    } else {
-        format!("{} [{}]", config.model.endpoint, config.model.llm)
-    };
-    let embedding_endpoint = if config.embedding.endpoint.is_empty() {
-        "(none)".to_owned()
-    } else {
-        format!(
-            "{} [{} · {}d]",
-            config.embedding.endpoint, config.embedding.model, config.embedding.dimensions
-        )
-    };
     let mcp_summary = server.mcp_summary();
     tracing::info!(
         %bind,
@@ -457,23 +430,14 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
         %model_endpoint,
         %embedding_endpoint,
         ?status,
+        read_only = false,
         mcp_servers = mcp_summary.len(),
         "zuihitsu serving"
     );
     for (name, tools) in mcp_summary {
         tracing::info!(mcp = %name, tools, "mcp server up");
     }
-    // `into_make_service_with_connect_info` surfaces each connection's peer address to the auth
-    // middleware (a bare `axum::serve(listener, app)` would not), so a loopback peer can be trusted.
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown.clone().wait())
-    .await
-    .map_err(ServeError::Serve)?;
-
-    tracing::info!("shutdown signal received; stopping");
+    serve_until_shutdown(app, bind, &shutdown).await?;
     let _ = driver.await;
     let _ = indexer.await;
     if let Some(describer) = describer {
@@ -494,6 +458,180 @@ async fn serve(config: EnvConfig) -> Result<(), ServeError> {
     if let Some(snapshotter) = snapshotter {
         let _ = snapshotter.await;
     }
+    server.shutdown().await;
+    Ok(())
+}
+
+/// Install the Prometheus metrics recorder and declare every metric's help/type (spec
+/// §Observability → metrics). The recorder is process-global (one agent per process); the handle
+/// renders the `/control/metrics` text. A failure to install is non-fatal — the server serves on
+/// without the metrics endpoint.
+fn install_metrics() -> Option<metrics_exporter_prometheus::PrometheusHandle> {
+    match metrics_exporter_prometheus::PrometheusBuilder::new().set_buckets(LATENCY_BUCKETS) {
+        Ok(builder) => match builder.install_recorder() {
+            Ok(handle) => {
+                describe();
+                Some(handle)
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not install the metrics recorder; /control/metrics is disabled");
+                None
+            }
+        },
+        Err(error) => {
+            tracing::warn!(%error, "could not configure the metrics recorder; /control/metrics is disabled");
+            None
+        }
+    }
+}
+
+/// The boot-log fields shared by both boot paths: the resolved storage directory and the model
+/// and embedding endpoints (host + model id, no secrets — keys are never logged).
+fn boot_log_fields(config: &EnvConfig) -> (String, String, String) {
+    let storage_dir = config.storage.dir.display().to_string();
+    let model_endpoint = if config.model.endpoint.is_empty() {
+        "(none)".to_owned()
+    } else {
+        format!("{} [{}]", config.model.endpoint, config.model.llm)
+    };
+    let embedding_endpoint = if config.embedding.endpoint.is_empty() {
+        "(none)".to_owned()
+    } else {
+        format!(
+            "{} [{} · {}d]",
+            config.embedding.endpoint, config.embedding.model, config.embedding.dimensions
+        )
+    };
+    (storage_dir, model_endpoint, embedding_endpoint)
+}
+
+/// Bind the listener, serve the app until interrupted, then shut down gracefully. The driver-join
+/// tail is the caller's responsibility — the live path joins its spawned drivers, the read-only
+/// path has none.
+async fn serve_until_shutdown(
+    app: axum::Router,
+    bind: SocketAddr,
+    shutdown: &ShutdownFlag,
+) -> Result<(), ServeError> {
+    let listener = TcpListener::bind(bind)
+        .await
+        .map_err(|source| ServeError::Bind { addr: bind, source })?;
+    // `into_make_service_with_connect_info` surfaces each connection's peer address to the auth
+    // middleware (a bare `axum::serve(listener, app)` would not), so a loopback peer can be trusted.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown.clone().wait())
+    .await
+    .map_err(ServeError::Serve)?;
+    tracing::info!("shutdown signal received; stopping");
+    Ok(())
+}
+
+/// Build the [`AppState`] fields every boot path shares, so each path overrides only what its
+/// scenario exercises. The `server` is already `Arc`-wrapped; `model`, `backend`, and
+/// `snapshot_dir` are `None` for the read-only path.
+fn shared_app_state(
+    server: Arc<Server>,
+    shutdown: ShutdownFlag,
+    metrics: Option<metrics_exporter_prometheus::PrometheusHandle>,
+    config: &EnvConfig,
+    read_only: bool,
+) -> AppState {
+    AppState {
+        live: Arc::new(stream::LiveEvents::start(&server)),
+        shutdown: shutdown.clone(),
+        server,
+        model: None,
+        backend: None,
+        snapshot_dir: None,
+        metrics,
+        boot: std::time::Instant::now(),
+        control_keys: config.serving.control_keys.clone().into(),
+        platform_connectors: config
+            .platform_connectors
+            .iter()
+            .map(|(platform, connector)| (platform.clone(), connector.key.clone()))
+            .collect(),
+        config: Arc::new(config.clone()),
+        read_only,
+    }
+}
+
+/// Serve the console against an at-rest instance's data **without taking the single-writer lock**,
+/// performing no writes, and spawning no background work (spec §Boot). The store, graph, and vector
+/// index all open read-only; `boot()` is skipped entirely (the at-rest graph is already materialized
+/// from the last live boot); no drivers spawn; no model client or arbiter is built. Mutating handlers
+/// return `409` via the `read_only` flag on [`AppState`]. The data is a snapshot at boot — the SSE
+/// stream serves its initial snapshot then idles (a read-only store has no subscriber feed). The
+/// operator restarts to see new data.
+async fn serve_read_only(config: EnvConfig) -> Result<(), ServeError> {
+    let bind = config.serving.bind;
+    let event_log = config.storage.event_log();
+    let graph_path = config.storage.graph();
+    let vectors_path = config.storage.vectors();
+    // The read-only path does not create the storage directory — the instance must already exist on
+    // disk (booted live at least once). Creating it here would be a write outside the read-only
+    // contract; a missing directory surfaces as an open error naming the path.
+    let store =
+        SqliteStore::open_read_only(&event_log).map_err(|source| ServeError::OpenEventLog {
+            path: event_log.clone(),
+            source,
+        })?;
+    let graph = Graph::open_read_only(&graph_path).map_err(|source| ServeError::OpenGraph {
+        path: graph_path.clone(),
+        source,
+    })?;
+    // Semantic retrieval is read-only too: open the index without creating the virtual table. The
+    // embedder is still built so `memory.search` can embed the query, but the index file must already
+    // exist and be populated by a prior live boot.
+    let retrieval = if config.embedding.endpoint.is_empty() {
+        None
+    } else {
+        let embedder: Arc<dyn Embedder> = Arc::new(OpenAiEmbedder::new(&config.embedding));
+        let vectors = SqliteVectorIndex::open_read_only(&vectors_path, config.embedding.dimensions)
+            .map_err(|source| ServeError::OpenVectors {
+                path: vectors_path.clone(),
+                source,
+            })?;
+        Some((embedder, Box::new(vectors) as Box<dyn VectorIndex>))
+    };
+    let server = match retrieval {
+        Some((embedder, vectors)) => Server::with_retrieval(
+            Box::new(store),
+            graph,
+            Box::new(SystemClock),
+            embedder,
+            vectors,
+        ),
+        None => Server::new(Box::new(store), graph, Box::new(SystemClock)),
+    };
+    // No boot() — it writes (template reconciliation, materialization, cursor reseeding). The at-rest
+    // graph is already materialized from the last live boot.
+    // No model client or arbiter — no model calls will be made. `model` and `backend` are `None`.
+    // No MCP or web connection — those spawn subprocesses or build HTTP clients.
+    // No background drivers — the read-only server performs no autonomous work.
+    let server = Arc::new(server);
+    let shutdown = ShutdownFlag::install();
+    let metrics = install_metrics();
+    let app = router(shared_app_state(
+        server.clone(),
+        shutdown.clone(),
+        metrics,
+        &config,
+        true,
+    ));
+    let (storage_dir, model_endpoint, embedding_endpoint) = boot_log_fields(&config);
+    tracing::info!(
+        %bind,
+        %storage_dir,
+        %model_endpoint,
+        %embedding_endpoint,
+        read_only = true,
+        "zuihitsu serving"
+    );
+    serve_until_shutdown(app, bind, &shutdown).await?;
     server.shutdown().await;
     Ok(())
 }

@@ -65,3 +65,68 @@ fn a_graph_stamped_under_another_schema_is_reset() {
         "the reset restamps the graph under the current schema"
     );
 }
+
+/// A read-only open of an existing graph file reads without writing — no `guard_schema`, no DDL.
+/// The file is seeded by a normal `open` + `materialize_from`, then reopened read-only; reads
+/// return the materialized state and the head is unchanged (no reset).
+#[test]
+fn open_read_only_reads_without_writing() {
+    use crate::{
+        event::{EventPayload, EventSource},
+        store::{MemoryStore, Store},
+        time::Timestamp,
+    };
+
+    let path = super::temp_graph_path();
+    // `Graph::open` creates the file; `temp_graph_path` gave us a path that does not yet exist
+    // (NamedTempFile creates then detaches), so open it at the path.
+    let file_path = path.keep().expect("keep the temp file");
+
+    // Seed a graph on disk: create a memory so the graph holds a row and a non-zero head.
+    let mut store = MemoryStore::new();
+    let memory = crate::ids::MemoryId::generate();
+    store
+        .append(
+            Timestamp::from_millis(1_000),
+            EventSource::Agent,
+            vec![EventPayload::memory_created(
+                memory,
+                crate::ids::Namespace::Person.with_name("rowan@direct"),
+            )],
+        )
+        .unwrap();
+    {
+        let mut graph = Graph::open(&file_path).unwrap();
+        graph.materialize_from(&store).unwrap();
+        assert_eq!(graph.head().unwrap().0, 1);
+    }
+
+    // Reopen read-only: no writes, reads succeed and report the materialized state.
+    let graph = Graph::open_read_only(&file_path).unwrap();
+    assert_eq!(
+        graph.head().unwrap().0,
+        1,
+        "a read-only open must not reset the graph head"
+    );
+    // The memory we seeded is readable — the projection survived the read-only reopen.
+    let memory_view = graph
+        .memory_by_name(crate::ids::Namespace::Person.with_name("rowan@direct"))
+        .unwrap()
+        .expect("the seeded memory survives a read-only reopen");
+    assert_eq!(memory_view.id, memory);
+
+    // A write against the read-only connection must fail — SQLite refuses writes under
+    // SQLITE_OPEN_READ_ONLY, proving the flag is effective rather than merely trusting the code path.
+    assert!(
+        graph
+            .conn
+            .execute(
+                "UPDATE meta SET value = 0 WHERE key = 'schema_fingerprint'",
+                []
+            )
+            .is_err(),
+        "a read-only connection must refuse writes"
+    );
+
+    let _ = std::fs::remove_file(&file_path);
+}

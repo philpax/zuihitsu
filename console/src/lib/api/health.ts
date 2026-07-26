@@ -11,6 +11,7 @@ import { authHeaders, errorMessage } from "./http.ts";
 export interface InstanceHealth {
   genesis: GenesisStatus;
   model: BackendHealth | null;
+  read_only: boolean;
 }
 
 export async function instanceHealth(connection: LiveConnection): Promise<InstanceHealth> {
@@ -28,22 +29,22 @@ export function isDegraded(health: BackendHealth | null): health is BackendHealt
   return health !== null && (health.circuit !== "closed" || health.consecutive_failures > 0);
 }
 
-/// How often the console re-reads the transport health. Frequent enough that the banner appears
+/// How often the console re-reads the instance health. Frequent enough that the banner appears
 /// within a few seconds of the circuit opening and clears promptly on recovery; far too slow to
 /// matter as load (one small JSON read).
 const HEALTH_POLL_MS = 5_000;
 
-/// Poll the model transport's health while mounted. Deliberately quiet about its own failures: an
+/// Poll the instance health while mounted. Deliberately quiet about its own failures: an
 /// unreachable console connection yields `null` (no banner) rather than an error — the header's
 /// connection badge already covers "cannot reach the agent"; this hook is only about the agent's
-/// own model backend.
-export function useBackendHealth(connection: LiveConnection): BackendHealth | null {
-  const [health, setHealth] = useState<BackendHealth | null>(null);
+/// model backend and read-only mode.
+export function useInstanceHealth(connection: LiveConnection): InstanceHealth | null {
+  const [health, setHealth] = useState<InstanceHealth | null>(null);
   useEffect(() => {
     let cancelled = false;
     const poll = () => {
       instanceHealth(connection).then(
-        (value) => !cancelled && setHealth(value.model),
+        (value) => !cancelled && setHealth(value),
         () => !cancelled && setHealth(null),
       );
     };

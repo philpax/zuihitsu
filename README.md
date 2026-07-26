@@ -54,6 +54,11 @@ bind = "127.0.0.1:7777"
 # Valid API keys for the operator surface (/control/*). Empty (the default) rejects
 # every remote control request, leaving the server loopback-only.
 control_keys = []
+# Boot read-only: serve the console and inspection surface against existing data
+# without taking the writer lock or running any background work. Mutating endpoints
+# return 409. The --read-only CLI flag forces this on regardless of this value.
+# Default: false.
+read_only = false
 
 [model]
 # Where to reach the generation model (an OpenAI-compatible endpoint). An empty

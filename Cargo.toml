@@ -37,6 +37,7 @@ sha2 = "0.11.0"
 # definition. The `js` feature pulls the wasm-bindgen/serde-wasm-bindgen integration.
 tsify-next = { version = "0.5", default-features = false, features = ["js"] }
 smol_str = { version = "0.3.6", features = ["serde"] }
+tempfile = "3"
 tokio = "1.52.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -148,6 +149,7 @@ wasm-opt = { workspace = true, optional = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
+tempfile = { workspace = true }
 # A real CPU-only embedding model (all-MiniLM-L6-v2 via ONNX Runtime) for tests that need
 # semantic similarity the FakeEmbedder cannot provide. The model weights (~22MB) download to a
 # cache dir on first use. Default features are disabled to avoid pulling in native-tls/openssl

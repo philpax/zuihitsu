@@ -3,7 +3,7 @@
 //! the next materialisation), and the open paths. The fingerprint is a digest of the DDL itself,
 //! so any schema edit moves the stamp with no manually-bumped version to forget.
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::graph::{Graph, GraphError, backend};
@@ -17,6 +17,20 @@ impl Graph {
     /// Open an ephemeral in-memory graph — the no-file-I/O configuration tests use.
     pub fn open_in_memory() -> Result<Graph, GraphError> {
         Self::init(Connection::open_in_memory().map_err(backend)?)
+    }
+
+    /// Open an existing graph file read-only, taking no lock and running no DDL — a read-only boot
+    /// serves the console against an at-rest instance's data without writing or taking the single-writer
+    /// lock. No `init` (which runs the schema batch) and no `guard_schema` (which writes when a stamp
+    /// mismatches): the file must already exist and be materialized by a prior live boot. A schema
+    /// mismatch surfaces as a read error (a `500`) rather than being silently masked.
+    pub fn open_read_only(path: impl AsRef<std::path::Path>) -> Result<Graph, GraphError> {
+        let conn = Connection::open_with_flags(
+            path.as_ref(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(backend)?;
+        Ok(Graph { conn })
     }
 
     fn init(conn: Connection) -> Result<Graph, GraphError> {
