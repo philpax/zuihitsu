@@ -51,6 +51,28 @@ impl From<ConcatError> for LuaError {
     }
 }
 
+/// Append a lesson to a block's terminal message when Luau's own wording names a slip we can teach.
+/// The single funnel every runtime error passes through on its way to the agent, so a lesson lands
+/// wherever the slip happened rather than only at the surfaces that route through a typed error.
+///
+/// Only `..` against a list is recognised. The read surfaces already give a handle a `__concat`, so a
+/// table reaching this is a *list* of them — `mem:entries()`, `hub:links()`, a search result — where
+/// Luau's "attempt to concatenate string with table" names the types and not the fix. The reword is
+/// additive: the original message, position and all, is kept ahead of the lesson.
+pub(in crate::agent::lua) fn with_lesson(message: String) -> String {
+    const CONCAT_LESSON: &str = "a list of handles has no text of its own — index one out and \
+                                 interpolate it into a backtick string (`latest: {es[1]}`), or \
+                                 concatenate a single handle (\"- \" .. es[1]). To see the whole \
+                                 list, print(list) renders each handle on its own line";
+    if message.contains("attempt to concatenate")
+        && message.contains("table")
+        && !message.contains(CONCAT_LESSON)
+    {
+        return format!("{message}\n{CONCAT_LESSON}");
+    }
+    message
+}
+
 /// Luau's incomplete-statement syntax error, reworded to teach the explicit `return`. A block that
 /// ends in a bare trailing expression — `results` on its own last line, as if the VM echoed input like
 /// a REPL — fails Luau's parser with "Incomplete statement: expected assignment or a function call",

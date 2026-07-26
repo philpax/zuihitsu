@@ -11,6 +11,7 @@ use crate::{
         lua::{
             BlockOutcome, LuaError, Session,
             commit::{summarize_committed, with_commit_summary},
+            error::with_lesson,
             runtime::{
                 BlockApi, LockSet, combine_output, eval_block, release_locks, render,
                 timed_out_cause,
@@ -217,7 +218,7 @@ impl Session {
                         // Discard the buffer; record only what the agent saw — the terminal cause.
                         let cause = match aborted {
                             Some(reason) => TerminalCause::Aborted(reason),
-                            None => TerminalCause::Error(error.to_string()),
+                            None => TerminalCause::Error(with_lesson(error.to_string())),
                         };
                         if context.dry_run {
                             Ok(BlockOutcome::Terminated(cause))

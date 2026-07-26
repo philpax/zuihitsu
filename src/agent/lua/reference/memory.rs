@@ -168,7 +168,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              own observation (a synthesis or a flush) has no default — set its visibility yourself, \
              public or private.",
         )
-        .required("text", AT::String, "the entry text (must be under the character limit — summarize what you learned rather than pasting source content)")
+        .required("text", AT::String, "the entry text (must be under the character limit — summarize what you learned rather than pasting source content). To build it from a value, use a backtick string, which interpolates: `booked for {date}`. A plain quoted string does not — \"booked for {date}\" stores those braces literally, and is refused")
         .optional(
             "opts",
             object()

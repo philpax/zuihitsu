@@ -55,6 +55,36 @@ async fn table_concat_on_a_handle_list_is_a_teachable_error() {
 }
 
 #[tokio::test]
+async fn concatenating_a_handle_list_teaches_indexing_one_out() {
+    // A single handle carries a __concat, so `.. ` against one composes. A *list* of them does not, and
+    // Luau's own "attempt to concatenate string with table" names the types without naming the fix. The
+    // lesson rides along on the terminal message, which is the one funnel every block error passes.
+    let h = Harness::new();
+    let outcome = h
+        .run(
+            r#"
+        local dave = memory.create(PERSON_DAVE)
+        dave:append("Met at the climbing gym", { visibility = "public" })
+        return "entries: " .. dave:entries()
+        "#,
+        )
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("attempt to concatenate"),
+                "Luau's own wording should survive ahead of the lesson, got: {message}"
+            );
+            assert!(
+                message.contains("index one out") && message.contains("backtick"),
+                "the list-concat error should teach indexing one out, got: {message}"
+            );
+        }
+        other => panic!("expected a teachable error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn table_concat_on_a_reader_method_is_a_teachable_error() {
     // The field-vs-method slip: the agent passes hub.links (the method itself, a function) to
     // table.concat instead of hub:links() (its result). The error shell catches the non-table first
