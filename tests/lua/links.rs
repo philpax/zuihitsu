@@ -266,7 +266,7 @@ async fn link_readers_traverse_the_merged_identity() {
         MemoryName::from(Namespace::Person.with_name("dave@chat")).as_str(),
         MemoryName::from(Namespace::Person.with_name("erin")).as_str(),
         MemoryName::from(Namespace::Person.with_name("frank")).as_str(),
-        "company/hooli",
+        "org/hooli",
     ] {
         h.run(&format!("memory.create({name:?})")).await;
     }
@@ -299,10 +299,8 @@ async fn link_readers_traverse_the_merged_identity() {
         .await;
     h.run(r#"links.create(memory.get(PERSON_FRANK), "mentor_of", memory.get(PERSON_DAVE_AT_CHAT), { visibility = "public" })"#)
         .await;
-    h.run(
-        r#"links.create(memory.get(PERSON_DAVE_AT_CHAT), "works_at", memory.get("company/hooli"))"#,
-    )
-    .await;
+    h.run(r#"links.create(memory.get(PERSON_DAVE_AT_CHAT), "works_at", memory.get("org/hooli"))"#)
+        .await;
 
     // outgoing: who Dave mentors — Erin, reached through the merged identity though queried via the
     // primary stub. A single edge, so the list renders as the one readable line.
@@ -356,7 +354,7 @@ async fn link_readers_traverse_the_merged_identity() {
         )),
         "{result}"
     );
-    assert!(result.contains("works_at → company/hooli"), "{result}");
+    assert!(result.contains("works_at → org/hooli"), "{result}");
     assert!(
         !result.contains("same_as"),
         "the same_as plumbing must not surface as a relationship: {result}"

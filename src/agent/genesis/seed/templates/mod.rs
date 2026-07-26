@@ -17,7 +17,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 29,
+            version: 30,
             body: scaffold_body(features),
             description: "The system-prompt scaffold: the standing instructions every turn is \
                           framed by.",
@@ -191,6 +191,7 @@ fn recall_point(features: &InstanceFeatures) -> String {
 fn render(raw: &str) -> String {
     body_of(raw)
         .replace("{{person}}", Namespace::Person.prefix())
+        .replace("{{org}}", Namespace::Org.prefix())
         .replace("{{place}}", Namespace::Place.prefix())
         .replace("{{event}}", Namespace::Event.prefix())
         .replace("{{topic}}", Namespace::Topic.prefix())
