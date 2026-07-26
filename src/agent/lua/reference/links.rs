@@ -65,19 +65,25 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
              about someone — a belief, a judgment — defaults private to the teller when a participant \
              asserts it, so an aside about B stays hidden from B; a relayed fact (the teller is \
              neither endpoint) surfaces to anyone carrying provenance. Force the posture with \
-             opts.visibility when the default does not fit.",
+             opts.visibility when the default does not fit. An endpoint named by a string that names \
+             no memory yet is created bare, so naming the cast of a relationship does not need a \
+             create first. Three names are refused rather than created: one near-matching an existing \
+             handle (the neighbours are listed — minting it would split one subject's facts in two), \
+             a handle the system mints for itself, and a name in no recognized namespace. Only \
+             links.create does this; links.remove never creates its target.",
         )
         .required(
             "subject",
             AT::Handle,
             "the memory the relation runs from — a handle (e.g. context.current()) or its name as a \
-             string, which is looked up",
+             string, which is looked up and created if it names nothing yet",
         )
         .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
         .required(
             "object",
             AT::Handle,
-            "the memory the relation runs to — a handle or its name as a string, which is looked up",
+            "the memory the relation runs to — a handle or its name as a string, which is looked up \
+             and created if it names nothing yet",
         )
         .optional(
             "opts",

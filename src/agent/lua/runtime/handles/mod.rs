@@ -9,7 +9,7 @@ pub(crate) use entry::{
     entry_handle_id, entry_selector, make_entry_handle, make_entry_handle_list,
 };
 pub(crate) use link::{
-    get_argument_name, link_target_id, make_link_handle, make_link_handle_list,
+    EndpointMode, get_argument_name, link_target_id, make_link_handle, make_link_handle_list,
     render_neighborhood, render_salient_relations, resolve_exclude,
 };
 pub(crate) use memory::{

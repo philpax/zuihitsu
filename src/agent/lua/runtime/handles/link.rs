@@ -16,7 +16,7 @@ use crate::{
             route_error,
         },
     },
-    ids::MemoryId,
+    ids::{MemoryId, MemoryName, Namespace, NamespacedMemoryName},
     memory::{
         memory_block::{LinkDirection, LinkRef},
         search::SalientRelation,
@@ -159,33 +159,79 @@ fn link_direction_label(direction: LinkDirection) -> &'static str {
     }
 }
 
+/// Whether a link write may mint an endpoint named by a string that resolves to no memory.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EndpointMode {
+    /// `links.create`: naming the far end of a relationship before anything is known about it is an
+    /// ordinary shape, so a free handle in a recognized namespace is minted rather than refused.
+    Mint,
+    /// `links.remove`: an edge to a memory that does not exist cannot be removed, so an unknown name
+    /// is a slip to show the agent — never a memory to create on the way to disconnecting from it.
+    Existing,
+}
+
 /// Resolve a `:link`/`:unlink` target to its memory id. The target is normally a memory handle, but a
 /// name string is accepted and looked up too — so the agent's natural call passing a name in place of
 /// a handle works rather than failing the string-to-handle argument conversion, erroring, and rolling
 /// the whole block back (silently dropping any co-located writes — the cause of lost sensitivity
-/// markings). An unknown name is a clear error, not a silent miss.
-pub(crate) fn link_target_id(api: &BlockApi, other: Value) -> mlua::Result<MemoryId> {
+/// markings).
+///
+/// Under [`EndpointMode::Mint`] a name resolving to nothing is created, but only once it has cleared
+/// every gate a name reaching the log must clear: it interpolated (an uninterpolated `{name}` is a
+/// bug to teach, not a handle to mint), it is not a reserved or machinery-owned handle, and it names
+/// a recognized namespace — the near-match guard in [`MemoryBlock::link_endpoint`] is blind to a
+/// free-form name, so minting one could split a subject's facts unseen.
+pub(crate) fn link_target_id(
+    api: &BlockApi,
+    other: Value,
+    mode: EndpointMode,
+) -> mlua::Result<MemoryId> {
     match other {
         Value::Table(handle) => handle_id(&handle),
         Value::String(name) => {
             let name = name.to_string_lossy();
-            match api
-                .block
-                .lock()
-                .get(&name)
-                .map_err(|error| route_error(error, &mut api.infra.lock()))?
-            {
-                Some((id, _)) => Ok(id),
-                None => Err(HandleError::UnknownLinkTarget {
+            check_interpolated("a link endpoint", &name)?;
+            let unknown = || {
+                mlua::Error::from(HandleError::UnknownLinkTarget {
                     name: name.to_string(),
-                }
-                .into()),
+                })
+            };
+            if mode == EndpointMode::Existing || !mintable(&name) {
+                return match api
+                    .block
+                    .lock()
+                    .get(&name)
+                    .map_err(|error| route_error(error, &mut api.infra.lock()))?
+                {
+                    Some((id, _)) => Ok(id),
+                    None => Err(unknown()),
+                };
             }
+            api.block
+                .lock()
+                .link_endpoint(&name)
+                .map_err(|error| route_error(error, &mut api.infra.lock()))
         }
         other => Err(HandleError::WrongLinkTargetType {
             type_name: other.type_name(),
         }
         .into()),
+    }
+}
+
+/// Whether a link endpoint naming no memory may be created rather than refused. A handle the system
+/// mints for itself is excluded: `person/operator` is the imprint's provisional anchor, so creating it
+/// would squat the handle a later imprint binds, and a `context/` memory is minted by the session
+/// machinery alongside a real room, so a hand-made one names a conversation that does not exist. A
+/// name in no recognized namespace is excluded too — it carries no kind, and the near-match guard is
+/// scoped to a namespace, so nothing would catch a typo of an existing free-form handle.
+fn mintable(name: &str) -> bool {
+    if name == MemoryName::from(NamespacedMemoryName::operator()).as_str() {
+        return false;
+    }
+    match MemoryName::new(name).namespaced() {
+        Ok(namespaced) => namespaced.namespace != Namespace::Context,
+        Err(_) => false,
     }
 }
 
