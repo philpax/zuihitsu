@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    agent::turn::describe::{extract::ExtractedTime, synthesis::statements_prompt},
+    agent::turn::describe::{
+        extract::ExtractedTime, occurrences::states_a_time, synthesis::statements_prompt,
+    },
     event::{Teller, Visibility, Volatility},
     graph::{AttestationView, EntryOrigin, EntryView, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
@@ -122,6 +124,86 @@ fn statements_prompt_notes_a_multiply_attested_statement_and_ignores_a_hidden_on
         prompt.contains("2. [from person/erin · Mon 08 Jun] The venue is booked"),
         "{prompt}"
     );
+}
+
+/// 2026-06-08 is a Monday, which the weekday cases below turn on.
+fn monday() -> Timestamp {
+    Timestamp::from_millis(ms("2026-06-08"))
+}
+
+#[test]
+fn a_statement_naming_a_time_supports_a_current_day_resolution() {
+    let now = monday();
+    // A written date, in the formats a statement actually carries one in.
+    assert!(states_a_time("Signed the lease on 2026-06-08", now));
+    assert!(states_a_time("Closes 8 June", now));
+    assert!(states_a_time("Closes June 8", now));
+    assert!(states_a_time("Rent is due on the 8th", now));
+    assert!(states_a_time("Standup moved to 9:30", now));
+    assert!(states_a_time("Doors at 7pm", now));
+    // A same-day deictic puts the speaker's own day in the statement.
+    assert!(states_a_time("The surveyor called this morning", now));
+    assert!(states_a_time("It kicked off today.", now));
+    assert!(states_a_time("The ferry leaves tonight", now));
+    // Case is irrelevant — the cue is the word, not its rendering.
+    assert!(states_a_time("TODAY the vendor confirmed", now));
+}
+
+#[test]
+fn a_statement_naming_no_time_does_not_support_a_current_day_resolution() {
+    let now = monday();
+    // An intention waiting on a date nobody holds: said today, but about no day at all.
+    assert!(!states_a_time(
+        "Keen to help with setup once the room is sorted.",
+        now
+    ));
+    // A standing fact is timeless — true before today and after it.
+    assert!(!states_a_time("Leads the volcano project", now));
+    // The vague now-words anchor loosely to the moment of speaking without pinning a day, so they are
+    // grounds for omitting rather than for dating; treating them as support would readmit exactly the
+    // fabrication the guard exists to catch.
+    assert!(!states_a_time(
+        "Joined recently as the new lighting tech",
+        now
+    ));
+    assert!(!states_a_time("Has been travelling lately", now));
+    assert!(!states_a_time("Will send the invoice soon", now));
+    assert!(!states_a_time("Currently between jobs", now));
+    // A bare month names a month, not a day, so it cannot authorize the current day on its own.
+    assert!(!states_a_time("The launch is sometime in June", now));
+}
+
+#[test]
+fn a_bare_number_that_is_not_a_date_does_not_support_a_current_day_resolution() {
+    let now = monday();
+    // Floors, quarters, versions, counts, and street numbers are far commoner than dates, and each of
+    // these was observed keeping a fabricated current-day occurrence when any digit counted as a time.
+    assert!(!states_a_time(
+        "The coffee machine on floor 3 is out of beans.",
+        now
+    ));
+    assert!(!states_a_time(
+        "Dave is thinking through the Q3 roadmap.",
+        now
+    ));
+    assert!(!states_a_time("Runs the v2 migration", now));
+    assert!(!states_a_time("Has 3 kids", now));
+    // A bare year names no day either, and appears in event names constantly.
+    assert!(!states_a_time(
+        "The 2026 offsite is happening in Denver",
+        now
+    ));
+    assert!(!states_a_time("Lives at 42 Fitzroy St", now));
+}
+
+#[test]
+fn a_weekday_supports_a_current_day_resolution_only_on_that_weekday() {
+    // Said on the Monday it names, "Monday" is why a resolution landed on the current day.
+    assert!(states_a_time("Moved the standup to Monday", monday()));
+    // Said on a Monday, "Thursday" cannot be — so it does not disarm the guard. This is the case the
+    // extraction prompt teaches with a standing weekly fact, which must stay untimed.
+    assert!(!states_a_time("Moved the standup to Thursday", monday()));
+    assert!(!states_a_time("Runs the Tuesday reading group", monday()));
 }
 
 #[test]

@@ -271,6 +271,70 @@ async fn a_current_day_extraction_applies_without_a_dated_sibling() {
 }
 
 #[tokio::test]
+async fn a_current_day_extraction_is_suppressed_when_the_statement_names_no_time() {
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // An intention waiting on a date nobody holds yet. No sibling carries an occurrence, so the
+    // differently-dated branch cannot fire — the statement's own silence is what disarms the
+    // resolution, which would otherwise stamp the day the conversation happened onto a timeless fact.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { visibility = "public" })
+               demo:append("Keen to help with setup once the room is sorted.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, unscheduled.")
+                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Happy to pitch in", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    assert_eq!(entries[1].occurred_sort, None);
+    assert!(temporal_resolutions(&h.events()).is_empty());
+    // Name the branch: a bare failure count also passes when the reference merely failed to parse, or
+    // when the sibling branch fired for an unrelated reason.
+    let failures = temporal_resolve_failures(&h.events());
+    assert_eq!(failures.len(), 1);
+    let EventPayload::EntryTemporalResolveFailed { reason, .. } = &failures[0] else {
+        panic!(
+            "expected an EntryTemporalResolveFailed, got {:?}",
+            failures[0]
+        );
+    };
+    assert!(
+        reason.contains("names no time of its own"),
+        "expected the statement-names-no-time branch, got: {reason}"
+    );
+}
+
+#[tokio::test]
 async fn temporal_extraction_resolves_an_untimed_entry() {
     let mut h = Harness::new();
     genesis::rollout(
