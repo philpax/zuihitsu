@@ -101,6 +101,16 @@ pub(crate) fn bar_label(bar: &Bar) -> String {
     }
 }
 
+/// Whether a scenario's aggregate holds its bar for the harness's exit signal — the same judgement
+/// [`Bar::holds`] makes when the run decides its exit code, so a reported gate failure is exactly a
+/// suite failure. A metric bar never gates, so it holds even when one of its gating verdicts missed.
+pub(crate) fn gate_held(report: &ScenarioReport) -> bool {
+    report
+        .meta
+        .bar
+        .holds(report.aggregate.gating_rate, report.aggregate.gating_passed)
+}
+
 /// Whether a scenario's aggregate clears its bar — a held gate, a rate at or above a rate gate's
 /// threshold, or a metric rate at or above its reporting threshold.
 pub(crate) fn clears_bar(report: &ScenarioReport) -> bool {

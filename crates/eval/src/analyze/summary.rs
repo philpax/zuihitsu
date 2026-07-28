@@ -1,7 +1,7 @@
 //! The summary view: per-scenario rates, bars, and deltas against a baseline.
 
 use crate::{
-    analyze::{bar_label, clears_bar, format::join_or_none},
+    analyze::{bar_label, clears_bar, format::join_or_none, gate_held},
     package::{EvalPackage, ScenarioReport},
 };
 
@@ -49,7 +49,7 @@ pub(crate) fn print_summary(pkg: &EvalPackage, base: Option<&EvalPackage>, scena
             r.meta.name,
             bar_label(&r.meta.bar),
             a.rate,
-            if a.gating_passed { "ok" } else { "FAIL" },
+            if gate_held(r) { "ok" } else { "FAIL" },
         );
         if base.is_some() {
             match base_rate(&r.meta.name) {
@@ -65,7 +65,7 @@ pub(crate) fn print_summary(pkg: &EvalPackage, base: Option<&EvalPackage>, scena
 
     let gate_fail: Vec<&str> = reports
         .iter()
-        .filter(|r| !r.aggregate.gating_passed)
+        .filter(|r| !gate_held(r))
         .map(|r| r.meta.name.as_str())
         .collect();
     let below: Vec<&str> = reports
@@ -75,6 +75,20 @@ pub(crate) fn print_summary(pkg: &EvalPackage, base: Option<&EvalPackage>, scena
         .collect();
     println!("\ngating not held: {}", join_or_none(&gate_fail));
     println!("below bar:       {}", join_or_none(&below));
+
+    // A metric scenario's gating verdicts are still worth seeing when one misses, but it never fails
+    // the suite, so it is reported apart from the bar-driven lines rather than inside them.
+    let missed_under_metric: Vec<&str> = reports
+        .iter()
+        .filter(|r| !r.aggregate.gating_passed && gate_held(r))
+        .map(|r| r.meta.name.as_str())
+        .collect();
+    if !missed_under_metric.is_empty() {
+        println!(
+            "gating verdicts missed, but the bar tolerates it: {}",
+            join_or_none(&missed_under_metric),
+        );
+    }
 
     if base.is_some() {
         let mut reg: Vec<String> = Vec::new();
