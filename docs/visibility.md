@@ -49,6 +49,8 @@ So a direct content read applies the same `visible(...)` predicate, with two del
 
 The audience check ignores supersession (it probes with `superseded_by` cleared), so `mem:history()` keeps its purpose — showing the superseded entry — while still withholding it when it is a confidence not for who is present. Direct reads are not a back door around visibility; they are the predicate applied to the agent's own by-handle reach, redacting instead of dropping because the agent asked by name.
 
+**Redaction leaves the id addressable, so every path from an id back to content owes the same check.** That is the point of redacting rather than dropping — the agent can still `mem:supersede` or `mem:attest` a stubbed entry — but it means an entry id outlives the stub that hid its text, and any surface that turns an id back into words would otherwise undo the stub. Three do so, and all three apply the predicate: the by-id entry handback behind `mem:attest`, the corroboration note that quotes the attested entry, and the candidate list in an ambiguous-entry-prefix error, which resolves against the class's whole live-and-historical set. Attesting a withheld entry stays legal — standing behind a fact needs no sight of its wording — but the endorsement is not a way to read it.
+
 The *link* side of a direct read (the link readers `mem:outgoing`/`incoming`/`links`, and `mem:details`) differs in one respect: it **drops** a hidden link rather than redacting it. A link has no text body to stub out, so a link the present audience may not see is simply omitted from the read, and — like the content direct read — the filter fires only when an audience is present. `mem:details` composes both paths, so it inherits redaction on entries and dropping on links.
 
 ## Link visibility
