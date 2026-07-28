@@ -85,10 +85,10 @@ pub(super) fn resolve_occurrences(
                 continue;
             }
         };
-        // A current-day resolution the statement itself does not support reads as the conversation's
-        // "Current time" leaking into the extraction; drop it so the entry stays untimed rather than
-        // carrying a date it never stated, and record the suppression for review.
-        if let Some(reason) = current_day_suppression(&occurred_at, entry, ctx) {
+        // A resolution the statement itself does not support is a date read from somewhere the
+        // statement never authorized; drop it so the entry stays untimed rather than carrying a date
+        // it never gave, and record the suppression for review.
+        if let Some(reason) = suppression(&occurred_at, &occurrence.cue, entry, ctx) {
             let raw = serde_json::to_string(&raw_occurred_at).unwrap_or_default();
             tracing::debug!(
                 memory = %ctx.memory.name.as_str(),
@@ -114,32 +114,48 @@ pub(super) fn resolve_occurrences(
     }
 }
 
-/// Why a resolution onto the current day is not credible for this entry, or `None` when it stands.
-/// Both branches answer the same question — did this date come from the statement, or from the
-/// conversation's "Current time"? — and both fail safe to leaving the entry untimed, which the
-/// extraction prompt itself names as the better direction: a fabricated now-relative date reads back
-/// as fact, where no date merely sends the reader to the entry.
-fn current_day_suppression(
+/// Why a resolution is not credible for this entry, or `None` when it stands. Every branch answers one
+/// question — did this date come from the statement, or from somewhere the statement never authorized?
+/// — and all fail safe to leaving the entry untimed, which the extraction prompt itself names as the
+/// better direction: a fabricated date reads back as fact, where no date merely sends the reader to
+/// the entry.
+///
+/// The cue check comes first and applies to every resolution, not only a current-day one: it asks the
+/// model to point at the words it read the time from, which is checkable, where the day-shaped checks
+/// below can only reason about plausibility.
+fn suppression(
     occurred_at: &TemporalRef,
+    cue: &str,
     entry: &EntryView,
     ctx: &ResolveContext<'_>,
-) -> Option<CurrentDaySuppression> {
+) -> Option<Suppressed> {
+    if cue.trim().is_empty() {
+        return Some(Suppressed::CueMissing);
+    }
+    if !quotes_the_statement(cue, &entry.text) {
+        return Some(Suppressed::CueNotInStatement);
+    }
     if !lands_on_now(occurred_at, ctx.now) {
         return None;
     }
     if has_differently_dated_sibling(ctx) {
-        return Some(CurrentDaySuppression::MisanchoredBesideSibling);
+        return Some(Suppressed::MisanchoredBesideSibling);
     }
     if !states_a_time(&entry.text, ctx.now) {
-        return Some(CurrentDaySuppression::StatementNamesNoTime);
+        return Some(Suppressed::StatementNamesNoTime);
     }
     None
 }
 
-/// Why a current-day resolution was dropped. The two reasons are a closed set, so they ride as a type
-/// rather than as prose assembled at the call site, and a test can name the branch it expects.
+/// Why a resolution was dropped. A closed set, so the reasons ride as a type rather than as prose
+/// assembled at the call site, and a test can name the branch it expects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum CurrentDaySuppression {
+pub(super) enum Suppressed {
+    /// The model named no cue, so it offered nothing to check the date against.
+    CueMissing,
+    /// The cue is not in the statement it keys — the model quoted words the statement does not
+    /// contain, so the time was read from somewhere else (a sibling, a bracket, or nowhere).
+    CueNotInStatement,
     /// A sibling entry carries a different single day, so the resolution reads as a back-pointing
     /// phrase ("this date") mis-anchored to the conversation's "Current time".
     MisanchoredBesideSibling,
@@ -147,9 +163,17 @@ pub(super) enum CurrentDaySuppression {
     StatementNamesNoTime,
 }
 
-impl std::fmt::Display for CurrentDaySuppression {
+impl std::fmt::Display for Suppressed {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let reason = match self {
+            Self::CueMissing => {
+                "the extraction named no cue, so nothing in the statement stands behind the date; \
+                 the entry stays untimed"
+            }
+            Self::CueNotInStatement => {
+                "the extraction's cue does not appear in the statement it keys, so the time was read \
+                 from something other than what the statement says; the entry stays untimed"
+            }
             Self::MisanchoredBesideSibling => {
                 "an extracted occurrence on the current day beside a differently-dated sibling reads \
                  as a back-pointing phrase mis-anchored to \"Current time\"; the entry stays untimed"
@@ -162,6 +186,29 @@ impl std::fmt::Display for CurrentDaySuppression {
         };
         formatter.write_str(reason)
     }
+}
+
+/// Whether `cue` is quoted from `text` — the span check. Compared on a fold that ignores case, runs of
+/// whitespace, and the punctuation a quotation picks up at its edges, so a faithful quote still matches
+/// when the model tidies it; anything beyond that is a different claim and fails.
+pub(super) fn quotes_the_statement(cue: &str, text: &str) -> bool {
+    fn fold(raw: &str) -> String {
+        raw.to_lowercase()
+            .chars()
+            .map(|character| {
+                if character.is_alphanumeric() {
+                    character
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+    let (cue, text) = (fold(cue), fold(text));
+    !cue.is_empty() && text.contains(&cue)
 }
 
 /// Whether an entry's own text names a time that could have pinned `now`'s day — a date-shaped run of

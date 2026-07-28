@@ -43,14 +43,19 @@ impl SynthesizeReply {
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct SynthesizeOccurrence {
     pub(super) entry: usize,
+    /// The words the extraction claims to have read the time from. Checked against the statement's own
+    /// text, so a fixture states the cue its statement actually contains — a test that wants the
+    /// span check to fail names one the statement does not.
+    cue: String,
     occurred_at: SynthesizeTime,
 }
 
 impl SynthesizeOccurrence {
-    /// An occurrence on a specific day (the common case in tests).
-    pub(super) fn day(entry: usize, day: impl Into<String>) -> Self {
+    /// An occurrence on a specific day, cued by `cue` — the common case in tests.
+    pub(super) fn day(entry: usize, cue: impl Into<String>, day: impl Into<String>) -> Self {
         SynthesizeOccurrence {
             entry,
+            cue: cue.into(),
             occurred_at: SynthesizeTime::day(day),
         }
     }
@@ -140,7 +145,7 @@ async fn an_authored_occurrence_survives_a_current_day_extraction() {
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
             SynthesizeReply::description("Vendor demo, locked.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+                .with_occurrence(SynthesizeOccurrence::day(2, "this date", "2026-06-08")),
         ),
         no_conflict(),
     ]);
@@ -198,7 +203,7 @@ async fn a_differently_dated_extraction_still_applies() {
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
             SynthesizeReply::description("Vendor demo, moved.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-10-12")),
+                .with_occurrence(SynthesizeOccurrence::day(2, "the 12th", "2026-10-12")),
         ),
         no_conflict(),
     ]);
@@ -248,7 +253,7 @@ async fn a_current_day_extraction_applies_without_a_dated_sibling() {
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
             SynthesizeReply::description("Vendor demo, underway.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+                .with_occurrence(SynthesizeOccurrence::day(2, "today", "2026-06-08")),
         ),
         no_conflict(),
     ]);
@@ -298,8 +303,9 @@ async fn a_current_day_extraction_is_suppressed_when_the_statement_names_no_time
         ),
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
-            SynthesizeReply::description("Vendor demo, unscheduled.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+            SynthesizeReply::description("Vendor demo, unscheduled.").with_occurrence(
+                SynthesizeOccurrence::day(2, "once the room is sorted", "2026-06-08"),
+            ),
         ),
         no_conflict(),
     ]);
@@ -363,7 +369,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         // The synthesis call resolves statement 1's "last Tuesday" to a concrete day.
         synthesize_call(
             SynthesizeReply::description("Dave, met recently.")
-                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-02")),
+                .with_occurrence(SynthesizeOccurrence::day(1, "last Tuesday", "2026-06-02")),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -409,8 +415,11 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         Completion::Reply("Noted.".to_owned()),
         // The model tries to time statement 1, but the agent already set it explicitly.
         synthesize_call(
-            SynthesizeReply::description("Dave.")
-                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-02")),
+            SynthesizeReply::description("Dave.").with_occurrence(SynthesizeOccurrence::day(
+                1,
+                "Met Dave",
+                "2026-06-02",
+            )),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -549,4 +558,66 @@ async fn a_single_sided_arbitration_is_dropped() {
     h.describe(&model).await;
 
     assert!(belief_arbitrations(&h.events()).is_empty());
+}
+
+#[tokio::test]
+async fn a_resolution_whose_cue_is_absent_from_the_statement_is_dropped() {
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // The date is plausible and lands nowhere near the current day, so no day-shaped check would
+    // question it — but the statement never says "next Friday", so the extraction cannot have read
+    // that from what it was shown. The span check is what catches it.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { visibility = "public" })
+               demo:append("The migration is still waiting on the vendor.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, pending.")
+                .with_occurrence(SynthesizeOccurrence::day(2, "next Friday", "2026-09-04")),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Where is the migration", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    assert_eq!(entries[1].occurred_sort, None);
+    assert!(temporal_resolutions(&h.events()).is_empty());
+    let failures = temporal_resolve_failures(&h.events());
+    assert_eq!(failures.len(), 1);
+    let EventPayload::EntryTemporalResolveFailed { reason, .. } = &failures[0] else {
+        panic!(
+            "expected an EntryTemporalResolveFailed, got {:?}",
+            failures[0]
+        );
+    };
+    assert!(
+        reason.contains("does not appear in the statement"),
+        "expected the span-check branch, got: {reason}"
+    );
 }

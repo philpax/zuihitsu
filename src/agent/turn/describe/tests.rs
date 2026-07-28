@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::{
     agent::turn::describe::{
-        extract::ExtractedTime, occurrences::states_a_time, synthesis::statements_prompt,
+        extract::ExtractedTime,
+        occurrences::{quotes_the_statement, states_a_time},
+        synthesis::statements_prompt,
     },
     event::{Teller, Visibility, Volatility},
     graph::{AttestationView, EntryOrigin, EntryView, MemoryView},
@@ -124,6 +126,37 @@ fn statements_prompt_notes_a_multiply_attested_statement_and_ignores_a_hidden_on
         prompt.contains("2. [from person/erin · Mon 08 Jun] The venue is booked"),
         "{prompt}"
     );
+}
+
+#[test]
+fn a_cue_quoted_from_the_statement_passes_the_span_check() {
+    let text = "Met Dave at the gym last Tuesday, and the migration ships next Friday.";
+    assert!(quotes_the_statement("last Tuesday", text));
+    assert!(quotes_the_statement("next Friday", text));
+    // Case, surrounding punctuation, and runs of whitespace are all tidying a faithful quote picks up,
+    // so the fold ignores them rather than failing an honest cue.
+    assert!(quotes_the_statement("LAST TUESDAY", text));
+    assert!(quotes_the_statement("\"last Tuesday\"", text));
+    assert!(quotes_the_statement("last  Tuesday", text));
+    assert!(quotes_the_statement("ships next Friday.", text));
+    // A cue spanning the comma still folds to the same word sequence.
+    assert!(quotes_the_statement("gym last Tuesday, and", text));
+}
+
+#[test]
+fn a_cue_the_statement_does_not_contain_fails_the_span_check() {
+    let text = "Met Dave at the gym last Tuesday.";
+    // The date the model resolved to is not a quote of anything.
+    assert!(!quotes_the_statement("2026-06-02", text));
+    // A plausible time phrase the statement never used — the fabrication the check exists to catch.
+    assert!(!quotes_the_statement("next Friday", text));
+    // A paraphrase is not a quote, however faithful its meaning.
+    assert!(!quotes_the_statement("the previous Tuesday", text));
+    // Words present but not contiguous do not make a span.
+    assert!(!quotes_the_statement("Met Tuesday", text));
+    // An empty cue stands behind nothing.
+    assert!(!quotes_the_statement("", text));
+    assert!(!quotes_the_statement("   ", text));
 }
 
 /// 2026-06-08 is a Monday, which the weekday cases below turn on.

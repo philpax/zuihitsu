@@ -23,11 +23,16 @@ pub(crate) struct SynthesizeArgs {
     pub(super) occurrences: Vec<ExtractedOccurrence>,
 }
 
-/// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt) and
-/// the time it refers to.
+/// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt), the
+/// words in that statement the time was read from, and the time itself.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct ExtractedOccurrence {
     pub(super) entry: usize,
+    /// The exact words, copied from this statement, that name the time — "last Tuesday", "on the
+    /// 14th", "every Monday". Must appear verbatim in the statement it keys; a resolution whose cue is
+    /// not found there is dropped, so this is the claim being checked rather than a note about it.
+    #[serde(default)]
+    pub(super) cue: String,
     pub(super) occurred_at: ExtractedTime,
 }
 
