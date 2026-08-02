@@ -5,6 +5,7 @@
 mod analysis;
 mod analyze;
 mod context;
+mod drift;
 mod error;
 mod event_render;
 mod executor;

@@ -120,4 +120,59 @@ pub(crate) fn print_summary(pkg: &EvalPackage, base: Option<&EvalPackage>, scena
             },
         );
     }
+
+    print_drift(pkg, scenario);
+}
+
+/// Report criteria whose recent rate no longer looks like a sample from their own history, pooled
+/// across the trailing runs and bracketed to a commit range. Advisory: a deliberate improvement drifts
+/// exactly as loudly as a regression, so this never touches the exit code — it says where to look.
+///
+/// Distinct from the `regressed`/`improved` lines above, which compare *this* run against one chosen
+/// baseline. A baseline delta answers "did it move since that run"; drift answers "is this still the
+/// same scenario it has been", which is the question a bar cannot ask and a single run cannot answer.
+fn print_drift(pkg: &EvalPackage, scenario: Option<&str>) {
+    // Anchored to what *this* package measured, so a criterion retired long ago cannot report its last
+    // runs as current news.
+    let measured: std::collections::BTreeSet<(String, String)> = pkg
+        .scenarios
+        .iter()
+        .flat_map(|report| {
+            let name = report.meta.name.clone();
+            report
+                .runs
+                .iter()
+                .flat_map(|run| run.verdicts.iter())
+                .map(move |v| (name.clone(), v.criterion.clone()))
+        })
+        .collect();
+    let history = crate::history::read_all();
+    let drifts: Vec<_> = crate::drift::detect(&history, &measured)
+        .into_iter()
+        .filter(|d| scenario.is_none_or(|s| d.scenario.contains(s)))
+        .collect();
+    if drifts.is_empty() {
+        return;
+    }
+    println!("\ndrift vs history (advisory, not gating):");
+    for d in &drifts {
+        let bracket = match (d.since.is_empty(), d.until.is_empty()) {
+            (false, false) if d.since != d.until => format!(" between {}..{}", d.since, d.until),
+            (false, false) => format!(" at {}", d.until),
+            _ => String::new(),
+        };
+        println!(
+            "  {} {:.2} -> {:.2} ({}/{} -> {}/{}, p={:.4}){}\n    {}",
+            if d.fell() { "fell " } else { "rose " },
+            crate::drift::rate(d.prior),
+            crate::drift::rate(d.recent),
+            d.prior.0,
+            d.prior.1,
+            d.recent.0,
+            d.recent.1,
+            d.p_value,
+            bracket,
+            format_args!("{} / {}", d.scenario, d.criterion),
+        );
+    }
 }

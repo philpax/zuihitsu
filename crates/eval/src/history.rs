@@ -22,12 +22,12 @@ use crate::{
 /// analysis.
 #[derive(Deserialize, Serialize)]
 pub(crate) struct HistoryLine {
-    name: String,
+    pub(crate) name: String,
     /// Epoch milliseconds — the real wall-clock span (`ts_ms` is retired in favor of these).
     started_at_ms: i64,
     finished_at_ms: i64,
     /// The commit the run ran at, or the empty string when git could not resolve one (best-effort).
-    git_sha: String,
+    pub(crate) git_sha: String,
     /// Whether the working tree had uncommitted changes when the run started.
     git_dirty: bool,
     model_id: String,
@@ -35,12 +35,12 @@ pub(crate) struct HistoryLine {
     /// The `--scenario` filter the run was targeted with; omitted for a full-suite run.
     #[serde(skip_serializing_if = "Option::is_none")]
     scenario_filter: Option<String>,
-    scenarios: Vec<HistoryScenario>,
+    pub(crate) scenarios: Vec<HistoryScenario>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub(crate) struct HistoryScenario {
-    name: String,
+    pub(crate) name: String,
     rate: f64,
     gating_passed: bool,
     /// Runs actually completed for this scenario — resume can make this differ from `runs_per_scenario`.
@@ -53,7 +53,7 @@ pub(crate) struct HistoryScenario {
     steps_p50: f64,
     total_tokens_mean: u64,
     /// Per-criterion pass tallies aggregated across the scenario's runs.
-    criteria: Vec<CriterionStat>,
+    pub(crate) criteria: Vec<CriterionStat>,
 }
 
 /// One criterion's pass tally across a scenario's runs: how many of the `total` runs that judged it
@@ -223,6 +223,18 @@ fn project(
         total_ms: total / concurrency.max(1) as u64,
         unknown,
     })
+}
+
+/// Every tracked history line, oldest first; empty when the history is absent or unreadable. A line
+/// that will not parse is skipped rather than fatal, so one malformed row cannot blind the trend.
+pub(crate) fn read_all() -> Vec<HistoryLine> {
+    let Ok(text) = std::fs::read_to_string(HISTORY_PATH) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
 }
 
 /// Each scenario's most recently recorded per-run median, by name. Later lines win, so a scenario
