@@ -88,19 +88,38 @@ pub(super) fn memory_brief(
 ) -> Result<Brief, BriefError> {
     let recent = settings.recent_facts.max(0) as usize;
     let key_relationships = settings.key_relationships.max(0) as usize;
+    let subject = class_display(graph, memory, class_of)?;
     Ok(Brief {
-        subject: memory.name.clone(),
         summary: (!memory.description.is_empty()).then(|| memory.description.clone()),
         recent_facts: visible_recent_facts(graph, memory, present_set, class_of, recent, now)?,
         relationships: relationships(
             graph,
             memory.id,
-            &memory.name,
+            &subject,
             present_set,
             class_of,
             key_relationships,
         )?,
+        subject,
     })
+}
+
+/// The handle a block is rendered under: its `same_as` class primary's name, falling back to the
+/// memory's own when it is classless (or the primary has since gone). A block is keyed by class and
+/// reads class-wide, so naming it after the stub the participant happened to arrive on gives one
+/// identity two handles: [`crate::brief::compose`]'s buffer counterpart (`participant_names`) labels a
+/// turn with the class primary, and `teller_display` attributes a fact the same way. A stub-named block
+/// puts both handles in one prompt with nothing saying they are the same person, and the model reads
+/// that as two referents. It is also the readable end — a connector keyed by opaque platform ids leaves
+/// the stub an unreadable snowflake, with the bare profile carrying the name.
+pub(super) fn class_display(
+    graph: &Graph,
+    memory: &MemoryView,
+    class_of: &ClassOf,
+) -> Result<MemoryName, BriefError> {
+    Ok(graph
+        .memory_by_id(class_of(memory.id)?)?
+        .map_or_else(|| memory.name.clone(), |primary| primary.name))
 }
 
 /// A memory's last `recent` content entries that are visible to `present_set`, in commit order, each

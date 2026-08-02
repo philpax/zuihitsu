@@ -27,7 +27,7 @@ use crate::{
     vocabulary::{RelationName, TagName},
 };
 
-use helpers::{memory_brief, ranked_present, render_memory_body};
+use helpers::{class_display, memory_brief, ranked_present, render_memory_body};
 
 /// A failure composing the brief, delegating to the graph beneath it.
 #[derive(Debug)]
@@ -389,16 +389,18 @@ pub(super) fn compose_packed(
             };
             // One block per identity: a present stub whose class is already shown (self, or an
             // earlier-ranked present stub of the same person) is skipped rather than repeated.
-            if !rendered_classes.insert(class_of(participant)?) {
+            let class = class_of(participant)?;
+            if !rendered_classes.insert(class) {
                 continue;
             }
+            let display = class_display(graph, &memory, &class_of)?;
             let mut placed_full = false;
             // Full blocks are capped in total. A speaker within the cap is guaranteed (charged, exempt
             // from the budget drop); a non-speaker within the cap gets one only while the budget affords
             // it. A placed block consumes a cap slot; a name-only fallback does not.
             if full_blocks < cap {
                 let mut block = String::new();
-                let _ = writeln!(block, "## {}", memory.name.as_str());
+                let _ = writeln!(block, "## {}", display.as_str());
                 render_memory_body(
                     &mut block,
                     graph,
@@ -426,7 +428,7 @@ pub(super) fn compose_packed(
                 // Below the cap, or the budget can no longer afford the full block: collapse to a
                 // name-only line. It still renders — presence drives the predicate (spec §Present-set
                 // cap → invariant) — so its small cost is charged rather than gated.
-                let line = format!("- {} (present)\n", memory.name.as_str());
+                let line = format!("- {} (present)\n", display.as_str());
                 budget.charge(char_len(&line));
                 out.push_str(&line);
             }
@@ -476,7 +478,11 @@ pub(super) fn compose_packed(
                     continue;
                 }
                 let mut block = String::new();
-                let _ = writeln!(block, "## {}", memory.name.as_str());
+                let _ = writeln!(
+                    block,
+                    "## {}",
+                    class_display(graph, &memory, &class_of)?.as_str()
+                );
                 block.push_str(&body);
                 if budget.take(char_len(&block)) {
                     threads.push_str(&block);
