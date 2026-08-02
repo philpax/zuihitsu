@@ -1,34 +1,54 @@
 use crate::scenarios::identity::merge::*;
 
 /// A merged cross-platform identity whose **primary is the stub the operator designated**, not the one
-/// the day-to-day handle resolves to. A supplier is known in conversation as `person/nordic` (the stub
-/// bound to chat, and the earliest ULID, so the default primary), but the operator has pinned the
-/// formal record `person/nordic_foods` as the class primary. When the supplier tells the agent a durable,
+/// the day-to-day handle resolves to. A delivery contact is known in conversation as `person/rowan` (the
+/// stub bound to chat, and the earliest ULID, so the default primary), but the operator has pinned the
+/// formal record `person/rowan_hallberg` as the class primary. When they tell the agent a durable,
 /// platform-agnostic fact about themselves, the agent records it through the handle it knows them by —
 /// and the class-spanning write must land on the **designated primary**, never on the non-primary stub
 /// the clean name happens to resolve to.
 ///
 /// This is the write half of [Cross-platform identity](../../../../docs/data-model.md): reads already
 /// traverse the whole class, so a fact surfaces either way — what the redirect fixes is *where the fact
-/// is anchored*. Without it, a class-level fact silently attaches to `person/nordic` and diverges from the
+/// is anchored*. Without it, a class-level fact silently attaches to `person/rowan` and diverges from the
 /// primary the class is meant to cohere around; a later split, or any per-member operation, would then
 /// find the fact on the wrong stub.
 ///
+/// Both class members name a **person**, and the disclosure is a fact about that person. This is
+/// load-bearing rather than incidental: an earlier fixture named the pair after a company
+/// (`person/nordic`, `person/nordic_foods`), which since [`Namespace::Org`] joined the taught ontology
+/// puts the subject in the wrong namespace. The agent then — correctly — coined an `org/` for the company
+/// and recorded the fact there, and the metric scored that a miss unless it also drew an edge back to the
+/// company-named person stub, which would assert a company is a member of itself. The oracle was
+/// rewarding incoherent modelling and punishing coherent modelling, and the scenario measured the
+/// agent's namespace judgement instead of the write redirect it exists to test.
+///
+/// What this scenario does **not** carry is the redirect mechanism itself. Since a brief block renders
+/// under its class primary, the primary is the handle the agent is shown and the one it addresses, so a
+/// write through the non-primary stub is no longer the path a run naturally takes — the gate below would
+/// hold even if the redirect were removed. That invariant is covered deterministically and exhaustively
+/// in `src/memory/memory_block/tests/writes/redirect.rs` (`class_handle_write_redirects_to_the_designated_primary`
+/// and its siblings), which is the right home for a mechanism property: it is a pure function of the
+/// event log, so it wants a replayed assertion rather than a sampled one. The gate here stays as a
+/// cheap backstop against a fact landing on the wrong class member by some route the unit tests do not
+/// model; what this scenario actually measures is the *behavioural* half — that a durable self-fact is
+/// anchored on the identity at all, rather than stranded on a memory nothing reaches it from.
+///
 /// The metric accepts two placements as sound. The fact anchored on the designated primary is the
 /// redirect firing. The fact anchored on a memory of the agent's own coinage *linked to the identity
-/// class* is legitimate modelling the ontology permits — the agent often models a warehouse relocation
-/// as a `place/` or `topic/` memory joined to the supplier by `operator_of`, and the link readers reach
-/// it from the identity — so the metric must not punish it. Only a fact on the non-primary person stub
-/// (the gate) or on a memory disconnected from the identity (a metric miss) is a wrong placement.
+/// class* is legitimate modelling the ontology permits — the agent may model the move as a `place/`
+/// memory joined to the person by `located_at`, and the link readers reach it from the identity — so the
+/// metric must not punish it. Only a fact on the non-primary person stub (the gate) or on a memory
+/// disconnected from the identity (a metric miss) is a wrong placement.
 pub struct RecordsAClassFactOnTheDesignatedPrimary;
 
-/// The day-to-day handle the supplier is known by in conversation — the stub bound to chat and the
+/// The day-to-day handle the contact is known by in conversation — the stub bound to chat and the
 /// earliest ULID, so it is the class's *default* primary until the operator's designation overrides it.
-const BOUND_STUB: &str = "person/nordic";
+const BOUND_STUB: &str = "person/rowan";
 
 /// The formal record the operator pinned as the class primary. A class-level fact must land here, not on
 /// the bound stub the clean name resolves to.
-const DESIGNATED_PRIMARY: &str = "person/nordic_foods";
+const DESIGNATED_PRIMARY: &str = "person/rowan_hallberg";
 
 /// The city the scripted disclosure names, matched (case-insensitively, with and without the diaeresis)
 /// against entry text to identify *which* recorded entry is the class fact — a structural anchor for the
@@ -52,7 +72,7 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
     }
 
     fn steps(&self) -> Vec<EvalStep> {
-        // Two clean, platform-agnostic stubs for one supplier, merged into one class. The bound stub is
+        // Two clean, platform-agnostic stubs for one person, merged into one class. The bound stub is
         // pinned to the earlier ULID so it is the earliest-ULID default primary — the case the operator's
         // designation must override — and the formal record is designated the primary. The designation,
         // not ULID order, then decides the class primary, which is the exact shape the write redirect
@@ -62,9 +82,9 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
         let [bound, formal] = ids;
         let seed = vec![
             EventPayload::memory_created(bound, MemoryName::new(BOUND_STUB)),
-            // The chat binding, so the supplier's turn resolves to this stub and the agent knows them
+            // The chat binding, so the contact's turn resolves to this stub and the agent knows them
             // by the bound handle.
-            EventPayload::participant_identified(bound, TEST_PLATFORM, "nordic"),
+            EventPayload::participant_identified(bound, TEST_PLATFORM, "rowan"),
             EventPayload::memory_created(formal, MemoryName::new(DESIGNATED_PRIMARY)),
             EventPayload::link_created(
                 bound,
@@ -83,14 +103,14 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
         ];
         vec![
             EvalStep::SeedEvents(seed),
-            // The supplier, known in the room as person/nordic, discloses a durable, platform-agnostic
-            // fact about themselves — the class-level human-fact the agent should put on file.
+            // The contact, known in the room as person/rowan, discloses a durable, platform-agnostic fact
+            // about themselves — the class-level human-fact the agent should put on file.
             Turn::new(
                 TEST_PLATFORM,
                 "suppliers",
-                "nordic",
-                "Admin note for your records: we've relocated our main warehouse to Malmö, effective this \
-                 month. Worth keeping on file for deliveries.",
+                "rowan",
+                "Admin note for your records: I've relocated to Malmö, effective this month. Worth \
+                 keeping on file — that's where to reach me for deliveries now.",
             )
             .into(),
         ]
@@ -139,8 +159,8 @@ impl Scenario for RecordsAClassFactOnTheDesignatedPrimary {
             // Gating: a class-spanning write must never land on the non-primary stub the clean name
             // resolves to. Reads traverse the class, so this is not about whether the fact is *found* —
             // it is the redirect's core guarantee, and the exact regression a broken redirect reintroduces
-            // (the fact attaching to person/nordic instead of widening to the designated primary). No
-            // legitimate path lands a fact on person/nordic here: it is a clean, platform-agnostic handle,
+            // (the fact attaching to person/rowan instead of widening to the designated primary). No
+            // legitimate path lands a fact on person/rowan here: it is a clean, platform-agnostic handle,
             // so every content write through it redirects.
             Verdict::oracle_outcome(
                 "did not anchor the class fact on the non-primary stub",
