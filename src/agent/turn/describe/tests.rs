@@ -351,3 +351,40 @@ fn a_supported_recurrence_is_kept_and_a_free_phrase_is_dropped() {
         None
     );
 }
+
+#[test]
+fn the_synthesize_schema_offers_misdated_as_an_optional_list() {
+    // The schema is what the model is asked to produce on *every* synthesis call, so a malformed or
+    // required-by-accident field would degrade description quality suite-wide, not only dating. Pin the
+    // shape: present, optional, an integer array, and carrying its instruction.
+    let schema = crate::model::schema_of::<crate::agent::turn::describe::extract::SynthesizeArgs>();
+    let misdated = schema
+        .pointer("/properties/misdated")
+        .expect("the schema offers a misdated field");
+    assert_eq!(
+        misdated.pointer("/type").and_then(|t| t.as_str()),
+        Some("array"),
+        "{misdated}"
+    );
+    assert_eq!(
+        misdated.pointer("/items/type").and_then(|t| t.as_str()),
+        Some("integer"),
+        "{misdated}"
+    );
+    assert!(
+        misdated
+            .pointer("/description")
+            .and_then(|d| d.as_str())
+            .is_some_and(|d| d.contains("different referent")),
+        "the field carries its instruction: {misdated}"
+    );
+    // Required fields would force the model to emit the key on every call, including the overwhelming
+    // majority with nothing to report; `description` is the only thing the reply cannot omit.
+    let required: Vec<&str> = schema
+        .pointer("/required")
+        .and_then(|r| r.as_array())
+        .map(|r| r.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    assert!(!required.contains(&"misdated"), "required = {required:?}");
+    assert!(required.contains(&"description"), "required = {required:?}");
+}
