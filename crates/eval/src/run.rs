@@ -385,6 +385,11 @@ async fn run(
     crate::history::append_history(name, &package)?;
     std::fs::remove_file(&sidecar).ok();
 
+    // Drift is read *after* the append, so this run's own tallies are part of the recent window it is
+    // judged in — the question is whether the series including today still looks like one series, not
+    // whether today differs from a history it is absent from.
+    report_drift(&package);
+
     // Only with `--serve-after-completion` does the process stay up after the run, so the operator can
     // review the final state live; the in-memory sink still answers new connections with the complete
     // package, and Ctrl-C exits. By default the run drops the serving task and exits with the gating
@@ -465,6 +470,37 @@ fn humane_span(ms: u64) -> String {
         format!("{minutes}m")
     } else {
         format!("{seconds}s")
+    }
+}
+
+/// Log any criterion whose recent rate no longer looks like a sample from its own history. Advisory:
+/// the exit code stays the gating signal, and a deliberate improvement drifts as loudly as a
+/// regression, so this reports rather than judges. Logged at the end of a run because that is where an
+/// operator is looking; `eval analyze` prints the same thing for a package reviewed later.
+fn report_drift(package: &crate::package::EvalPackage) {
+    let measured: std::collections::BTreeSet<crate::drift::CriterionKey> = package
+        .scenarios
+        .iter()
+        .flat_map(|report| {
+            let name = report.meta.name.clone();
+            report
+                .runs
+                .iter()
+                .flat_map(|run| run.verdicts.iter())
+                .map(move |verdict| (name.clone(), verdict.criterion.clone()))
+        })
+        .collect();
+    for drift in crate::drift::detect(&crate::history::read_all(), &measured) {
+        tracing::warn!(
+            scenario = %drift.scenario,
+            criterion = %drift.criterion,
+            direction = if drift.fell() { "fell" } else { "rose" },
+            prior = %format_args!("{}/{}", drift.prior.0, drift.prior.1),
+            recent = %format_args!("{}/{}", drift.recent.0, drift.recent.1),
+            p = drift.p_value,
+            between = %format_args!("{}..{}", drift.since, drift.until),
+            "criterion drifted from its history"
+        );
     }
 }
 
