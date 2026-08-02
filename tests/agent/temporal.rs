@@ -24,6 +24,9 @@ pub(super) struct SynthesizeReply {
     description: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     occurrences: Vec<SynthesizeOccurrence>,
+    /// Statement numbers the scripted extraction reports as carrying a date belonging to a different
+    /// referent. Serialized always, so a fixture that names none exercises the empty-list path too.
+    misdated: Vec<usize>,
 }
 
 impl SynthesizeReply {
@@ -31,11 +34,18 @@ impl SynthesizeReply {
         SynthesizeReply {
             description: text.into(),
             occurrences: Vec::new(),
+            misdated: Vec::new(),
         }
     }
 
     pub(super) fn with_occurrence(mut self, occurrence: SynthesizeOccurrence) -> Self {
         self.occurrences.push(occurrence);
+        self
+    }
+
+    /// Report `statement` (1-based) as carrying a date that describes a different referent.
+    pub(super) fn with_misdated(mut self, statement: usize) -> Self {
+        self.misdated.push(statement);
         self
     }
 }
@@ -619,5 +629,116 @@ async fn a_resolution_whose_cue_is_absent_from_the_statement_is_dropped() {
     assert!(
         reason.contains("does not appear in the statement"),
         "expected the span-check branch, got: {reason}"
+    );
+}
+
+#[tokio::test]
+async fn a_date_describing_another_referent_is_withdrawn_from_the_subject() {
+    // The #125 shape: an entry about a person, dated to a year that belongs to the namesake the
+    // statement mentions rather than to the person. The extraction pass is the only reader that sees
+    // the words beside the date, so it reports the statement as misdated and the occurrence is
+    // withdrawn — the entry returns to untimed rather than carrying a year that is not its own.
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local wren = memory.create("person/wren", "Lighting tech", { visibility = "public" })
+               wren:append("is named for the keeper in the great storm of 14 March 1902", { visibility = "public", occurred_at = "1902-03-14" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Lighting tech, named for a lighthouse keeper.")
+                .with_misdated(2),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Wren joined the crew", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let wren = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Person.with_name("wren"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(wren.id).unwrap();
+    let dated = entries
+        .iter()
+        .find(|entry| entry.text.contains("named for the keeper"))
+        .expect("the namesake entry is on the memory");
+    assert!(
+        dated.occurred_at.is_none(),
+        "the namesake's 1902 date is withdrawn, leaving the entry untimed: {:?}",
+        dated.occurred_at
+    );
+}
+
+#[tokio::test]
+async fn an_authored_date_the_pass_does_not_challenge_is_left_alone() {
+    // The counter-test to the withdrawal above, and the guarantee #67 established: an authored date the
+    // pass does not name in `misdated` stands untouched. Withdrawal is only ever the outcome of a
+    // positive report, never of the pass merely looking at a dated entry.
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo")
+               demo:append("The vendor demo runs on the 3rd of October.", { visibility = "public", occurred_at = "2026-10-03" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(SynthesizeReply::description("Vendor demo on 3 October.")),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Lock the demo", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    let dated = entries
+        .iter()
+        .find(|entry| entry.text.contains("vendor demo runs"))
+        .expect("the dated entry is on the memory");
+    assert!(
+        dated.occurred_at.is_some(),
+        "an unchallenged authored date is never withdrawn",
     );
 }

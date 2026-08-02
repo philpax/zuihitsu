@@ -166,13 +166,14 @@ async fn describe_one(
     let now = engine.clock.now();
     let mut events = Vec::new();
     let mut resolved = std::collections::BTreeSet::new();
+    let mut withdrawn = std::collections::BTreeSet::new();
     let extraction_provenance = templates.extraction.as_ref().map(|template| ProducedBy {
         model_id: model.model_id().into(),
         template_name: PromptTemplateName::TemporalExtraction,
         template_version: template.version,
     });
 
-    let (memory, entries, eligible, teller_names) = {
+    let (memory, entries, eligible, challengeable, teller_names) = {
         let graph = engine.graph.lock();
         let Some(memory) = graph.memory_by_id(id)? else {
             return Ok(());
@@ -180,6 +181,14 @@ async fn describe_one(
         let entries = graph.class_entries(id)?;
         let eligible: std::collections::BTreeMap<EntryId, MemoryId> = graph
             .untimed_entries_since(id, described_seq)?
+            .into_iter()
+            .map(|entry_id| (entry_id, id))
+            .collect();
+        // The mirror window: entries written since the last pass that already carry a date. The pass
+        // may withdraw one whose date turns out to describe a different referent, and may never
+        // re-time it — see `occurrences::withdraw_misdated`.
+        let challengeable: std::collections::BTreeMap<EntryId, MemoryId> = graph
+            .timed_entries_since(id, described_seq)?
             .into_iter()
             .map(|entry_id| (entry_id, id))
             .collect();
@@ -204,7 +213,7 @@ async fn describe_one(
                 slot.insert(view.name.as_str().to_owned());
             }
         }
-        (memory, entries, eligible, teller_names)
+        (memory, entries, eligible, challengeable, teller_names)
     };
 
     // The live occurrences already on the memory's entries — the description mirror's authored date
@@ -263,11 +272,31 @@ async fn describe_one(
                         &occurrences::ResolveContext {
                             list: &public_entries,
                             eligible: &eligible,
+                            challengeable: &challengeable,
                             memory: &memory,
                             now,
                             siblings: &siblings,
                         },
                         &mut resolved,
+                        provenance,
+                        &mut events,
+                    );
+                    // Only the public pass reviews an existing date. Its list spans the class's public
+                    // entries, timed ones included, so a date written this turn is there to be judged;
+                    // the private pass is shown untimed entries alone, so nothing in its list is
+                    // challengeable. A guarded entry's authored date therefore goes unreviewed — the
+                    // narrower gap of the two, since the wake-up it could arm is the same either way.
+                    occurrences::withdraw_misdated(
+                        synthesis.misdated,
+                        &occurrences::ResolveContext {
+                            list: &public_entries,
+                            eligible: &eligible,
+                            challengeable: &challengeable,
+                            memory: &memory,
+                            now,
+                            siblings: &siblings,
+                        },
+                        &mut withdrawn,
                         provenance,
                         &mut events,
                     );
@@ -321,6 +350,7 @@ async fn describe_one(
                     &occurrences::ResolveContext {
                         list: &private_untimed,
                         eligible: &eligible,
+                        challengeable: &challengeable,
                         memory: &memory,
                         now,
                         siblings: &siblings,

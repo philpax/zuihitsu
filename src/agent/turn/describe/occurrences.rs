@@ -29,6 +29,11 @@ pub(super) struct ResolveContext<'a> {
     /// current-day guard on: it marks a freshly extracted current-day resolution as a back-pointing phrase
     /// mis-anchored to "Current time" rather than a genuine same-day fact.
     pub(super) siblings: &'a [TemporalRef],
+    /// The entries whose existing occurrence this pass may **withdraw** — those written since the last
+    /// pass that already carry a date. Disjoint from `eligible` by construction (one window is
+    /// `occurred_at IS NULL`, the other `IS NOT NULL`), which is what keeps the two outcomes from
+    /// meeting: an entry is either one this pass may time, or one whose date it may retract, never both.
+    pub(super) challengeable: &'a BTreeMap<EntryId, MemoryId>,
 }
 
 /// Resolve the extracted `occurrences` for the entries in `ctx.list` (1-based statement numbers),
@@ -41,6 +46,51 @@ pub(super) struct ResolveContext<'a> {
 /// time"; and when the statement names no time of its own, so the current day can only have come from
 /// the clock rather than from what was said. Either way the entry stays untimed rather than carrying a
 /// date it never stated, and the suppression is recorded as an `EntryTemporalResolveFailed`.
+/// Withdraw the occurrence from each statement the pass judged **misdated** — one whose recorded date
+/// describes a different referent than the statement's own subject ("named after the keeper in the 1902
+/// storm" dating the person to 1902). Each appends an [`EventPayload::EntryTemporalResolved`] carrying
+/// no occurrence, the same shape `debug clear-occurrence` appends, so the entry returns to untimed and
+/// any wake-up the date armed is disarmed.
+///
+/// Withdrawal is the *only* outcome available here: the pass never substitutes a date of its own for
+/// one the agent authored. That asymmetry is the point — a wrong date the agent wrote is corrected by
+/// removing it and letting the agent re-state it, never by a second guess layered over the first.
+///
+/// A statement number is honoured only when it keys an entry in `ctx.challengeable`, so a pass cannot
+/// reach past the entries written since it last ran, and each entry is withdrawn once.
+pub(super) fn withdraw_misdated(
+    misdated: Vec<usize>,
+    ctx: &ResolveContext<'_>,
+    withdrawn: &mut BTreeSet<EntryId>,
+    provenance: &ProducedBy,
+    events: &mut Vec<EventPayload>,
+) {
+    for statement in misdated {
+        // The statement number is 1-based into the entries listed in the prompt.
+        let Some(entry) = statement.checked_sub(1).and_then(|i| ctx.list.get(i)) else {
+            continue;
+        };
+        let Some(&entry_memory) = ctx.challengeable.get(&entry.entry_id) else {
+            continue;
+        };
+        if !withdrawn.insert(entry.entry_id) {
+            continue;
+        }
+        tracing::info!(
+            memory = %ctx.memory.name.as_str(),
+            entry = %entry.entry_id.0,
+            text = %entry.text,
+            "withdrawing an occurrence whose date describes a different referent",
+        );
+        events.push(EventPayload::EntryTemporalResolved {
+            id: entry_memory,
+            entry_id: entry.entry_id,
+            occurred_at: None,
+            produced_by: Some(provenance.clone()),
+        });
+    }
+}
+
 pub(super) fn resolve_occurrences(
     occurrences: Vec<ExtractedOccurrence>,
     ctx: &ResolveContext<'_>,
