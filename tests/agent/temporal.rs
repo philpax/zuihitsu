@@ -634,10 +634,11 @@ async fn a_resolution_whose_cue_is_absent_from_the_statement_is_dropped() {
 
 #[tokio::test]
 async fn a_date_describing_another_referent_is_withdrawn_from_the_subject() {
-    // The #125 shape: an entry about a person, dated to a year that belongs to the namesake the
-    // statement mentions rather than to the person. The extraction pass is the only reader that sees
-    // the words beside the date, so it reports the statement as misdated and the occurrence is
-    // withdrawn — the entry returns to untimed rather than carrying a year that is not its own.
+    // The #125 shape, at the visibility it actually occurs at: an entry about a person, dated to a year
+    // belonging to the namesake the statement mentions rather than to the person. `Attributed` is the
+    // load-bearing detail — a fact relayed about someone defaults there, and such an entry is held out
+    // of the description pass to preserve its "via <teller>" marker, so only the focused non-public pass
+    // ever sees it. Reviewing `Public` entries alone would leave this exact case unreachable.
     let mut h = Harness::new();
     genesis::rollout(
         h.engine.store.lock().as_mut(),
@@ -657,14 +658,17 @@ async fn a_date_describing_another_referent_is_withdrawn_from_the_subject() {
     let model = ScriptedModel::new([
         run_lua_call(
             r#"local wren = memory.create("person/wren", "Lighting tech", { visibility = "public" })
-               wren:append("is named for the keeper in the great storm of 14 March 1902", { visibility = "public", occurred_at = "1902-03-14" })"#,
+               wren:append("is named for the keeper in the great storm of 14 March 1902", { visibility = "attributed", occurred_at = "1902-03-14" })"#,
         ),
         Completion::Reply("Noted.".to_owned()),
-        synthesize_call(
-            SynthesizeReply::description("Lighting tech, named for a lighthouse keeper.")
-                .with_misdated(2),
-        ),
+        // The public description pass, which sees the seed mirror but not the attributed entry.
+        synthesize_call(SynthesizeReply::description(
+            "Lighting tech, named for a lighthouse keeper.",
+        )),
         no_conflict(),
+        // The focused non-public pass, whose list is the attributed entry alone — statement 1 — and the
+        // only pass that ever sees it.
+        synthesize_call(SynthesizeReply::description("Lighting tech.").with_misdated(1)),
     ]);
     run_turn(h.as_turn(&model, "Wren joined the crew", 8))
         .await

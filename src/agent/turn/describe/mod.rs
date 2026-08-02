@@ -281,11 +281,10 @@ async fn describe_one(
                         provenance,
                         &mut events,
                     );
-                    // Only the public pass reviews an existing date. Its list spans the class's public
-                    // entries, timed ones included, so a date written this turn is there to be judged;
-                    // the private pass is shown untimed entries alone, so nothing in its list is
-                    // challengeable. A guarded entry's authored date therefore goes unreviewed — the
-                    // narrower gap of the two, since the wake-up it could arm is the same either way.
+                    // The public half of the review: this list spans the class's `Public` entries,
+                    // timed ones included. Its counterpart below covers the non-public ones, which is
+                    // where an `Attributed` date lands — held out of descriptions for its provenance
+                    // marker, and so invisible to this pass.
                     occurrences::withdraw_misdated(
                         synthesis.misdated,
                         &occurrences::ResolveContext {
@@ -335,30 +334,49 @@ async fn describe_one(
     }
 
     if let Some(provenance) = &extraction_provenance {
-        let private_untimed: Vec<EntryView> = entries
+        // Every non-public entry this pass may act on: the untimed ones it may resolve, and the timed
+        // ones whose date it may withdraw. The timed half is load-bearing rather than symmetric — the
+        // description pass above is shown `Public` entries only (an `Attributed` entry is held out of
+        // descriptions to preserve its "via <teller>" marker), so without it an attributed date is
+        // reviewed by neither pass, which is precisely the shape #125 was filed for. The description
+        // this call returns is discarded either way; only its occurrences and challenges are read.
+        let private_reviewable: Vec<EntryView> = entries
             .iter()
             .filter(|entry| {
-                entry.visibility != Visibility::Public && eligible.contains_key(&entry.entry_id)
+                entry.visibility != Visibility::Public
+                    && (eligible.contains_key(&entry.entry_id)
+                        || challengeable.contains_key(&entry.entry_id))
             })
             .cloned()
             .collect();
-        if !private_untimed.is_empty() {
-            match synthesis::synthesize(&call, &memory, &private_untimed, &teller_names, now).await
+        if !private_reviewable.is_empty() {
+            match synthesis::synthesize(&call, &memory, &private_reviewable, &teller_names, now)
+                .await
             {
-                Ok(Some(synthesis)) => occurrences::resolve_occurrences(
-                    synthesis.occurrences,
-                    &occurrences::ResolveContext {
-                        list: &private_untimed,
+                Ok(Some(synthesis)) => {
+                    let ctx = occurrences::ResolveContext {
+                        list: &private_reviewable,
                         eligible: &eligible,
                         challengeable: &challengeable,
                         memory: &memory,
                         now,
                         siblings: &siblings,
-                    },
-                    &mut resolved,
-                    provenance,
-                    &mut events,
-                ),
+                    };
+                    occurrences::resolve_occurrences(
+                        synthesis.occurrences,
+                        &ctx,
+                        &mut resolved,
+                        provenance,
+                        &mut events,
+                    );
+                    occurrences::withdraw_misdated(
+                        synthesis.misdated,
+                        &ctx,
+                        &mut withdrawn,
+                        provenance,
+                        &mut events,
+                    );
+                }
                 Ok(None) => {}
                 Err(error) => tracing::warn!(
                     memory = %memory.name.as_str(),
