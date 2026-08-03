@@ -34,7 +34,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         // one merely sends the reader to the entry.
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            version: 9,
+            version: 10,
             body: body_of(include_str!("synthesis/temporal_extraction.md")),
             description: "Resolves when each entry is about in the real world, so a statement can \
                           carry an occurrence date.",
