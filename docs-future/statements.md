@@ -71,7 +71,9 @@ s5  (person/quill, possesses, count(5, kind/ice_cream))
     valid  [2026-07-14, 2026-07-16)
 ```
 
-Three properties make this worth having as a value rather than a qualifier.
+A count carries an amount, an optional unit, and optional upper and lower bounds, which is Wikidata's quantity shape adopted wholesale. The bounds are what distinguish "about a hundred thousand words" from "exactly a hundred thousand words", and [the corpus study](research/2026-08-03/modelling-study.md) found both shapes recorded, along with several that were explicitly approximate.
+
+Three further properties make this worth having as a value rather than a qualifier.
 
 **A count that changes is a window closing.** Eating one does not contradict the claim that there were five; it ends it. The count-of-five interval closes and a count-of-four opens, and both remain readable, which is the same mechanism every other time-bounded claim uses.
 
@@ -83,7 +85,9 @@ This is instance-level cardinality: a fact about one thing at one time. It is di
 
 Measures with units, such as a word count or an elapsed duration, are the neighbouring case and use the same slot. [The corpus study](research/2026-08-03/modelling-study.md) found both written into prose with their units, uninterpretable to any query.
 
-Collective and distributive readings are not distinguished. "Five people lifted the piano" is recorded as a count of participants in one [Event](events-and-roles.md), and whether they lifted it together or separately lives in the gloss. Distinguishing them structurally has not yet been worth the machinery.
+Collective and distributive readings are not distinguished. "Five people lifted the piano" is recorded as a count of participants in one [Event](events-and-roles.md), and whether they lifted it together or separately lives in the gloss.
+
+This is a **declined** distinction, not an unknown one. Conceptual graphs mark it in the notation, separating a collective plural from a distributive one, and the lattice-theoretic treatment of plurals behind that notation is mature. We are choosing not to pay for it, and [`research/2026-08-03/counting-and-quantity.md`](research/2026-08-03/counting-and-quantity.md) records where to go if plurals ever become load-bearing.
 
 ## The frame
 
@@ -94,16 +98,18 @@ Every Statement declares which referential layer it is made in. The layer is a s
 - **`source`**: the claim is about the material a persona is drawn from. The historical figure behind a character, the corpus behind a voice.
 
 ```
-s5  (person/quill, runs_on, model/opus-4.8)          frame actual
-s6  (person/quill, admires, doctrine/single_chamber)  frame persona
-s7  (person/ferrer, executed_in, 1794)                frame source
+s6  (person/quill, runs_on, model/opus-4.8)          frame actual
+s7  (person/quill, admires, doctrine/single_chamber)  frame persona
+s8  (person/ferrer, executed_in, 1794)                frame source
 ```
 
-Without the frame, `s7` written against `person/quill` is well-typed, passes every critic, and is false. Domain and range checks cannot catch it because the types are correct; the error is in which layer the predicate applies to. The study found this failure live, in a corpus where 39% of entries sat on a single persona agent, a quarter of them touching the historical layer and several mixing two layers inside one entry.
+Without the frame, `s8` written against `person/quill` is well-typed, passes every critic, and is false. Domain and range checks cannot catch it because the types are correct; the error is in which layer the predicate applies to. The study found this failure live, in a corpus where 39% of entries sat on a single persona agent, a quarter of them touching the historical layer and several mixing two layers inside one entry.
 
 The frame is load-bearing in three places. A read defaults to `actual` and must opt into the others, so a question about what a bot runs on never returns what its character believes. A `source` claim never propagates to the entity presenting the persona. And a frame mismatch between subject and relation is a checkable condition, so the critic bank has something to check.
 
 The frame is not a hedge and not a credence. A `persona` claim can be perfectly certain; it is simply certain about a character.
+
+It is also not new. Cyc solved this generally with microtheories, asserting in a fiction context that a character is a fourth-grader while asserting in the real-world context that the same character is a cartoon. The frame is a deliberate simplification of that idea: closed where microtheories are open, three-valued where they are a lattice, and checkable by a critic where a general context logic is not. See [`lineage.md`](lineage.md).
 
 ## The gloss
 
@@ -116,9 +122,9 @@ g1  utterance, turn:01J7…
     "Australian programmer living in Sweden, worked at Northwind and
      three others, designed the file format, real name withheld"
 
-s8  (person/rowan, nationality, country/au)      gloss g1
-s9  (person/rowan, resides_in, country/se)       gloss g1
-s10 (person/rowan, worked_at, org/northwind)     gloss g1
+s9  (person/rowan, nationality, country/au)      gloss g1
+s10 (person/rowan, resides_in, country/se)       gloss g1
+s11 (person/rowan, worked_at, org/northwind)     gloss g1
 …
 ```
 
@@ -133,7 +139,7 @@ Some content survives only as a gloss. Metaphor, analogy, and reframing have no 
 Provenance qualifiers sit exactly one level deep. A qualifier never carries its own qualifier, because a qualifier modifying a qualifier makes scope ambiguous and the ambiguity is not worth what it buys.
 
 ```
-s11 (person/wren, keeps_pet, animal/pepper)
+s12 (person/wren, keeps_pet, animal/pepper)
     told_by   person/wren
     told_in   turn:01J7…
     observed  2026-07-14
@@ -149,8 +155,8 @@ The observed-against-recorded pair is a genuine axis, not bookkeeping. It is wha
 A claim holds over an interval, which may be open at either end.
 
 ```
-s12 (person/rowan, worked_at, org/northwind)  valid [2019-03, 2021-06)
-s13 (person/quill, runs_on, model/opus-4.8)   valid [2026-07-16, …)
+s13 (person/rowan, worked_at, org/northwind)  valid [2019-03, 2021-06)
+s14 (person/quill, runs_on, model/opus-4.8)   valid [2026-07-16, …)
 ```
 
 Supersession closes a window; it never deletes. Learning that someone has changed employer closes the old interval and opens a new one, and both remain readable. This is what makes "where did they work in 2020" answerable at all, and it is why a time-bounded fact stops having to be prose.
@@ -166,7 +172,7 @@ Credence is derived from evidence, never from a model stating a number. It moves
 The agent sees a coarse ordinal with its evidence attached, because that is the granularity the distinction actually supports:
 
 ```
-s14 (person/quill, persona_of, person/ferrer)
+s15 (person/quill, persona_of, person/ferrer)
     credence  confirmed · two independent tellers
 ```
 
@@ -185,7 +191,7 @@ The evaluator resolves a principle against the present audience and the log's hi
 A derived Statement, one produced by consolidation, distillation, or inference rather than by an utterance, records what it came from:
 
 ```
-s15 (person/rowan, collaborates_with, person/wren)
+s16 (person/rowan, collaborates_with, person/wren)
     derived_from  [s1, s4, e1]
     activity      link-inference
     agent         model:…, template:…@v3

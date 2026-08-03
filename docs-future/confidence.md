@@ -34,6 +34,10 @@ The five corrections are folded into the chapters. They were: the identification
 | **The referential frame** | **Observed, unvalidated** | The need is measured directly (39% of the live corpus, with layer mixing inside single entries). The three-value enum is our own proposal and has never been implemented or tested |
 | **A Statement in an object slot** | **Observed, unvalidated** | The need is measured (35 of 198 entries). The quoted-not-asserted rule is carried over from the inter-agent boundary, where it is established; applying it to nesting is new |
 | **A gloss belongs to an utterance, not a Statement** | **Observed** | Falsified the original design assumption. Follows from compound entries carrying up to eight claims, and from one observed case where mixed visibility forced a manual split |
+| Counts and measures as a typed value with amount, unit, and bounds | Verified | Wikidata's quantity datatype, adopted wholesale. The value type was originally specified from first principles with no survey behind it, and the bounds were the gap that survey found |
+| Instance-level counting is distinct from class-level cardinality | Verified | OWL 2 allows asserting a cardinality class of an individual, but has no unique-name assumption and no temporal scoping, so the idea carries over and the mechanism does not |
+| The frame is a simplification of Cyc's microtheories | Verified | Context-relative truth, with fictional content in its own context, is the established solution. The frame is closed, three-valued, and non-nestable where microtheories are none of those |
+| Collective against distributive plurals is declined, not unknown | Verified | Conceptual graphs mark the distinction natively. This is a cost decision, and the design should not imply otherwise |
 
 ### Events and roles
 
@@ -148,7 +152,8 @@ The questions that need evidence rather than more design:
 7. **Eager against lazy structuring**, against the constraint tax. This is also the question of whether a model call belongs on the write path at all. Structuring inside the transaction buys the same-turn correction loop and pays for it with latency and a thrashing risk on the rejection-retry cycle. The mitigations are stated in [`write-surface.md`](write-surface.md); whether they suffice is unmeasured, and the fallback is to move structuring to end-of-turn or to a pass.
 8. **Enumeration representation**: many Statements against one opaque list. The corpus found both defensible and the design states no preference.
 9. **Severance re-derivation cost**, claimed cheap and unmeasured.
-10. **Whether the frame's three values are the right three.** Proposed from one corpus. A second instance with a different social world might need a fourth or find one redundant.
+10. **TypeDB's cardinality annotations**, whose documentation was unreachable during the counting survey and which remain unverified.
+11. **Whether the frame's three values are the right three.** Proposed from one corpus. A second instance with a different social world might need a fourth or find one redundant.
 
 ## Things deliberately not claimed
 
