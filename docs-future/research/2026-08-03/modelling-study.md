@@ -89,7 +89,13 @@ s4  (person/rowan@chat, platform_handle, "rowan")
     told_by  connector:chat
 ```
 
-All sixteen exact-duplicate entries in the corpus collapse under structural equality. This is the duplicate-window critic doing real, measurable work on real data.
+Sixteen entries are exact textual duplicates of another entry, and it is worth being precise about what they are, because the naive reading overstates the win and the cynical reading understates it.
+
+Fourteen are connector-minted boilerplate: a context blurb re-appended on every re-mint (ten copies of one text), a channel blurb (four), and two platform-handle entries. Those are a mint idempotency bug, and structural equality masks the bug rather than fixing it.
+
+The remaining two are participant-authored content, and they are the interesting ones. One is a topic description recorded twice from the same source. The other is **the same text appended twice, differing only in its occurrence date**: the agent could not correct a date without re-appending the whole entry, so the correction arrived as a duplicate. Structural equality catches the first. The second is fixed properly by making an occurrence correctable in place, which is the separate affordance the design already specifies.
+
+What structural equality does *not* demonstrate on this corpus is the case it is really for: the same fact reworded. Those exist in quantity, the consolidation arcs are full of them, but they are not in the exact-duplicate set, and whether an extractor produces identical triples from different prose is **unmeasured**.
 
 ### Relations with validity intervals
 
@@ -104,7 +110,7 @@ Supersession by window-closing replaces the current pattern of writing a new sen
 
 ### The multi-participant event
 
-The flagship failure from the survey, present in the corpus exactly as described. One happening was recorded four times: once on each of the three participants' memories and once on a topic memory abstracting the pair's dynamic. The four texts are subject-appropriate rephrasings of one fact.
+The flagship failure from the survey, present in the corpus and worth counting carefully, because the naive reading claims more than the data supports. One happening is filed across four entries in a single session: once on each of three participants' memories, and once on a topic memory abstracting the pair's dynamic.
 
 ```
 e1  event/create
@@ -114,9 +120,13 @@ e1  event/create
     time     [2026-07-14, 2026-07-16)   ("in two days")
 ```
 
-Four entries become one Event with four role-edges. Each participant's memory reaches it by traversal rather than by holding a copy. The second and third filings resolve to `e1` as structural no-ops, so the flush burst has nothing to rephrase.
+**Two of the four collapse, not four.** Two entries are the same happening rotated onto two different participants, and those become one Event with its role-edges, the second arrival a structural no-op. Each participant's memory reaches it by traversal rather than by holding a copy.
 
-This case models cleanly and is the strongest single argument for the Event shape. One qualification is carried into bucket 2: the original prose also recorded that the event *sparked* a month-long project, and that consequence has nowhere to go.
+The third entry is a distinct causal claim with different participants, and correctly stays distinct. Collapsing it would be a modelling error in the other direction.
+
+The fourth is a dispositional generalisation about a recurring pattern between two people, of which this happening is one instance. It is not an Event and it is not a claim with a validity interval, and folding it into `e1` would destroy it. It belongs to a shape this model cannot hold, recorded in bucket 3.
+
+So the Event shape is still the right fix, and the win on this case is halved. One further qualification: the original prose also recorded that the happening *sparked* a month-long project, and that consequence needs an event-to-event relation.
 
 ### Provenance currently smuggled into prose
 

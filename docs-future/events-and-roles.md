@@ -10,7 +10,7 @@ e1  event/create
     time    [2026-07-14, 2026-07-16)
 ```
 
-The alternative, which the current system is stuck with, is that a fact binds to exactly one subject, so a happening with three participants shatters into three subject-appropriate rephrasings. That failure is not hypothetical: [the corpus study](research/2026-08-03/modelling-study.md) found one happening recorded four times in a single session, once on each participant and once on a topic abstracting the pair. Under this model those four writes resolve to one Event, and the second and third arrivals are structural no-ops with nothing to rephrase.
+The alternative, which the current system is stuck with, is that a fact binds to exactly one subject, so a happening with three participants shatters into three subject-appropriate rephrasings. That failure is not hypothetical: [the corpus study](research/2026-08-03/modelling-study.md) found one happening filed across four entries in a single session. Two of them are the same happening rotated onto two different participants, and those two resolve to one Event, with the second arrival a structural no-op. The third is a distinct causal claim with different participants, and correctly stays distinct. The fourth is a dispositional generalisation about a recurring pattern between two people, of which this happening is one instance; collapsing it into the Event would destroy it, and it is one of the shapes this model cannot hold at all.
 
 ## The role set is small and closed
 
