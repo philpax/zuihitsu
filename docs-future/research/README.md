@@ -6,7 +6,7 @@ Two rules govern this tree. Evidence is not rewritten for readability, because a
 
 ## Snapshots
 
-### [2026-07-24](2026-07-24/) — the design-research programme
+### [2026-07-24](2026-07-24/): the design-research programme
 
 Seven parallel research lanes, a synthesised report, and two adversarial-verification passes. This is the bulk of the evidence and the source of every structural commitment in the design.
 
@@ -32,7 +32,7 @@ The seven lanes:
 
 **One caveat on reading it.** The snapshot's own README records that the codebase moved after the lanes were written, so its descriptions of the "current system" are stale in places. The canonical-identity work in particular shipped a mechanical layer the report presents as unbuilt. The structural proposal is unaffected, but hold the report's present-tense descriptions of today's behaviour against [`../../docs/`](../../docs/) rather than trusting them.
 
-### [2026-08-03](2026-08-03/) — dual-trace encoding, and the corpus study
+### [2026-08-03](2026-08-03/): dual-trace encoding, and the corpus study
 
 Added after the design was taken up: one lane on one paper, and one falsification exercise against live data.
 

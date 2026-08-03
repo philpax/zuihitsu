@@ -45,7 +45,7 @@ This was the one gap the corpus study found in the event model, and it is small:
 
 Each role-edge and each attribute is a Statement in its own right, which means each carries its own provenance, its own credence, and its own transmission principle.
 
-This composes with the audience model in a way a single prose sentence cannot. One participant may have told the agent who did the thing, another when it happened, and a third something they said in confidence about why. Those are three Statements against one Event, with three tellers and three postures. Rendering the event to an audience assembles only the edges that audience may see, so the same Event reads differently to different people without any duplication.
+This composes with the audience model in a way a single prose sentence cannot. One participant may have told the agent who did the thing, another when it happened, and a third something they said in confidence about why. Those are three Statements against one Event, with three tellers and three audience conditions. Rendering the event to an audience assembles only the edges that audience may see, so the same Event reads differently to different people without any duplication.
 
 The same property is what makes an event correctable. Learning that the instrument was misattributed changes one edge. Under prose it would mean rewriting a whole sentence and losing everything else the sentence carried.
 

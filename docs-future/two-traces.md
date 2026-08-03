@@ -29,7 +29,7 @@ s8, s9, s10, …  →  g1
 
 Two consequences matter.
 
-**Visibility stays per-Statement.** One utterance can yield claims with different audiences, and the corpus contains the case: a biography recorded as one public entry including a private detail, later split so the detail could be held back. Structure fragments; posture rides the fragments.
+**Visibility stays per-Statement.** One utterance can yield claims with different audiences, and the corpus contains the case: a biography recorded as one public entry including a private detail, later split so the detail could be held back. Structure fragments, and the transmission principle rides the fragments.
 
 **Some content is only a gloss.** Metaphor, analogy, and reframing have no claim to extract, and decomposing them destroys what was said. A Statement over such an utterance carries a thin claim and leans on the narrative for everything. This is a designed outcome, and the corpus study found it independently: a real fraction of what a personal agent records is content whose only faithful representation is the prose.
 

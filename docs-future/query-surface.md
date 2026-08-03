@@ -47,7 +47,7 @@ This is the existing pedagogy, with one change: the errors are now backed by sou
 Deliberate omissions, each because exposing it would push judgement onto the agent that the substrate should own:
 
 - **Class and merge internals.** Nothing to second-guess.
-- **Numeric credence.** A coarse posture with its evidence attached, never a number the agent cannot interrogate.
+- **Numeric credence.** A coarse ordinal with its evidence attached, never a number the agent cannot interrogate.
 - **Raw similarity scores.** Ranking is the substrate's business; exposing the score invites threshold reasoning in the prompt.
 - **Assumption stamps and derivation internals**, except through "how do you know?", which renders them as an account rather than as structure.
 - **The episodic wall's mechanics.** An episode is marked as a reconstruction; the enforcement is not the agent's concern.
