@@ -145,7 +145,7 @@ The questions that need evidence rather than more design:
 4. **Crumble and accretion thresholds** for tentative merges.
 5. **Assumption-stamp representation**: per-event set against shared environment table.
 6. **Scratchpad storage**: log-with-compaction against a side table.
-7. **Eager against lazy structuring**, against the constraint tax.
+7. **Eager against lazy structuring**, against the constraint tax. This is also the question of whether a model call belongs on the write path at all. Structuring inside the transaction buys the same-turn correction loop and pays for it with latency and a thrashing risk on the rejection-retry cycle. The mitigations are stated in [`write-surface.md`](write-surface.md); whether they suffice is unmeasured, and the fallback is to move structuring to end-of-turn or to a pass.
 8. **Enumeration representation**: many Statements against one opaque list. The corpus found both defensible and the design states no preference.
 9. **Severance re-derivation cost**, claimed cheap and unmeasured.
 10. **Whether the frame's three values are the right three.** Proposed from one corpus. A second instance with a different social world might need a fourth or find one redundant.

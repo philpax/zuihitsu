@@ -19,7 +19,9 @@ Around that keystone:
 - [**Memory**](memory-typology.md) is four kinds with four lifecycles, not one container with one decay rule.
 - [**Privacy**](privacy-and-provenance.md) is a transmission condition carried as data on each Statement, evaluated deterministically and fail-closed.
 - The [**write seam**](the-seam.md) is typed: the model proposes structure and a bank of critics disposes, so a write can be rejected rather than merely recorded.
-- The [**query surface**](query-surface.md) stays handle-shaped and small, however rich the substrate gets.
+- The [**query surface**](query-surface.md) stays handle-shaped and small, however rich the substrate gets, and the [**write surface**](write-surface.md) is two verbs that hand the parse back for correction.
+
+[`lineage.md`](lineage.md) records where each of these came from. Almost none of it is new; the design's contribution is the selection and the refusals.
 
 ## What holds it together
 
