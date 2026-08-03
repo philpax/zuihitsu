@@ -32,13 +32,16 @@ The seven lanes:
 
 **One caveat on reading it.** The snapshot's own README records that the codebase moved after the lanes were written, so its descriptions of the "current system" are stale in places. The canonical-identity work in particular shipped a mechanical layer the report presents as unbuilt. The structural proposal is unaffected, but hold the report's present-tense descriptions of today's behaviour against [`../../docs/`](../../docs/) rather than trusting them.
 
-### [2026-08-03](2026-08-03/) — dual-trace encoding
+### [2026-08-03](2026-08-03/) — dual-trace encoding, and the corpus study
 
-A single lane on one paper, added after the design was taken up.
+Added after the design was taken up: one lane on one paper, and one falsification exercise against live data.
 
 - [`dual-trace.md`](2026-08-03/dual-trace.md) covers Stern and Nadel's controlled experiment pairing each stored fact with an elaborated narrative trace, and the four amendments it forces on the design.
+- [`modelling-study.md`](2026-08-03/modelling-study.md) tests the Statement model against the running instance's 198 content entries, asking whether it can express what the system actually recorded.
 
-**Verification status: none.** This lane postdates the adversarial passes and is not covered by them. It rests on one primary source with no corroborating study, a single benchmark, an LLM judge, twenty questions per category, and a missing ablation that happens to be the one that decides the cost for us. It is strong enough to change the design's shape and nowhere near strong enough to settle it, which is why the amendments it drives are paired with an experiment in [`../evolution.md`](../evolution.md) rather than adopted outright.
+**Verification status of the dual-trace lane: none.** It postdates the adversarial passes and is not covered by them. It rests on one primary source with no corroborating study, a single benchmark, an LLM judge, twenty questions per category, and a missing ablation that happens to be the one that decides the cost for us. It is strong enough to change the design's shape and nowhere near strong enough to settle it, which is why the amendments it drives are paired with an experiment in [`../evolution.md`](../evolution.md) rather than adopted outright.
+
+**Status of the modelling study: primary evidence.** Unlike every other lane, it rests on direct observation of this system's own data rather than on literature, so it needs no external corroboration. It was deliberately run *before* the design chapters were written, and it changed them: it found that the two hypotheses the design most feared were both unfounded, and that two genuine expressiveness gaps none of the seven lanes anticipated were real. Its verdict is that the model is sufficient to proceed with two additions and one correction. The correction, that a gloss belongs to an utterance rather than to a Statement, contradicted a design assumption and is the clearest case in the tree of evidence arriving before commitment rather than after.
 
 ## The failure survey
 
