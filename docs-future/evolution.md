@@ -48,6 +48,21 @@ Scenarios mirror the four capabilities the evidence distinguishes, with single-o
 *Gating:* a scenario where a silent channel member does not receive a confidence.
 *Risk:* the correct definition may be platform-specific, in which case it belongs to the connector contract rather than the core.
 
+### 0c. Extraction economics against the existing corpus
+
+The design's central *economic* claim is that structuring pays for itself. Stages 0a and 0b test representational and privacy questions; this one tests the bill, and it needs no new code beyond a harness, because the data already exists.
+
+Replay the existing instance's 198 content entries through a schema-constrained extractor on the target model and measure four things:
+
+- **Yield.** What fraction produces a non-junk triple. The corpus is not uniform: roughly a third sits on topic memories holding interpretive readings, conditionals, and generics, where there may be no structure to find. If yield on that third is poor, the junk-fill failure mode is systematic rather than occasional, and a gloss-only write verb is the answer rather than a better prompt.
+- **Convergence.** What fraction of the known re-mentions produce byte-identical claims. Structural equality as a deduplication primitive assumes an extractor converges on the same triple from different prose, and that assumption is currently **unmeasured**. The exact-textual-duplicate set does not test it, since fourteen of those sixteen are connector boilerplate.
+- **Latency.** The p50, p90, and p99 per extraction. Measured against the same instance's recorded model calls as a baseline: p50 6.8s, p90 30.8s, p99 73.7s, max 94.9s over 417 calls.
+- **Volume.** Bytes added to the log per structured write. Recorded model calls are already **95.9% of this log's payload** (31.4 MB of 32.7 MB, mean 75 KB per call) against 0.27% for the content entries themselves. Structuring adds a call per write block, of which this log has 132.
+
+*Unblocks:* the cost model for the whole seam, and the choice of default in [`write-surface.md`](write-surface.md).
+*Gating:* none. This is measurement, not a gate, and its output is numbers that stages 2 and 4 are then judged against.
+*Risk:* the extractor used in the harness is not the one that ships, so the numbers are indicative rather than binding. They are still far better than the current position, which is no numbers at all.
+
 ## Stage 1: the modelling spike
 
 Model the [Statement](statements.md), the [Event](events-and-roles.md), the [frame](statements.md), and the first hard critics: type, domain and range, frame consistency, and duplicate resolution. Replay them over recorded logs with no live model, in the style of the existing rejudge mode.
