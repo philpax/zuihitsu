@@ -38,6 +38,7 @@ Added after the design was taken up: one lane on one paper, and one falsificatio
 
 - [`dual-trace.md`](2026-08-03/dual-trace.md) covers Stern and Nadel's controlled experiment pairing each stored fact with an elaborated narrative trace, and the four amendments it forces on the design.
 - [`modelling-study.md`](2026-08-03/modelling-study.md) tests the Statement model against the running instance's 198 content entries, asking whether it can express what the system actually recorded.
+- [`counting-and-quantity.md`](2026-08-03/counting-and-quantity.md) surveys how other knowledge-representation families express counts and measures, and how they handle the referential layering the frame addresses. Written after the design chapters, in response to a gap none of the seven lanes had covered.
 
 **Verification status of the dual-trace lane: none.** It postdates the adversarial passes and is not covered by them. It rests on one primary source with no corroborating study, a single benchmark, an LLM judge, twenty questions per category, and a missing ablation that happens to be the one that decides the cost for us. It is strong enough to change the design's shape and nowhere near strong enough to settle it, which is why the amendments it drives are paired with an experiment in [`../evolution.md`](../evolution.md) rather than adopted outright.
 
