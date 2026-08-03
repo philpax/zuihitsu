@@ -2,6 +2,7 @@
 //! authored dates (`temporal`), and volatile facts going stale (`decay`).
 
 pub(crate) mod decay;
+pub(crate) mod misdated;
 pub(crate) mod scheduling;
 pub(crate) mod temporal;
 
@@ -14,6 +15,7 @@ pub(super) fn scenarios() -> Vec<Arc<dyn Scenario>> {
     [
         scheduling::scenarios(),
         temporal::scenarios(),
+        misdated::scenarios(),
         decay::scenarios(),
     ]
     .into_iter()

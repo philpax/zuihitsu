@@ -164,7 +164,7 @@ pub(super) fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
     // Skipped leniently like the occurrences: a mis-shaped statement number withdraws nothing, which is
     // the safe direction — a dropped challenge leaves a date standing, where a mis-parsed one would
     // retract an entry the model never named.
-    let misdated = value
+    let misdated: Vec<usize> = value
         .get("misdated")
         .and_then(serde_json::Value::as_array)
         .map(|items| {
