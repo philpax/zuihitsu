@@ -41,7 +41,7 @@ e1  event/create
 The subject is always a memory handle. The object is one of four things:
 
 - **a memory handle**, for a claim relating two known entities
-- **a typed value**: a date, a duration, a quantity with a unit, or a recurrence, each of which is a first-class value rather than a string that happens to parse
+- **a typed value**: a date, a duration, a measure with a unit, a count over a kind, or a recurrence, each of which is a first-class value rather than a string that happens to parse
 - **an opaque literal**, for content that has internal structure the store does not model, such as a formula or a code fragment
 - **another Statement**, for a propositional attitude
 
@@ -59,6 +59,31 @@ s4  (person/quill, argues, s3)
 Nesting is bounded to one level. A claim about a claim about a claim is expressible as prose in the gloss and is not worth the machinery.
 
 The alternative, putting an unparsed sentence in the object slot, reinstates prose-as-fact one level down and is the specific thing this model exists to prevent.
+
+### Counting
+
+"Quill has five ice creams" is neither one claim about an entity nor five claims about five entities. Minting five ice-cream handles nobody will ever refer to individually is absurd, and putting the number in the prose puts it beyond every query.
+
+A **count over a kind** is a typed value in the object slot:
+
+```
+s5  (person/quill, possesses, count(5, kind/ice_cream))
+    valid  [2026-07-14, 2026-07-16)
+```
+
+Three properties make this worth having as a value rather than a qualifier.
+
+**A count that changes is a window closing.** Eating one does not contradict the claim that there were five; it ends it. The count-of-five interval closes and a count-of-four opens, and both remain readable, which is the same mechanism every other time-bounded claim uses.
+
+**A count declares whether it is closed.** "Has five" and "has at least five" are different claims, and only the first is contradicted by a sixth. The value carries which was meant, so a later mention of a sixth is either a contradiction to be weighed or an ordinary update.
+
+**A count can be refined into individuals.** When one member becomes salient, and it usually does when something happens to it, the count is superseded by window-closing and individuated claims take over. The refinement is an ordinary supersession rather than a rewrite, so nothing that referred to the count is orphaned.
+
+This is instance-level cardinality: a fact about one thing at one time. It is distinct from the class-level cardinality declared on a [relation definition](relations.md), which constrains every instance and is enforced by a critic. Both exist, and they are different mechanisms. See [`lineage.md`](lineage.md) for how the distinction descends from OWL's qualified cardinality restrictions.
+
+Measures with units, such as a word count or an elapsed duration, are the neighbouring case and use the same slot. [The corpus study](research/2026-08-03/modelling-study.md) found both written into prose with their units, uninterpretable to any query.
+
+Collective and distributive readings are not distinguished. "Five people lifted the piano" is recorded as a count of participants in one [Event](events-and-roles.md), and whether they lifted it together or separately lives in the gloss. Distinguishing them structurally has not yet been worth the machinery.
 
 ## The frame
 
