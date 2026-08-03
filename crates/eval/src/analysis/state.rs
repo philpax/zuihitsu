@@ -56,10 +56,17 @@ pub fn entry_occurrences(events: &[Event]) -> Vec<EntryOccurrence> {
                 occurred_at,
                 ..
             } => {
-                // A resolution fills the extracted slot; a withdrawal (`None`) clears it back to
-                // untimed, mirroring the graph fold.
+                // A resolution fills the extracted slot. A withdrawal (`None`) returns the entry to
+                // untimed outright, so it clears the authored slot too — the graph fold drops the
+                // entry's occurrence however it was dated, and an entry whose authored date was
+                // withdrawn is untimed, not still carrying the date the append recorded. The two
+                // slots were mutually exclusive while extraction only ever touched untimed entries;
+                // they stopped being so once a pass could retract a date the agent wrote.
                 if let Some(&position) = index.get(entry_id) {
                     occurrences[position].extracted = occurred_at.clone();
+                    if occurred_at.is_none() {
+                        occurrences[position].authored = None;
+                    }
                 }
             }
             _ => {}
