@@ -27,7 +27,7 @@ Around that keystone:
 
 Four commitments constrain every chapter, and a proposal that violates one is wrong rather than interesting.
 
-**The log is the only truth, and replay is deterministic.** Model and embedder calls happen at record time. Nothing in a read path calls a model, and no derived state exists that a fold cannot reproduce.
+**The log is the only truth, and replay is deterministic.** Every model and embedder call that *affects stored state* happens at record time and is written to the log, so the fold calls nothing and no derived state exists that a fold cannot reproduce. A live read may still call the embedder to vectorise a query, as `memory.search` does today; that is a transient ranking input, never a stored derivation.
 
 **Privacy is at least as strong as it is today.** Per-fact audience conditions, zero residue from an uncleared confidence, and a subject guard that holds by construction rather than by convention.
 

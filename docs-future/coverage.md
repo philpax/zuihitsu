@@ -12,7 +12,7 @@ The failures are those recorded in [`../docs/ontology-failures/2026-07-23.md`](.
 
 **Facts are sentences.** The [Statement](statements.md) is a typed claim, and prose is a second trace rather than the only representation. Deduplication becomes structural equality instead of a cosine guess, arbitration operates on claims instead of re-parsing sentences, and a structural question reaches a structural answer through the [query surface](query-surface.md). Consolidation, whose output was a new sentence whose relationship to its sources was recoverable only through metadata, stops being necessary: two facts were always two Statements.
 
-**One event, one subject, many copies.** One [Event](events-and-roles.md) with role-edges, and a re-mention resolving to it as a structural no-op. The flagship case, one happening recorded four times in a single session, becomes one node with four edges. The flush burst has nothing left to rephrase.
+**One event, one subject, many copies.** One [Event](events-and-roles.md) with role-edges, and a re-mention resolving to it as a structural no-op. On the flagship case, four entries filed for one happening, two are the same happening rotated onto different participants and collapse to one node; the third is a genuinely distinct causal claim; the fourth is a dispositional generalisation the model cannot hold at all. The per-subject rephrasing is what this closes, and it is half of that case rather than all of it.
 
 **Relations are bare edges.** A [relation](relations.md) instance is a Statement carrying a validity interval, provenance, credence, and frame, with declared domain and range on the definition. Time-bounded facts stop degrading into prose.
 
@@ -89,13 +89,17 @@ Both are load-bearing behaviours moving from wording into structure, which is th
 | **#20** autonomous activity | The exception queue and drift detection are its skeleton |
 | **#105** API reference cost | A standing constraint on the [query surface](query-surface.md), which is why co-retrieval rides the search result rather than adding a call |
 
+### Made worse
+
+**#66** (the console replica must bound its event-log mirror and time-travel window) moves from deferred to blocking. The console holds the whole log in browser memory and re-folds it from zero on every time-travel scrub, and this design multiplies the dominant term in log size: recorded model calls are already 96% of payload bytes in the live instance, and structuring adds a call per write block on top. Everything the design moves into the fold, severance filtering, alias resolution, credence derivation, frame defaulting, is then paid per scrub. A measured budget, bytes added per turn and browser fold time at realistic log sizes, is a prerequisite rather than a follow-up.
+
 ### Inherited, not solved
 
 **#123** (the present set conflates audience with participation, leaking confidences to silent channel members) is a warning this design must take seriously rather than a problem it fixes. [Transmission principles](privacy-and-provenance.md) are predicates over *who is present*, which makes the definition of "present" load-bearing for every audience decision in the model. If that set is wrong, richer conditions evaluated against it are wrong more expressively. Defining presence correctly, separating being in a channel from being in the conversation, is a prerequisite for the privacy chapter rather than a consequence of it.
 
 ### Not addressed
 
-**#66** (console replica bounds), **#96**, **#97** (mint races), **#99**, **#118**, **#119**, **#120**, **#121**, **#72**, **#75**, and **#1** are implementation and tooling concerns orthogonal to the data model. **#109** and **#110** are connector gaps. **#116** is a logging gap. **#18** (subagent spawning) is a capability question this design neither needs nor blocks. None is made harder by this design, and none is made easier.
+**#96**, **#97** (mint races), **#99**, **#118**, **#119**, **#120**, **#121**, **#72**, **#75**, and **#1** are implementation and tooling concerns orthogonal to the data model. **#109** and **#110** are connector gaps. **#116** is a logging gap. **#18** (subagent spawning) is a capability question this design neither needs nor blocks. None is made harder by this design, and none is made easier.
 
 ## New work this design creates
 
