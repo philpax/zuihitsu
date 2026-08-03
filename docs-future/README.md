@@ -12,10 +12,21 @@ The cost of that discipline is that a reader who lands here from a search result
 
 ## What is here
 
-The design:
+The design. [`overview.md`](overview.md) is the way in; the rest can be read in any order.
 
-- **[`statements.md`](statements.md)** is the keystone: the single reified object that carries a claim, its provenance, its temporal placement, its credence, and its audience.
-- The remaining chapters cover events and roles, the two traces, relations, identity, belief, time, the memory typology, privacy and provenance, the write seam, and the query surface.
+| | |
+|---|---|
+| [`statements.md`](statements.md) | the keystone: one object carrying a claim, its frame, its gloss, its provenance, its validity, its credence, and its audience |
+| [`events-and-roles.md`](events-and-roles.md) | a happening as one node with role-edges, not a copy per participant |
+| [`two-traces.md`](two-traces.md) | structure and narrative as complementary rather than ranked |
+| [`relations.md`](relations.md) | attribute-bearing, interval-scoped, domain-constrained, and repairable |
+| [`identity.md`](identity.md) | revocable graded merges, held below a substrate wall |
+| [`belief.md`](belief.md) | credence from counting evidence, never from the model's mouth |
+| [`time.md`](time.md) | occurrence, task, and trigger kept apart, so a description cannot fire |
+| [`memory-typology.md`](memory-typology.md) | four kinds with four lifecycles, and directives outside all of them |
+| [`privacy-and-provenance.md`](privacy-and-provenance.md) | transmission conditions as data, zero residue, retraction against erasure |
+| [`the-seam.md`](the-seam.md) | the model proposes, the critics dispose, and drift is watched from outside |
+| [`query-surface.md`](query-surface.md) | structural questions, structural answers, and a deliberately small API |
 
 The supporting material:
 
