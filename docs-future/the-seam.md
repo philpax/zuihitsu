@@ -20,7 +20,7 @@ Sound, symbolic, and gating. A write that violates one is rejected with a teacha
 - **Frame consistency** between a relation and the layer it is asserted in, so a claim about a historical source cannot attach to the software presenting a persona.
 - **Mutual exclusion**: a thing cannot be two incompatible kinds at once. This is the constraint that historically did the most to suppress drift in a long-running autonomous accumulator.
 - **Temporal well-formedness**: intervals that begin before they end, occurrences that do not silently become triggers.
-- **Audience invariants**: no endorsement wider than the posture it was founded under, checked at write time rather than hoped for as an emergent property.
+- **Audience invariants**: no endorsement wider than the transmission principle it was founded under, checked at write time rather than hoped for as an emergent property.
 - **Merge authority**: who may assert an identity claim.
 - **Duplicate resolution**: a re-mention resolves to the existing Statement rather than appending a near-copy, and an ambiguous match is a teachable error rather than a silent merge.
 - **The episodic wall**: an episodic trace can never be a premise, never be distilled, never accrue attestation, and never carry a teller other than the agent.

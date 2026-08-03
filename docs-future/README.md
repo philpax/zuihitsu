@@ -33,7 +33,7 @@ The supporting material:
 - **[`coverage.md`](coverage.md)** grades the design against the surveyed failures of the current ontology, class by class, and maps it onto the open issues. The grading is deliberately uneven; several classes are answered in design but not yet validated.
 - **[`confidence.md`](confidence.md)** registers every load-bearing claim with its evidence and its status. The normative voice above is what makes this file necessary: a design that states everything flatly needs somewhere to record that some of it rests on one paper, one benchmark, or one lane's judgement.
 - **[`evolution.md`](evolution.md)** is the prospective build order for getting from the current codebase to this one, with each stage's gating evidence and main risk.
-- **[`research/`](research/)** holds the design research this is built on, preserved at the date it was conducted rather than rewritten to match the design it produced.
+- **[`research/`](research/)** holds the design research this is built on, preserved at the date it was conducted rather than rewritten to match the design it produced. Most of it is literature; one piece is not. The [corpus study](research/2026-08-03/modelling-study.md) tested this model against the running instance's own recorded data before these chapters were written, and changed them: it falsified one design assumption and found two expressiveness gaps that none of the literature lanes anticipated.
 
 ## Scope
 

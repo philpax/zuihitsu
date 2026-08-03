@@ -99,7 +99,7 @@ s10 (person/rowan, worked_at, org/northwind)     gloss g1
 
 The gloss is a **second trace, not a fallback**. It is indexed in its own right and retrieved alongside the structure rather than consulted when structure fails. The two carry different things and answer different questions: the structure supports precision, and the narrative supports recall. Where a question turns on sequencing, change over time, or synthesis across occasions, the gloss is what carries the answer, and where a question is a single lookup it adds nothing. See [the two traces](two-traces.md).
 
-Sharing a gloss has a consequence worth stating: **visibility is per-Statement, not per-utterance**. The biography above yields seven public Statements and one private-to-teller, from one sentence. A compound utterance cannot carry a single posture, and the store does not ask it to.
+Sharing a gloss has a consequence worth stating: **visibility is per-Statement, not per-utterance**. The biography above yields seven public Statements and one private-to-teller, from one sentence. A compound utterance cannot carry a single transmission principle, and the store does not ask it to.
 
 Some content survives only as a gloss. Metaphor, analogy, and reframing have no claim to extract, and any structural decomposition destroys what was said. A Statement over such an utterance carries a weak claim about its subject and leans on the gloss for everything else. This is a designed outcome rather than a shortfall.
 

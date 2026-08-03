@@ -52,4 +52,4 @@ rather than:
 
 > confidence 0.72
 
-The opinion lives in the substrate. What surfaces is a coarse posture with the evidence attached, because that is what supports a decision about whether to act on a claim or go and check it. A number the agent cannot interrogate invites exactly the false precision that verbalised confidence already suffers from.
+The opinion lives in the substrate. What surfaces is a coarse ordinal with the evidence attached, because that is what supports a decision about whether to act on a claim or go and check it. A number the agent cannot interrogate invites exactly the false precision that verbalised confidence already suffers from.
