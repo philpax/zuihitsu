@@ -68,7 +68,9 @@ Replay the existing instance's 198 content entries through a schema-constrained 
 Model the [Statement](statements.md), the [Event](events-and-roles.md), the [frame](statements.md), and the first hard critics: type, domain and range, frame consistency, and duplicate resolution. Replay them over recorded logs with no live model, in the style of the existing rejudge mode.
 
 *Unblocks:* confidence that the shape holds real utterances before the seam is committed to.
-*Gating:* the recorded four-copy happening resolves to one Event with correct roles; the duplicate critic flags the re-filings; the frame separates the three referential layers on the persona-agent memory that the corpus study found mixed.
+*Gating:* the two same-happening entries of the recorded four-entry case resolve to one Event with correct roles, while the distinct causal claim stays distinct; the duplicate critic flags the re-filing.
+
+For the frame, the criterion is deliberately stricter than "the layers separate", because both readings of what a `source` claim's subject is would satisfy that. The operator's-cat case must resolve to the **right subject**: a claim about a persona's principal must land on the principal, not on the persona under any frame value. If it cannot, the frame needs a fourth layer or an explicit referent pointer, and that is a finding this stage exists to produce.
 *Risk:* the frame's three values prove wrong on a corpus other than the one that motivated them. This is why it is checked here rather than after the substrate is built.
 
 ## Stage 2: the Statement substrate and the seam
