@@ -24,6 +24,8 @@ Semantic search is one signal among several rather than the ranking.
 
 A result is ranked on similarity, on structural proximity to what is already in play, and on access recency and frequency. The latter two are independent of any embedding model and deterministic under replay, which matters because a similarity constant is a constant in one model's geometry and silently means something different after that model changes.
 
+The signals combine by **fusing their rank orders, not their scores**. Each signal produces a ranking, the rankings merge on rank position, and only the head of the merged list is worth a reranking pass. Fusing ranks is what keeps the combination embedder-independent: a rank order survives a change of embedding model, where a weighted sum of scores is a weighted sum in one model's geometry and quietly means something else in the next. This is the convergent design in production retrieval, and it is the same argument the [drift](the-seam.md) section makes about calibrated thresholds, applied one level up from the threshold to the combination.
+
 Every search result carries its episode anchor. A returned claim names the occasion it came from, so the agent can descend from the claim to the occasion to the verbatim turns without a second search. This is the retrieval side of [the two traces](two-traces.md), and it is why episodes are companions rather than a fallback tier.
 
 ## Reads resolve before the agent sees them

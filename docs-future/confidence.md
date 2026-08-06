@@ -118,6 +118,7 @@ The five corrections are folded into the chapters. They were: the identification
 | A redaction can be proven to have occurred without revealing content | **Synthesis** | Our combination of shredding with append-only tombstones |
 | The retraction-authority lattice | Synthesis | The prior art leaves the subject-differs-from-author case explicitly open; the lattice is our answer |
 | Combinatorial audience contexts are a genuine gap | Verified as a gap | No surveyed work handles a dynamic context population well. Predicates over the present set are the only tractable form found |
+| Marking a derivation as owing recomputation when its premises gain support | Corroborated | Current memory systems mark a synthesis stale when unprocessed evidence bears on it. Ours rides machinery the derivation record already carries; the cost of maintaining the work list is unmeasured |
 | Principles are universally quantified over the present set and fail closed on any member | Synthesis | The set-shaped evaluator was implied by audiences-as-predicates from the start; the per-principle consequences, and `in_confidence` becoming relative to the witness set, are our own working out |
 
 ### The seam
@@ -142,6 +143,13 @@ The five corrections are folded into the chapters. They were: the identification
 | Depth beats breadth | Single-source | Their development path: a few points from coverage against twenty from depth |
 | Cost neutrality | **Does not transfer** | An artifact of their prompt volume dominating. For an event-sourced store it is a record-time model call and permanent log volume |
 | Some content survives only as narrative | Observed | Independently found in the corpus study, which strengthens this beyond the single source |
+
+### The query surface
+
+| Claim | Status | Note |
+|---|---|---|
+| Fusing rank orders rather than scores | Corroborated | The convergent form in production retrieval, where parallel lanes are merged on rank position and reranked at the head. Adopted for its embedder-independence, never for a reported gain, and no surveyed figure is relied on |
+| Structural questions are answerable without a model call | Synthesis | Each named question is a graph traversal given the substrate; that the set is *sufficient* for what the agent asks is untested against real turns |
 
 ## Unresolved, gathered
 
