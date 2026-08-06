@@ -4,7 +4,7 @@ How the codebase gets from what runs today to what the rest of this tree describ
 
 ## Scope
 
-This is a code path, not a data path. The design targets a new instance at genesis, and the existing instance is not migrated. No upcasting story is owed for existing entries, no dual-read compatibility layer is needed, and no stage has to keep the old and new fact models coexisting in one log.
+This is a code path, not a data path. The design targets a new instance at genesis, and the existing instance is not migrated. No upcasting story is owed for existing entries, no dual-read compatibility layer is built, and no stage keeps the old and new fact models coexisting in one log. See [how the work lands](#how-the-work-lands) for what follows from that.
 
 That freedom is load-bearing in several places. Structural equality can be the deduplication primitive because no legacy prose entries need matching against it. The referential frame can be required on every Statement because no entry predates it. Relation definitions can demand domain and range because nothing was registered without them.
 
@@ -161,6 +161,32 @@ What is left for this stage is the assertion over the whole assembled set.
 Unblocks: a maintenance budget that does not grow with the store.
 Gating: no pass writes anything the critics would reject on the hot path; no pass widens an audience, promotes an episode to a premise, or reaches the self slot; a tick with nothing marked performs no model call; and a due trigger fires on a tick whose maintenance queue is saturated.
 Risk: the queues are only as good as the marks, and a condition nobody thought to mark is a silent gap where a sweep would at least have been slow and correct. The drift audits of stage 8 are the backstop, which is an argument for not reordering this ahead of them.
+
+## How the work lands
+
+Three decisions govern the transition. They are stated here because a reviewer needs them before agreeing to the sequence, and an implementer needs them before starting.
+
+### No compatibility layer
+
+The new model replaces the old outright. There is no flag selecting between fact models, no parallel implementation, no dual-read path, and no migration of existing entries. A stage that would be easier with a compatibility shim is implemented without one, and the shim is not built.
+
+The running instance keeps its current build until an instance born under the new model replaces it. Its log stays readable as evidence for as long as that is useful, which is a concern separate from the codebase, and [`research/`](research/) is where such readings are recorded.
+
+### Each stage acquires its plan when work starts on it
+
+The chapters are the design input to an implementation plan. They are not the plan. A stage is planned at the point it is picked up, through the repository's plan-and-execute workflow, which produces the module boundaries, event payloads, wire types, genesis path, and eval scenarios that stage needs. Stage 0's four measurements are scoped the same way, and each eval run they require is the operator's to authorise.
+
+Nothing in this file is sufficient to implement from.
+
+### The tree drains into `docs/`
+
+`docs-future/` is temporary by construction. As each change lands, the commit that implements it also removes it from the chapter that proposed it and writes it into [`../docs/`](../docs/) as as-built documentation. A chapter empties over the stages that build it rather than being copied across at the end, so the two trees never describe the same mechanism at once.
+
+Three things remain when the chapters are empty:
+
+- The meta-documents describe a proposal rather than a system. [`coverage.md`](coverage.md), [`confidence.md`](confidence.md), and this file are deleted at that point, and git history holds them.
+- [`research/`](research/) returns to `docs/` with its dates intact, because evidence about why the system has its shape outlives the proposal that used it.
+- Nothing else. A `docs-future/` still standing after the last stage means a change was documented and not landed.
 
 ## Reordering
 
