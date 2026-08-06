@@ -172,7 +172,7 @@ The five corrections are folded into the chapters. They were: the identification
 
 | Claim | Status | Note |
 |---|---|---|
-| Fusing rank orders rather than scores | Corroborated | The convergent form in production retrieval, where parallel lanes are merged on rank position and reranked at the head. Adopted for its embedder-independence, never for a reported gain, and no surveyed figure is relied on |
+| Fusing rank orders rather than scores | Corroborated | The convergent form in production retrieval, where parallel lanes are merged on rank position and reranked at the head; found in the [2026-07-24 survey](research/2026-07-24/lanes/survey-issue7.md) and in a contemporary system read directly afterwards. Adopted for its embedder-independence, never for a reported gain, and no surveyed figure is relied on |
 | Structural questions are answerable without a model call | Synthesis | Each named question is a graph traversal given the substrate; that the set is *sufficient* for what the agent asks is untested against real turns |
 
 ### Off-turn work
