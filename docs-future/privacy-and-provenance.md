@@ -67,6 +67,8 @@ The current system records which model and template ran, which is enough to repr
 
 The assumption stamp lists only the **revocable** assumptions in force, which in practice is zero or one merge. Withdrawing an assumption voids everything stamped with it on the next fold. Stamping every premise would grow without bound; stamping only what can be withdrawn keeps the bookkeeping proportional to what can actually change.
 
+Support moves in the other direction too. New evidence for a premise voids nothing, but it does mean a conclusion was computed against less than the store now holds. Such a derivation is marked as **owing recomputation** rather than being recomputed eagerly, so the maintenance pass has a work list instead of re-deriving the world on every write. The mark is not a doubt about the conclusion. It records that the conclusion is older than its evidence, which is a different thing and a cheaper one to carry.
+
 ## Retraction and forgetting
 
 Two distinct operations, both appended, never rewriting the log.

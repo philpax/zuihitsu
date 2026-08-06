@@ -29,6 +29,8 @@ The through-line: **take representations and disciplines, refuse reasoners.** Th
 | **Voyager** | Procedural memory as executable code indexed by a natural-language description | The specific domain |
 | **MemGPT and Letta** | The tiered memory framing | Model-authored state as the primary mechanism. It is a live and validated design, and we choose checked deterministic curation instead, at a real cost in agent autonomy over its own salience |
 | **Dual-trace encoding** | Structure and narrative as [two traces](two-traces.md), and the finding that elaboration pays specifically on sequencing, aggregation, and change tracking | The claim that it is free, which is an artifact of their harness, and the prompt-borne disclaimer guarding against treating a reconstruction as evidence |
+| **Vaelii** | Confirmation that context-relative truth is buildable as an open cone with a general justification network behind it, held as the live comparator for whether [the frame's three values](statements.md) are the right three | The generality. A context cone and a full truth-maintenance system are the unscoped forms of the frame and the [assumption stamp](identity.md), and scoping both to what can actually be withdrawn is the entire point |
+| **Hindsight** | Independent corroboration of the [four-kind typology](memory-typology.md), and rank fusion across parallel retrieval lanes for [the query surface](query-surface.md) | Consolidating experience upward into belief, which [the episodic wall](two-traces.md) forbids outright, and measuring success by a composite memory benchmark, for the reason in the graveyard lessons below |
 
 ## Two inheritances worth spelling out
 
