@@ -89,7 +89,9 @@ For the frame, the criterion is deliberately stricter than "the layers separate"
 
 Build the Statement as the atomic write unit, the typed seam, the hard and soft critic banks, and forced-choice elicitation for the load-bearing writes.
 
-One obligation is easy to miss and belongs here rather than later: **the agent's own outbound turns become first-class glosses carrying witness sets.** Today they are recorded as turns and nothing more. Without them, a claim the agent relayed and was later told back is indistinguishable from independent corroboration, so [the dependence rule](belief.md) that stage 6 gates on cannot be evaluated at all. The datum has to exist from the moment Statements do.
+Two pieces of configuration land here too, because a new instance needs both at genesis and neither is a memory: [the self slot](memory-typology.md), which holds the charter the prompt reads every turn, and [the directive kind](memory-typology.md), scoped and versioned, which is what a connector writes when it opens a context.
+
+One further obligation is easy to miss and belongs here rather than later: **the agent's own outbound turns become first-class glosses carrying witness sets.** Today they are recorded as turns and nothing more. Without them, a claim the agent relayed and was later told back is indistinguishable from independent corroboration, so [the dependence rule](belief.md) that stage 6 gates on cannot be evaluated at all. The datum has to exist from the moment Statements do.
 
 *Unblocks:* everything downstream. Every later stage writes Statements.
 *Gating:* extraction fidelity against gold-structure scenarios, scored on precision and recall; a faithfulness oracle asserting every structural write is entailed by some utterance in the transcript; and a paraphrase-spread probe showing near-zero spread on **field-content correctness**, not on capture presence, which a required field pins by construction.
