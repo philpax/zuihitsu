@@ -23,6 +23,7 @@ The rules follow from that:
 - Never distilled into another memory's description.
 - Never accrues attestation or corroboration.
 - Marked as a reconstruction wherever it surfaces.
+- Composed from public content only, because a narrative that recounts a confidence is a second read path with no audience computed on it. See [the two traces](two-traces.md) for what this costs.
 
 Retrieval is the part that differs most from the current design. An episode is a **linked companion** to the Statements recorded during it, not a fallback consulted when semantic search misses. Each knows the other structurally, so surfacing one surfaces the other without a second search. The experimental evidence is specific on this point: the gain lives where both traces are present and their anchors can be cross-referenced, and it is exactly zero where a single lookup suffices. A fallback tier would be consulted precisely when the pair is least useful.
 
@@ -48,7 +49,17 @@ Outside the visibility model entirely. It has no audience because it has no read
 
 A [reflection pass](off-turn.md) promotes or discards. Promotion means writing an actual Statement, with all the provenance and audience condition that entails. Discarding means the note is gone.
 
-How the scratchpad is stored is genuinely unresolved: keeping it in the log preserves the commitment that the system is a pure function of its log, but scratchpad churn is exactly the transient state that should not bloat replay. A compactable channel whose net effect after reflection is a single promote-or-discard is the leading candidate, and a side table is a defensible alternative. Recorded as open in [`confidence.md`](confidence.md).
+### Promotion carries a taint
+
+A note has no transmission principle of its own, which is what makes promotion dangerous: the [audience-invariant critic](the-seam.md) checks that no endorsement is wider than what it was founded under, and a note founded under nothing passes trivially. A confidence reasoned about in the scratchpad and then promoted arrives with whatever audience the promotion chose.
+
+So a note carries a **taint set**: the Statements consulted while it was written. Promotion intersects the promoted Statement's principle against them, which is the same arithmetic [a derivation](statements.md) already does over its premises, reaching one step further back.
+
+Two consequences the design should own rather than discover.
+
+**Taint is monotone, so it must be per note.** A taint set that accumulates across a whole deliberation converges on everything the agent read, and promotion becomes impossible: everything is tainted by the strictest thing in the session. Tainting each note with what *that note* consulted keeps the sets small enough to be useful. A note that genuinely draws on a confidence should be hard to promote publicly; a note written beside one should not.
+
+**It settles how the scratchpad is stored.** Keeping notes in the log preserves the commitment that the system is a pure function of its log, while a side table would keep transient churn out of replay. A taint set decides it: the set is state the fold must reproduce, so a side table is not available. What remains is a compactable channel whose net effect after reflection is a single promote-or-discard. This resolves an [open question](confidence.md) toward the option the research lane was least sure of, and it is the audience invariant rather than a storage argument that forces it.
 
 ## The self is not a memory
 
