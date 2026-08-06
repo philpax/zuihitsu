@@ -153,6 +153,16 @@ The five corrections are folded into the chapters. They were: the identification
 | Fusing rank orders rather than scores | Corroborated | The convergent form in production retrieval, where parallel lanes are merged on rank position and reranked at the head. Adopted for its embedder-independence, never for a reported gain, and no surveyed figure is relied on |
 | Structural questions are answerable without a model call | Synthesis | Each named question is a graph traversal given the substrate; that the set is *sufficient* for what the agent asks is untested against real turns |
 
+### Off-turn work
+
+| Claim | Status | Note |
+|---|---|---|
+| Passes are ordinary writers under the same critics, with no maintenance bypass | Synthesis | Follows from the seam doctrine. The current system's passes already write through the block path, so this tightens an existing posture rather than inventing one |
+| Queues fed by write-time marks replace whole-store sweeps | Synthesis | Forced by the cost-per-fact constraint. The marks are cheap consequences of records the design already keeps; that the queues stay short under real traffic is unmeasured |
+| Structural deduplication and cross-audience merging leave consolidation entirely | Synthesis | Both exist today to recover what the write path did not capture. This is the strongest economic claim in the chapter and it rests on extraction convergence, which [`evolution.md`](evolution.md) stage 0c measures and which is currently **unmeasured** |
+| Triggers are drained before maintenance | Synthesis | A commitment starved by tidying is the failure this prevents. No surveyed system reports the failure; the ordering is cheap enough not to need one |
+| **What deserves initiation** | **Open** | The salience judgement behind agent-initiated contact predates this design and is not settled by it. The chapter states constraints that hold whatever the answer is |
+
 ## Unresolved, gathered
 
 The questions that need evidence rather than more design:
@@ -168,7 +178,8 @@ The questions that need evidence rather than more design:
 9. **Severance re-derivation cost**, claimed cheap and unmeasured.
 10. **TypeDB's cardinality annotations**, whose documentation was unreachable during the counting survey and which remain unverified.
 11. **Whether the frame's three values are the right three.** Proposed from one corpus. A second instance with a different social world might need a fourth or find one redundant.
-12. **Whether the witness set is knowable.** A channel's membership is readable; who actually saw a message is not. The chapter resolves this by asymmetry, building the set from demonstrated participation and falling back to the teller alone, so it may narrow freely and widens only on evidence. What counts as demonstrated participation is the same judgement [`evolution.md`](evolution.md) stage 0b owes for the present set, and it may be platform-specific, in which case it belongs to the connector contract.
+12. **What deserves initiation.** The salience judgement behind agent-initiated contact. [`off-turn.md`](off-turn.md) constrains it without settling it, and the constraints hold whatever the answer turns out to be.
+13. **Whether the witness set is knowable.** A channel's membership is readable; who actually saw a message is not. The chapter resolves this by asymmetry, building the set from demonstrated participation and falling back to the teller alone, so it may narrow freely and widens only on evidence. What counts as demonstrated participation is the same judgement [`evolution.md`](evolution.md) stage 0b owes for the present set, and it may be platform-specific, in which case it belongs to the connector contract.
 
 ## Things deliberately not claimed
 

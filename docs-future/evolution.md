@@ -133,11 +133,23 @@ Longitudinal scenarios with canary re-probes and re-derivation audits; the opera
 *Gating:* a canary flip, an audit oscillation, or a post-embedder-change structural shift raises exactly one alarm, with no false positives over a clean run.
 *Risk:* drift is a longitudinal property a single-turn scenario structurally cannot see, so the harness itself is novel work, and canaries are weakest against the drift shape that actually occurs.
 
+## Stage 9: off-turn work
+
+[`off-turn.md`](off-turn.md) is not a stage so much as a property every stage owes, and it is listed last because that is where it can finally be *asserted* rather than merely intended.
+
+Two halves land at different times. Retiring the parts of consolidation that recover structure rides **stage 2**: the moment writes carry structure, a pass that deduplicates by similarity is doing work the write path already did, and leaving it running would mean two mechanisms deciding sameness by different rules. The queue machinery accretes stage by stage instead, because each stage introduces its own marks: voided derivations at stage 5, contested pairs at stage 6, erasure propagation at stage 7.
+
+What is left for this stage is the assertion over the whole assembled set.
+
+*Unblocks:* a maintenance budget that does not grow with the store.
+*Gating:* no pass writes anything the critics would reject on the hot path; no pass widens an audience, promotes an episode to a premise, or reaches the self slot; a tick with nothing marked performs no model call; and a due trigger fires on a tick whose maintenance queue is saturated.
+*Risk:* the queues are only as good as the marks, and a condition nobody thought to mark is a silent gap where a sweep would at least have been slow and correct. The drift audits of stage 8 are the backstop, which is an argument for not reordering this ahead of them.
+
 ## Reordering
 
 Stages 0 and 1 are the load-bearing bet and should not be reordered. Stage 2 gates everything after it.
 
-Stages 3 through 8 are independently valuable and can be resequenced against evidence, with two constraints: the episodic wall precedes narrative generation, and stage 0b precedes stage 7. If the constraint tax turns out to be severe at stage 2, the right response is to reduce the number of schema-constrained behaviours and continue, not to reorder around the problem.
+Stages 3 through 9 are independently valuable and can be resequenced against evidence, with three constraints: the episodic wall precedes narrative generation, stage 0b precedes stage 7, and stage 9 follows stage 8 so the audits exist before the sweeps they replace are retired. If the constraint tax turns out to be severe at stage 2, the right response is to reduce the number of schema-constrained behaviours and continue, not to reorder around the problem.
 
 ## What success looks like
 
