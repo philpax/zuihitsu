@@ -105,6 +105,8 @@ The five corrections are folded into the chapters. They were: the identification
 | Access-frequency and recency ranking is embedder-independent | Verified | The narrow claim is safe |
 | That human recall activation transfers to agent salience | **Synthesis** | By analogy, not proof. Only the narrow claim above is relied on |
 | Directives are a category error inside the fact model | Observed | 22 of 198 entries, one repeated verbatim ten times |
+| The self belongs in a slot rather than in a memory | Synthesis | Follows from the charter needing to be unreachable by the machinery that decides what to omit. The current system's immutable charter entries protect the wording and not the slot, which is an argument from mechanism rather than a measured failure |
+| An agent that cannot edit its own charter avoids unbounded drift | Synthesis | The self-reinforcing-loop argument is the same one used for credence and merges. The cost, that growth in self-conception needs operator attention, is stated and unquantified |
 | Scratchpad storage | **Open** | Log-with-compaction against a side table: replay purity against log size. The lane's own weakest recommendation |
 
 ### Privacy and provenance

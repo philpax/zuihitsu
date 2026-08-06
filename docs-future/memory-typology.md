@@ -50,11 +50,34 @@ A reflection pass promotes or discards. Promotion means writing an actual Statem
 
 How the scratchpad is stored is genuinely unresolved: keeping it in the log preserves the commitment that the system is a pure function of its log, but scratchpad churn is exactly the transient state that should not bloat replay. A compactable channel whose net effect after reflection is a single promote-or-discard is the leading candidate, and a side table is a defensible alternative. Recorded as open in [`confidence.md`](confidence.md).
 
-## Directives are not memory
+## The self is not a memory
 
-Instructions about how to behave in a context, and the agent's own charter, are **configuration**. They live outside the typology.
+The agent's identity, its voice, its charter, and the standing instructions it operates under are **configuration**. They live in a dedicated slot outside the typology, not in any of the four kinds.
 
-They have no teller, no truth value, no credence, no validity interval, and no audience. Nothing about the Statement machinery applies to them, and putting them in the same container as facts is a category error that costs real capacity: [the corpus study](research/2026-08-03/modelling-study.md) found twenty-two such entries filed as ordinary content in a 198-entry corpus, one of them repeated verbatim ten times because each re-mint re-appended it.
+They have no teller, no truth value, no credence, no validity interval, and no audience. Nothing about the Statement machinery applies to them, and putting them in the same container as facts is a category error that costs real capacity: [the corpus study](research/2026-08-03/modelling-study.md) found twenty-two directive entries filed as ordinary content in a 198-entry corpus, one of them repeated verbatim ten times because each re-mint re-appended it.
+
+### The slot
+
+The self slot is an append-only sequence of versions, of which one is current. It is:
+
+- **Always in context.** It is not retrieved, so it cannot fail to be retrieved. No ranking, no similarity, no budget under which it loses to something more recent.
+- **Invisible to the memory API.** It is not returned by search, not readable or writable through the memory verbs, and cannot be retracted, consolidated, distilled, superseded, or tombstoned. No pass can reach it.
+- **Operator-owned.** A new version is an operator write. The agent may *propose* one, and a proposal is an ordinary Statement about the agent that reaches the [exception queue](the-seam.md), not an edit.
+- **Versioned rather than mutable**, so a change to who the agent is has a date, an author, and a diff, and the prompt reads exactly one version.
+
+The current system keeps the charter as immutable content entries on a `self` memory, which protects the wording and not the slot. Immutability stops an entry being rewritten; it does not stop the entry being retracted, selected into a synthesis by a consolidation pass, summarised into a regenerable description, or dropped from a surface by an audience evaluation. A thing that must appear in every prompt should not be reachable by the machinery whose entire purpose is deciding what to leave out.
+
+### What stays on the memory side
+
+Claims *about* the agent are ordinary Statements with the agent as their subject: what it did, what it noticed about itself, what someone told it about how it comes across. Those carry tellers, accrue credence, can be contradicted, and can be wrong, and the agent writes them as [an ordinary fallible teller](privacy-and-provenance.md). The slot holds only what the agent is by construction, which is not the sort of thing that can be corroborated.
+
+The [frame](statements.md) falls on the memory side of this line, and the distinction is worth keeping sharp. A persona agent's stated opinions are Statements in the `persona` frame; the instruction to speak in that voice is configuration. The first can be learned, superseded, and disputed. The second is a decision someone made.
+
+### Why the agent does not hold the pen
+
+A charter the agent can edit drifts without bound, because the drift is self-reinforcing: the next turn reads what the last turn wrote, and there is no outside signal correcting it. This is the same argument that keeps [credence](belief.md) off the writer and [merges](identity.md) below the wall, applied to the one piece of state that conditions every other decision the agent makes.
+
+The cost is real and worth naming. An agent that cannot revise its own charter cannot grow into a different one on its own initiative, and every such change costs operator attention. That is the trade, taken deliberately, and it is the same exception-triggered-attention posture the rest of the design takes.
 
 ## Ingesting a long document
 

@@ -103,3 +103,4 @@ A persistent rejection that the agent cannot resolve is one of the four conditio
 - **No credence.** The agent cannot set how strongly a claim is believed. Credence is derived from evidence, and letting the writer assert it would reintroduce verbalised confidence through the back door.
 - **No handle selection.** The agent writes to the handle it was given. Identity resolution happened before the turn started.
 - **No critic bypass.** There is no force flag. An operator has a separate path; the agent does not.
+- **No charter writes.** The [self slot](memory-typology.md) is not reachable from the memory verbs. The agent can observe something about itself, which is an ordinary Statement, and it can propose a new version, which reaches a person.
