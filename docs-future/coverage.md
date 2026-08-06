@@ -84,7 +84,7 @@ The stage is where the issue actually closes, from [`evolution.md`](evolution.md
 
 Two things the table does not say on its own.
 
-**These close for a new instance, not for the one that is running.** The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so seven of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #113, #114, #124, #125, #126, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
+**These close for a new instance, not for the one that is running.** The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so nine of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #106, #113, #114, #115, #124, #125, #126, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
 
 **Stage 0b is the one that pays before anything is built.** It needs no new substrate, it reduces a live leak in the current system, and both witness sets plus every audience decision in the design read the definition it produces. Nothing else on this list returns anything until stage 2 exists.
 
