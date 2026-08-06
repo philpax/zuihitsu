@@ -18,7 +18,7 @@ s12 (person/rowan, worked_at, org/northwind)
 
 ## Definitions declare domain and range
 
-Registering a relation requires its inverse, its cardinality, **and** the types its endpoints accept.
+Registering a relation requires its inverse, its cardinality, and the types its endpoints accept.
 
 ```
 worked_at
@@ -43,19 +43,19 @@ happened_at     deprecated, aliased_to: located_at
 located_at      active
 ```
 
-Reads resolve aliases transitively, so a query for `located_at` returns everything written under any of its aliases and the drift collapses at read time without rewriting history. The append-only log is untouched: an alias is a forward event like any other.
+Reads resolve aliases transitively, so a query for `located_at` returns everything written under any of its aliases, and the drift collapses at read time without rewriting history. The append-only log is untouched: an alias is a forward event like any other.
 
 This exists because coinage drift is not a hypothetical. The current system has the same semantic relation coined four different ways across sessions, with nothing structural to prevent a fifth, and a registered relation that cannot be amended, only abandoned. Two independent production systems reached the same fix shape from the same problem: a closed vocabulary, a single canonical form, and a deterministic migration.
 
-Deprecation is not deletion. A deprecated relation keeps working, keeps its history, and keeps resolving; it simply stops being the form a new write should use, and the critic bank says so as a teachable error.
+Deprecation is not deletion. A deprecated relation keeps working, keeps its history, and keeps resolving. It simply stops being the form a new write should use, and the critic bank says so as a teachable error.
 
 ## The free-text channel
 
 Every relation instance may carry a free-text `context` field.
 
-This is the escape hatch that keeps the closed vocabulary honest. Without it, the pressure to express a nuance the vocabulary lacks goes into the relation name, which is exactly how a vocabulary drifts into hundreds of one-off strings. One surveyed production system found 78% of its edges were single-use free-text relations before it normalised them.
+The field is what keeps the closed vocabulary honest. Without it, the pressure to express a nuance the vocabulary lacks goes into the relation name, which is how a vocabulary drifts into hundreds of one-off strings. One surveyed production system found 78% of its edges were single-use free-text relations before it normalised them.
 
-With the hatch, the nuance goes into a field that is honest about being unstructured, and the relation stays canonical. The `context` field is never queried structurally and never resolved; it is read by a person or rendered to the agent, and nothing depends on its shape.
+With the field, the nuance goes somewhere that is explicitly unstructured, and the relation stays canonical. The `context` field is never queried structurally and never resolved. It is read by a person or rendered to the agent, and nothing depends on its shape.
 
 ## The seed vocabulary stays minimal
 

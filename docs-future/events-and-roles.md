@@ -1,6 +1,6 @@
 # Events and roles
 
-A happening is one node. The participants hang off it as role-edges, and each edge is an independently addressable [Statement](statements.md).
+A happening is one node. The participants attach to it as role-edges, and each edge is an independently addressable [Statement](statements.md).
 
 ```
 e1  event/create
@@ -10,27 +10,27 @@ e1  event/create
     time    [2026-07-14, 2026-07-16)
 ```
 
-The alternative, which the current system is stuck with, is that a fact binds to exactly one subject, so a happening with three participants shatters into three subject-appropriate rephrasings. That failure is not hypothetical: [the corpus study](research/2026-08-03/modelling-study.md) found one happening filed across four entries in a single session. Two of them are the same happening rotated onto two different participants, and those two resolve to one Event, with the second arrival a structural no-op. The third is a distinct causal claim with different participants, and correctly stays distinct. The fourth is a dispositional generalisation about a recurring pattern between two people, of which this happening is one instance; collapsing it into the Event would destroy it, and it is one of the shapes this model cannot hold at all.
+The alternative is the one the current system imposes: a fact binds to exactly one subject, so a happening with three participants breaks into three subject-appropriate rephrasings. That failure is not hypothetical. [The corpus study](research/2026-08-03/modelling-study.md) found one happening filed across four entries in a single session. Two of them are the same happening rotated onto two different participants, and those two resolve to one Event, with the second arrival a structural no-op. The third is a distinct causal claim with different participants, and it correctly stays distinct. The fourth is a dispositional generalisation about a recurring pattern between two people, of which this happening is one instance; collapsing it into the Event would destroy it, and it is one of the shapes this model cannot hold at all.
 
 ## The role set is small and closed
 
 Roles come from a fixed universal set: `agent`, `theme`, `instrument`, `source`, `recipient`, `time`, `place`, and a small handful more. The set is closed, and extending it is a change to the model rather than something the agent does at runtime.
 
-Everything else is an **attribute on the Event**, not another role. An event's outcome, its manner, its mood, its cost: all attributes.
+Everything else is an attribute on the Event rather than another role. An event's outcome, its manner, its mood, and its cost are all attributes.
 
-The reason for the restraint is that role assignment beyond agent and theme is genuinely hard. Expert annotators disagree on the tail, numbered role inventories are documented as inconsistent above the first two positions, and frame-specific inventories running to the low thousands are unteachable to a writer working one utterance at a time. A small universal set is learnable; a large one produces confident, inconsistent labelling that later reads as structure.
+The reason for the restraint is that role assignment beyond agent and theme is genuinely hard. Expert annotators disagree on the tail, numbered role inventories are documented as inconsistent above the first two positions, and frame-specific inventories running to the low thousands are unteachable to a writer working one utterance at a time. A small universal set is learnable. A large one produces confident, inconsistent labelling that later reads as structure.
 
-The corpus study tested this directly and found the role set was **not** the binding constraint: every multi-participant happening observed was expressible with agent, theme, source, and time. The pressure the study did find is one level up, and is handled below.
+The corpus study tested this directly and found the role set was not the binding constraint: every multi-participant happening observed was expressible with agent, theme, source, and time. The pressure the study did find is one level up, and is handled below.
 
 When the right role is genuinely unclear, the writer says so rather than guessing, and the [gloss](two-traces.md) preserves the surface form. A hedged role is recoverable; a confidently wrong one is not.
 
 ## A role may have several fillers
 
-Two people who did the thing are two `agent` edges. Not one edge naming a pair, and not a count.
+Two people who did the thing are two `agent` edges. They are not one edge naming a pair, and they are not a count.
 
 Each edge is its own [Statement](statements.md), which is what makes the multiplicity worth having: one participant may be publicly known to have been there while another's presence was told in confidence, and the Event renders differently to different audiences without any duplication. An edge naming a pair could not carry two audiences, and a count could not carry either participant's identity.
 
-A count in a role slot is reserved for participants nobody has individuated, "about thirty people showed up", and is superseded by edges as soon as one of them becomes salient. See [counting](statements.md).
+A count in a role slot is reserved for participants nobody has individuated, such as "about thirty people showed up", and is superseded by edges as soon as one of them becomes salient. See [counting](statements.md).
 
 ## Events relate to other events
 
@@ -47,7 +47,7 @@ e2  event/project_run
 s20 (e1, sparked, e2)
 ```
 
-This was the one gap the corpus study found in the event model, and it is small: the relation layer already supports it, and the fix is to register the relations and permit an Event as an endpoint. Without it, causation and consequence fall back into prose, which is exactly the failure the Event node exists to end.
+This was the one gap the corpus study found in the event model, and it is small: the relation layer already supports it, and the fix is to register the relations and permit an Event as an endpoint. Without it, causation and consequence fall back into prose, which is the failure the Event node exists to end.
 
 ## Attributes and roles are both Statements
 
@@ -63,6 +63,6 @@ When a write arrives describing a happening the store already holds, it resolves
 
 Sets that overlap without agreeing are a candidate, not a match. A happening described on one occasion with two of its three participants and on another with all three is one happening; two happenings of the same type sharing one participant are not. The difference is not decidable from the sets alone, so it goes to the critic bank as a proposal.
 
-What this does **not** do is discard the occasion. The re-mention keeps its own gloss and its own turn reference, so the Event accumulates the occasions on which it was discussed while holding one copy of what happened. Deduplicating the claim and preserving the episode are different operations, and the boundary between them is stated in [the two traces](two-traces.md).
+What this does not do is discard the occasion. The re-mention keeps its own gloss and its own turn reference, so the Event accumulates the occasions on which it was discussed while holding one copy of what happened. Deduplicating the claim and preserving the episode are different operations, and the boundary between them is stated in [the two traces](two-traces.md).
 
 The failure mode to watch is a resolution that is too eager: two genuinely distinct happenings of the same type between the same people, collapsed because they overlap in time. The critic bank treats a resolution as a rejectable proposal like any other write, and an ambiguous match is a teachable error rather than a silent merge.
