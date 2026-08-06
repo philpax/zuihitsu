@@ -2,7 +2,7 @@
 
 What this design addresses, graded honestly, and what it makes worse.
 
-The grading is uneven on purpose. Six of the eleven surveyed failures are closed structurally, meaning the failure becomes unrepresentable rather than discouraged. Five are answered in design and rest on evidence that has not been gathered. Presenting all eleven as "addressed" would be the more comfortable claim and the less useful one.
+The grading is uneven on purpose. Six of the eleven surveyed failures are closed structurally, meaning the failure becomes unrepresentable rather than discouraged. Five are answered in design and rest on evidence that has not been gathered. Presenting all eleven as addressed would be the more comfortable claim and the less useful one.
 
 The failures are those recorded in [`../docs/ontology-failures/2026-07-23.md`](../docs/ontology-failures/2026-07-23.md).
 
@@ -10,46 +10,46 @@ The failures are those recorded in [`../docs/ontology-failures/2026-07-23.md`](.
 
 ### Closed structurally
 
-**Facts are sentences.** The [Statement](statements.md) is a typed claim, and prose is a second trace rather than the only representation. Deduplication becomes structural equality instead of a cosine guess, arbitration operates on claims instead of re-parsing sentences, and a structural question reaches a structural answer through the [query surface](query-surface.md). Consolidation, whose output was a new sentence whose relationship to its sources was recoverable only through metadata, stops being necessary: two facts were always two Statements.
+Facts are sentences. The [Statement](statements.md) is a typed claim, and prose is a second trace rather than the only representation. Deduplication becomes structural equality instead of a cosine guess, arbitration operates on claims instead of re-parsing sentences, and a structural question reaches a structural answer through the [query surface](query-surface.md). Consolidation, whose output was a new sentence whose relationship to its sources was recoverable only through metadata, stops being necessary: two facts were always two Statements.
 
-**One event, one subject, many copies.** One [Event](events-and-roles.md) with role-edges, and a re-mention resolving to it as a structural no-op. On the flagship case, four entries filed for one happening, two are the same happening rotated onto different participants and collapse to one node; the third is a genuinely distinct causal claim; the fourth is a dispositional generalisation the model cannot hold at all. The per-subject rephrasing is what this closes, and it is half of that case rather than all of it.
+One event, one subject, many copies. One [Event](events-and-roles.md) with role-edges, and a re-mention resolving to it as a structural no-op. On the flagship case, four entries filed for one happening, two are the same happening rotated onto different participants and collapse to one node; the third is a genuinely distinct causal claim; the fourth is a dispositional generalisation the model cannot hold at all. The per-subject rephrasing is what this closes, and it is half of that case rather than all of it.
 
-**Relations are bare edges.** A [relation](relations.md) instance is a Statement carrying a validity interval, provenance, credence, and frame, with declared domain and range on the definition. Time-bounded facts stop degrading into prose.
+Relations are bare edges. A [relation](relations.md) instance is a Statement carrying a validity interval, provenance, credence, and frame, with declared domain and range on the definition. Time-bounded facts stop degrading into prose.
 
-**Schedule and description conflate.** [Three axes](time.md), and only a Trigger fires. A Trigger hangs off a Task the agent authored for itself, so a fact describing someone else's recurring job has no path to waking anything. One qualification, carried from the research: no surveyed peer has this failure, so the *problem* may be specific to us even though the *solution shape* is mature.
+Schedule and description conflate. [Three axes](time.md), and only a trigger fires. A trigger hangs off a task the agent authored for itself, so a fact describing someone else's recurring job has no path to waking anything. One qualification is carried from the research: no surveyed peer has this failure, so the problem may be specific to this system even though the solution shape is mature.
 
-**Relation schemas are immutable.** Deprecate-and-alias with read-time transitive resolution. The same relation coined four ways collapses to four aliases of one canonical form, without rewriting history.
+Relation schemas are immutable. Deprecate-and-alias with read-time transitive resolution. The same relation coined four ways collapses to four aliases of one canonical form, without rewriting history.
 
-**Identity complexity leaks into behaviour.** The [substrate wall](identity.md). The agent receives one resolved handle and never holds two, so there is nothing to test for equality and nothing to second-guess. The measured failure, a 0.30 relay rate after a confirmed merge, was the agent's model of the merged identity faltering while the machinery held. Removing the model removes the faltering.
+Identity complexity leaks into behaviour. The [substrate wall](identity.md). The agent receives one resolved handle and never holds two, so there is nothing to test for equality and nothing to second-guess. The measured failure, a 0.30 relay rate after a confirmed merge, was the agent's model of the merged identity faltering while the machinery held. Removing the model removes the faltering.
 
 ### Answered in design, not yet validated
 
-**Identity is binary and entangled with storage.** [Revocable graded merges](identity.md) with assumption-stamped derivations and fold-filter severance. The design is coherent and the literature is unanimous that hard equivalence is wrong. What is missing is data: crumble and accretion thresholds are unresolved, the recitation attack is made expensive rather than closed, and the claim that re-derivation is cheap is unmeasured.
+Identity is binary and entangled with storage. [Revocable graded merges](identity.md) with assumption-stamped derivations and fold-filter severance. The design is coherent and the literature is unanimous that hard equivalence is wrong. What is missing is data: crumble and accretion thresholds are unresolved, the recitation attack is made expensive rather than closed, and the claim that re-derivation is cheap is unmeasured.
 
-**Belief has no credence model.** [Credence from counting evidence](belief.md), with dependence detection as the load-bearing part. The representation is settled; the arithmetic is deliberately minimal because named critics attack the operators the richer version would need. The exact shape remains a live disagreement between the research lanes.
+Belief has no credence model. [Credence from counting evidence](belief.md), with dependence detection as the load-bearing part. The representation is settled. The arithmetic is deliberately minimal, because named critics attack the operators the richer version would need. The exact shape remains a live disagreement between the research lanes.
 
-**Hygiene thresholds are embedder geometry.** Better than it first appears, and incomplete. Structural equality removes similarity from the deduplication path entirely, which is where the measured damage was: one re-phrased fact sitting at 0.966, 0.851, and 0.757 under three phrasings. Consolidation and retrieval still use geometry, now calibrated to the current embedder's own distribution and recomputed when it changes, with ranking drawing on access recency and frequency as well. The residual is that the analogy from human recall to agent salience is an analogy.
+Hygiene thresholds are embedder geometry. This is better than it first appears, and incomplete. Structural equality removes similarity from the deduplication path entirely, which is where the measured damage was: one re-phrased fact sitting at 0.966, 0.851, and 0.757 under three phrasings. Consolidation and retrieval still use geometry, now calibrated to the current embedder's own distribution and recomputed when it changes, with ranking drawing on access recency and frequency as well. The residual is that the analogy from human recall to agent salience is an analogy.
 
-**Load-bearing behaviour is prompt-sensitive.** [Forced-choice elicitation](the-seam.md) collapses omission variance, which is what produced the 6%-to-75% swing. It relocates variance into field content, introduces junk fill, and costs an unmeasured constraint tax. This is the shakiest of the five, and the design's own answer is to measure per behaviour rather than assume.
+Load-bearing behaviour is prompt-sensitive. [Forced-choice elicitation](the-seam.md) collapses omission variance, which is what produced the 6%-to-75% swing. It relocates variance into field content, introduces junk fill, and costs an unmeasured constraint tax. This is the shakiest of the five, and the design's own answer is to measure per behaviour rather than assume.
 
-**The neural writer is unverified.** [Hard critics](the-seam.md) check typing, domain and range, mutual exclusion, temporal well-formedness, audience invariants, and duplicate resolution. **They do not check truth.** A confidently recorded, well-typed falsehood passes at write time exactly as it does today. Faithfulness checking at runtime is unsolved here as it is across the field, and the mitigations, agreement before promotion and drift detection from outside the loop, reduce the rate rather than close the gap. This is the largest residual in the design.
+The neural writer is unverified. [Hard critics](the-seam.md) check typing, domain and range, mutual exclusion, temporal well-formedness, audience invariants, and duplicate resolution. They do not check truth. A confidently recorded, well-typed falsehood passes at write time exactly as it does today. Faithfulness checking at runtime is unsolved here as it is across the field, and the mitigations, agreement before promotion and drift detection from outside the loop, reduce the rate rather than close the gap. This is the largest residual in the design.
 
-## What this design makes worse
+## Regressions
 
 The second trace is not free, and three of the five partial answers get harder because of it.
 
-**Narrative generation is a new prompt-borne load-bearing surface.** The design's rule is that generative work stays on the prompt because it tolerates drift. A narrative is generative by construction, and it is now load-bearing. The prior art's own pilot reports that a directive to use its protocol was reliably overridden by the model's trained default and had to be moved into the system prompt to take effect, which is class 10 reappearing inside the fix. The containment is to make the existence and linkage of a trace structural while leaving only its quality soft, and to measure content correctness rather than presence.
+Narrative generation is a new prompt-borne load-bearing surface. The design's rule is that generative work stays on the prompt because it tolerates drift. A narrative is generative by construction, and it is now load-bearing. The prior art's own pilot reports that a directive to use its protocol was reliably overridden by the model's trained default and had to be moved into the system prompt to take effect, which is class 10 reappearing inside the fix. The containment is to make the existence and linkage of a trace structural while leaving only its quality soft, and to measure content correctness rather than presence.
 
-**Narrative is a new geometry-sensitive index.** The survey measured its widest similarity variance in exactly the long-text regime a narrative occupies: 0.80 against 0.94 for the same content under different prefixes, varying by length. The new index needs the same distribution-relative calibration as every other, and inherits none of the protection that structural equality gives the deduplication path.
+Narrative is a new geometry-sensitive index. The survey measured its widest similarity variance in exactly the long-text regime a narrative occupies: 0.80 against 0.94 for the same content under different prefixes, varying by length. The new index needs the same distribution-relative calibration as every other, and inherits none of the protection that structural equality gives the deduplication path.
 
-**Narrative licenses invention.** The mechanism works by asking a model to commit to concrete detail it was not told. The instance has already produced the unelaborated version of that failure. This is why the [episodic wall](the-seam.md) is a critic rather than a sentence, and why it should ship before any narrative generation rather than alongside it.
+Narrative licenses invention. The mechanism works by asking a model to commit to concrete detail it was not told. The instance has already produced the unelaborated version of that failure. This is why the [episodic wall](the-seam.md) is a critic rather than a sentence, and why it should ship before any narrative generation rather than alongside it.
 
-## Two mitigations the design erases
+## Mitigations the design erases
 
 The survey notes that a mitigation in the current ontology is itself evidence of a workaround tax the redesign should erase. Two prompt-borne mitigations become structure:
 
 - The write-time cross-subject advisory, which steers the agent around the one-subject representation, becomes the Event node. There is nothing left to steer around.
-- The temporal extraction's third-party-routine rule, which teaches the model not to stamp a recurrence on a fact describing someone else's job, becomes the absence of a Trigger. The rule is unnecessary because the outcome is unrepresentable.
+- The temporal extraction's third-party-routine rule, which teaches the model not to stamp a recurrence on a fact describing someone else's job, becomes the absence of a trigger. The rule is unnecessary because the outcome is unrepresentable.
 
 Both are load-bearing behaviours moving from wording into structure, which is the class 10 remedy applied to classes 2 and 4.
 
@@ -57,73 +57,73 @@ Both are load-bearing behaviours moving from wording into structure, which is th
 
 ### Directly addressed
 
-The stage is where the issue actually closes, from [`evolution.md`](evolution.md). Reading the table this way answers "what does the next stage buy me" from the issue side rather than the design side.
+The stage is where the issue closes, from [`evolution.md`](evolution.md). Reading the table by stage answers what the next stage delivers, from the issue side rather than the design side.
 
 | Issue | Becomes | Closes at |
 |---|---|---|
-| **#112** episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it | 4 |
-| **#74** search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate | 4 |
-| **#114** fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
-| **#113** undated events stamped with the assertion day | The episode holds "when I learned this", so [`valid`](time.md) can stay open without the claim falling out of the timeline | 4, the stage that builds the episode |
-| **#115** date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change | 3 |
-| **#106** volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the "as of" rather than a guess | 4, since the ladder reads the episode |
-| **#44** long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent, through [the bulk path](memory-typology.md) | 4, costed at 0c |
-| **#42** relation schemas cannot be edited | Deprecate-and-alias | 2 |
-| **#94** autonomous identity unification | Revocable graded merges, relational evidence, tiered reversibility | 5 |
-| **#104** merged identity fails to relay sibling history | The substrate wall, with unified reads across the class | 5 |
-| **#100** in-block neural calls | Record-at-call-time activities, exposed primarily as schema-constrained functions | 2 |
-| **#103** typed dates and durations | First-class typed values, extended to quantities | 3 |
-| **#58** procedural memories | The procedural kind, indexed by description, decayed by invocation | 4 |
-| **#59** persistent scratchpad | The working kind, outside the visibility model, stored in a compactable channel because promotion carries a taint the fold must reproduce | 4 |
-| **#90** eval corpus redundancy | The four-capability taxonomy with a required null arm | 0a |
-| **#125** agent-authored occurrence dates an entry to another referent's date | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case | 2, gated at 1 |
-| **#126** brief names a participant by their arrival stub | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed | 5 |
-| **#127** redaction decided per read path, so a new path leaks by omission | Visibility is computed once in the substrate before rendering, and zero residue is held as a [non-interference invariant](privacy-and-provenance.md) rather than as a rule each read path must remember | 7 |
-| **#124** agent refuses a fact its own brief surfaced | The same single resolution point: what was surfaced and what is sayable are computed from one predicate, so they cannot disagree | 7 |
-| **#116** the agent's name is prose inside its self memory | [The self slot](memory-typology.md). The issue asks for a structured, operator-authored, latest-wins record folded into a readable field, which is what the slot is; the name is one of the things it holds | 2, at genesis |
+| #112 episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it | 4 |
+| #74 search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate | 4 |
+| #114 fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
+| #113 undated events stamped with the assertion day | The episode holds when the agent learned a fact, so [`valid`](time.md) can stay open without the claim falling out of the timeline | 4, the stage that builds the episode |
+| #115 date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change | 3 |
+| #106 volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the reference point rather than a guess | 4, since the ladder reads the episode |
+| #44 long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent, through [the bulk path](memory-typology.md) | 4, costed at 0c |
+| #42 relation schemas cannot be edited | Deprecate-and-alias | 2 |
+| #94 autonomous identity unification | Revocable graded merges, relational evidence, tiered reversibility | 5 |
+| #104 merged identity fails to relay sibling history | The substrate wall, with unified reads across the class | 5 |
+| #100 in-block neural calls | Record-at-call-time activities, exposed primarily as schema-constrained functions | 2 |
+| #103 typed dates and durations | First-class typed values, extended to quantities | 3 |
+| #58 procedural memories | The procedural kind, indexed by description, decayed by invocation | 4 |
+| #59 persistent scratchpad | The working kind, outside the visibility model, stored in a compactable channel because promotion carries a taint the fold must reproduce | 4 |
+| #90 eval corpus redundancy | The four-capability taxonomy with a required null arm | 0a |
+| #125 agent-authored occurrence dates an entry to another referent's date | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case | 2, gated at 1 |
+| #126 brief names a participant by their arrival stub | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed | 5 |
+| #127 redaction decided per read path, so a new path leaks by omission | Visibility is computed once in the substrate before rendering, and zero residue is held as a [non-interference invariant](privacy-and-provenance.md) rather than as a rule each read path must remember | 7 |
+| #124 agent refuses a fact its own brief surfaced | The same single resolution point: what was surfaced and what is sayable are computed from one predicate, so they cannot disagree | 7 |
+| #116 the agent's name is prose inside its self memory | [The self slot](memory-typology.md). The issue asks for a structured, operator-authored, latest-wins record folded into a readable field, which is what the slot is; the name is one of the things it holds | 2, at genesis |
 
 Two things the table does not say on its own.
 
-**These close for a new instance, not for the one that is running.** The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so nine of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #106, #113, #114, #115, #124, #125, #126, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
+These close for a new instance, not for the one that is running. The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so nine of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #106, #113, #114, #115, #124, #125, #126, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
 
-**Stage 0b is the one that pays before anything is built.** It needs no new substrate, it reduces a live leak in the current system, and both witness sets plus every audience decision in the design read the definition it produces. Nothing else on this list returns anything until stage 2 exists.
+Stage 0b is the one that pays before anything is built. It needs no new substrate, it reduces a live leak in the current system, and both witness sets plus every audience decision in the design read the definition it produces. Nothing else on this list returns anything until stage 2 exists.
 
 ### Answered obliquely
 
 | Issue | Note |
 |---|---|
-| **#7** persistent-memory landscape | Its data-model half is discharged by the surveys in [`research/`](research/). The issue stays open for the parts this tree does not touch: how such systems present themselves, how they integrate, and what they are like to use |
-| **#93** challenge-response for cross-platform merges | Retained as the gate on irreversible disclosure. The design makes it load-bearing rather than optional, since recall and disclosure are separated |
-| **#15** self-observations | The agent writes observations about itself as an ordinary fallible teller; the operator-fixed charter is a directive and outside the fact model |
-| **#20** autonomous activity | Both halves now have a design. Outwards-directed initiation is constrained in [`off-turn.md`](off-turn.md) with salience left open; self-directed reflection is the promotion pass plus [exploration](off-turn.md), the one pass with no mark behind it. The exception queue and drift detection remain the skeleton |
-| **#105** API reference cost | A standing constraint on the [query surface](query-surface.md), which is why co-retrieval rides the search result rather than adding a call |
+| #7 persistent-memory landscape | Its data-model half is discharged by the surveys in [`research/`](research/). The issue stays open for the parts this tree does not touch: how such systems present themselves, how they integrate, and what they are like to use |
+| #93 challenge-response for cross-platform merges | Retained as the gate on irreversible disclosure. The design makes it load-bearing rather than optional, since recall and disclosure are separated |
+| #15 self-observations | The agent writes observations about itself as an ordinary fallible teller; the operator-fixed charter is configuration and outside the fact model |
+| #20 autonomous activity | Both halves have a design. Outwards-directed initiation is constrained in [`off-turn.md`](off-turn.md) with salience left open; self-directed reflection is the promotion pass plus [exploration](off-turn.md), the one pass with no mark behind it. The exception queue and drift detection remain the skeleton |
+| #105 API reference cost | A standing constraint on the [query surface](query-surface.md), which is why co-retrieval rides the search result rather than adding a call |
 
 ### Made worse
 
-**#66** (the console replica must bound its event-log mirror and time-travel window) moves from deferred to blocking. The console holds the whole log in browser memory and re-folds it from zero on every time-travel scrub, and this design multiplies the dominant term in log size: recorded model calls are already 96% of payload bytes in the live instance, and structuring adds a call per write block on top. Everything the design moves into the fold, severance filtering, alias resolution, credence derivation, frame defaulting, is then paid per scrub. A measured budget, bytes added per turn and browser fold time at realistic log sizes, is a prerequisite rather than a follow-up, and it now has a stage: [`evolution.md`](evolution.md) 0d.
+#66 (the console replica must bound its event-log mirror and time-travel window) moves from deferred to blocking. The console holds the whole log in browser memory and re-folds it from zero on every time-travel scrub, and this design multiplies the dominant term in log size: recorded model calls are already 96% of payload bytes in the live instance, and structuring adds a call per write block on top. Everything the design moves into the fold, severance filtering, alias resolution, credence derivation, frame defaulting, is then paid per scrub. A measured budget, bytes added per turn and browser fold time at realistic log sizes, is a prerequisite rather than a follow-up, and it now has a stage: [`evolution.md`](evolution.md) 0d.
 
 ### Inherited, not solved
 
-**#123** (the present set conflates audience with participation, leaking confidences to silent channel members) is a warning this design must take seriously rather than a problem it fixes. [Transmission principles](privacy-and-provenance.md) are predicates over *who is present*, which makes the definition of "present" load-bearing for every audience decision in the model. If that set is wrong, richer conditions evaluated against it are wrong more expressively. Defining presence correctly, separating being in a channel from being in the conversation, is a prerequisite for the privacy chapter rather than a consequence of it. The same definition decides the witness set on a gloss, which is the one field in the model that widens an audience rather than restricting it, so a wrong answer here is wrong in both directions at once.
+#123 (the present set conflates audience with participation, leaking confidences to silent channel members) is a warning this design must take seriously rather than a problem it fixes. [Transmission principles](privacy-and-provenance.md) are predicates over who is present, which makes the definition of presence load-bearing for every audience decision in the model. If that set is wrong, richer conditions evaluated against it are wrong more expressively. Defining presence correctly, separating being in a channel from being in the conversation, is a prerequisite for the privacy chapter rather than a consequence of it. The same definition decides the disclosure set on a gloss, which is the one datum in the model that widens an audience rather than restricting it, so a wrong answer here is wrong in both directions at once.
 
-### The design changes what the fix should be
+### Issues whose right fix changes
 
-Three issues stay open and stop being what they were. Fixing them against the current model is still correct; fixing them the way they are written would be building something this design then has to undo.
+Three issues stay open and stop being what they were. Fixing them against the current model is still correct. Fixing them the way they are written would build something this design then has to undo.
 
-**#97** (a block's buffered `memory.create` colliding with a platform mint) closes in its reported form and not in general. The reported case is the agent minting a platform-qualified stub while a connector mints the same name, and under [the write surface](write-surface.md) the agent performs no handle selection and mints no qualified stub at all, so that collision becomes unrepresentable. What this design says nothing about is two writers racing on a name the agent *can* mint, which is the general race and is untouched.
+#97 (a block's buffered `memory.create` colliding with a platform mint) closes in its reported form and not in general. The reported case is the agent minting a platform-qualified stub while a connector mints the same name, and under [the write surface](write-surface.md) the agent performs no handle selection and mints no qualified stub at all, so that collision becomes unrepresentable. This design says nothing about two writers racing on a name the agent can mint, which is the general race and is untouched.
 
-**#109** (Discord reply context) proposes injecting a reference token into the relayed message text. Under this design an utterance is a first-class [gloss](two-traces.md), and [`evolution.md`](evolution.md) stage 2 makes the agent's outbound turns glosses too, so a reply is a relation between two glosses rather than a token spliced into prose. Same information, structural rather than lexical, and reachable by a query.
+#109 (Discord reply context) proposes injecting a reference token into the relayed message text. Under this design an utterance is a first-class [gloss](two-traces.md), and [`evolution.md`](evolution.md) stage 2 makes the agent's outbound turns glosses too, so a reply is a relation between two glosses rather than a token spliced into prose. The same information becomes structural rather than lexical, and reachable by a query.
 
-**#110** (Discord attachments) proposes fetching text attachments and inlining their contents. A text attachment is a document arriving through a connector, which is what [the bulk-ingestion path](memory-typology.md) exists for, so the question becomes whether an attachment opens an ingest job with its own source layer rather than being spliced into a message. The non-text half of the issue, telling the agent that something it cannot perceive was shared, is unaffected and remains a connector fix.
+#110 (Discord attachments) proposes fetching text attachments and inlining their contents. A text attachment is a document arriving through a connector, which is what [the bulk-ingestion path](memory-typology.md) exists for, so the question becomes whether an attachment opens an ingest job with its own source layer rather than being spliced into a message. The non-text half of the issue, telling the agent that something it cannot perceive was shared, is unaffected and remains a connector fix.
 
 ### Not addressed
 
-**#96** (operator imprint concurrency), **#99**, **#118**, **#119**, **#120**, **#121**, **#72**, **#75**, and **#1** are implementation and tooling concerns orthogonal to the data model. **#18** (subagent spawning) is a capability question this design neither needs nor blocks, though off-turn work now has a budget model a bounded subagent would sit inside. None is made harder by this design, and none is made easier.
+#96 (operator imprint concurrency), #99, #118, #119, #120, #121, #72, #75, and #1 are implementation and tooling concerns orthogonal to the data model. #18 (subagent spawning) is a capability question this design neither needs nor blocks, though off-turn work now has a budget model a bounded subagent would sit inside. None is made harder by this design, and none is made easier.
 
-## New work this design creates
+## New obligations
 
 Not everything here is a fix. Three items are new obligations that did not exist before:
 
-- **The referential frame** is a new concept the agent must be taught to set, and a new axis every read must resolve. It costs a field on every Statement and a decision on every write. What it buys is bounded by what it fixes: 39% of the observed corpus is *exposed* to layer confusion, and the frame separates the layers on a subject already chosen. A claim about a persona's principal misfiled onto the persona is a wrong subject rather than a wrong layer, which no *layer* value repairs: the answer is [the `principal` redirect](statements.md), a fourth value that is a marker a critic resolves away rather than a layer anything is stored in. The gate is [`evolution.md`](evolution.md) stage 1, which now has that design to falsify rather than a gap to report.
-- **The episodic layer** costs a record-time model call and permanent log volume per occasion, unless the ablation shows the benefit is retrieval-side.
-- **The critic bank** is code that did not exist, and every critic is a place a correct write can be wrongly rejected. A persistent rejection that indicates a schema gap rather than a mistake is one of the four things that reaches a person.
+- The referential frame is a new concept the agent must be taught to set, and a new axis every read must resolve. It costs a field on every Statement and a decision on every write. What it buys is bounded by what it fixes: 39% of the observed corpus is exposed to layer confusion, and the frame separates the layers on a subject already chosen. A claim about a persona's principal misfiled onto the persona is a wrong subject rather than a wrong layer, which no layer value repairs. The answer is [the `principal` redirect](statements.md), a fourth value that is a marker a critic resolves away rather than a layer anything is stored in. The gate is [`evolution.md`](evolution.md) stage 1, which has that design to falsify rather than a gap to report.
+- The episodic layer costs a record-time model call and permanent log volume per occasion, unless the ablation shows the benefit is retrieval-side.
+- The critic bank is code that did not exist, and every critic is a place a correct write can be wrongly rejected. A persistent rejection that indicates a schema gap rather than a mistake is one of the four things that reaches a person.

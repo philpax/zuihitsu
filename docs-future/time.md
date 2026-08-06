@@ -1,14 +1,14 @@
 # Time
 
-Three axes, kept apart. Conflating any two of them is what makes an agent wake up for someone else's calendar.
+The design keeps three axes apart. Conflating any two of them is what makes an agent wake up for someone else's calendar.
 
-- **Occurrence**: when the thing a claim describes happens in the world.
-- **Task**: something the agent itself is meant to do, with a due time.
-- **Trigger**: what actually fires, expressed relative to a Task.
+- Occurrence: when the thing a claim describes happens in the world.
+- Task: something the agent itself is meant to do, with a due time.
+- Trigger: what actually fires, expressed relative to a Task.
 
-A description has an occurrence and nothing else. **Only a Trigger fires**, and a Trigger only ever hangs off a Task the agent authored for itself. A fact about another system's nightly job, or the birth year of a historical figure, has an occurrence, no Task, no Trigger, and therefore no path to waking anything.
+A description has an occurrence and nothing else. Only a Trigger fires, and a Trigger only ever hangs off a Task the agent authored for itself. A fact about another system's nightly job, or the birth year of a historical figure, has an occurrence, no Task, no Trigger, and therefore no path to waking anything.
 
-The current system has one occurrence field carrying two meanings, and the predicted failure is the observed one: a daily recurrence extracted from a fact *describing* a third party's routine, which then woke the agent at every boot until the occurrence was withdrawn by hand. The scheduler arms on the descriptive axis because there is no other axis to arm on.
+The current system has one occurrence field carrying two meanings, and the predicted failure is the observed one: a daily recurrence extracted from a fact describing a third party's routine, which then woke the agent at every boot until the occurrence was withdrawn by hand. The scheduler arms on the descriptive axis because there is no other axis to arm on.
 
 ## Bitemporal, plus decision time
 
@@ -28,11 +28,11 @@ It also relieves a specific pressure. A claim whose utterance anchors no time le
 
 Dates, durations, quantities, and recurrences are first-class typed values end to end. Strings appear only at the input boundary.
 
-**Civil against absolute** is honoured rather than flattened. A day is a civil date; a moment is an instant. Treating a birthday as an instant produces the timezone bugs that make an anniversary land on the wrong day for half the world.
+The distinction between civil and absolute time is honoured rather than flattened. A day is a civil date; a moment is an instant. Treating a birthday as an instant produces the timezone bugs that make an anniversary land on the wrong day for half the world.
 
-**Durations are anchor-aware.** A month resolves against the date it is measured from, so "three months from January 31" has one correct answer rather than a fixed 90-day approximation.
+Durations are anchor-aware. A month resolves against the date it is measured from, so "three months from January 31" has one correct answer rather than a fixed 90-day approximation.
 
-**Recurrences are built through constructors**, not parsed from strings. The constructors cannot express the pathological cases, so a monthly recurrence anchored on the 31st is unrepresentable rather than silently skipping February. What cannot be constructed cannot be stored.
+Recurrences are built through constructors rather than parsed from strings. The constructors cannot express the pathological cases, so a monthly recurrence anchored on the 31st is unrepresentable rather than silently skipping February. What cannot be constructed cannot be stored.
 
 The corpus study found quantities in the same position dates once were: written into prose with their units, uninterpretable to any query. Word counts, elapsed hours, and ratings all appear as text. They are typed for the same reason dates are.
 
@@ -60,6 +60,6 @@ A claim with an open validity interval is not automatically true forever.
 
 Volatility is a property of the claim's kind rather than a flag someone remembers to set. Where a claim is inherently transient, its interval carries an expected horizon, and passing that horizon makes it a candidate for revisiting rather than a fact to keep asserting.
 
-A retroactive pass over aged claims chooses from a ladder: **temporalise** where the claim is sound but untimed, closing its window at the date it can be shown to have held; **annotate** where it is plausibly still current but unverified; **re-verify** by queueing it for the next contact with someone who would know; and **retire** where it has no temporal reading at all.
+A retroactive pass over aged claims chooses from a ladder. Temporalise where the claim is sound but untimed, closing its window at the date it can be shown to have held. Annotate where it is plausibly still current but unverified. Re-verify by queueing it for the next contact with someone who would know. Retire where it has no temporal reading at all.
 
-Temporalising is the common case and the one that resolves cleanly. Most aged claims are not false, they are undated: an activity someone was doing, a plan someone had. Closing the window turns a claim that reads as current into dated history, which is permanent by right and stops rotting.
+Temporalising is the common case and the one that resolves cleanly. Most aged claims are not false, they are undated: an activity someone was doing, a plan someone had. Closing the window turns a claim that reads as current into dated history, which is permanent and no longer decays.
