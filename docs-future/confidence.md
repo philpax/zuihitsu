@@ -182,6 +182,7 @@ The five corrections are folded into the chapters. They were: the identification
 | Queues fed by write-time marks replace whole-store sweeps | Synthesis | Forced by the cost-per-fact constraint. The marks are cheap consequences of records the design already keeps; that the queues stay short under real traffic is unmeasured |
 | Structural deduplication and cross-audience merging leave consolidation entirely | Synthesis | Both exist today to recover what the write path did not capture. This is the strongest economic claim in the chapter and it rests on extraction convergence, which [`evolution.md`](evolution.md) stage 0c measures and which is currently **unmeasured** |
 | Triggers are drained before maintenance | Synthesis | A commitment starved by tidying is the failure this prevents. No surveyed system reports the failure; the ordering is cheap enough not to need one |
+| Exploration runs on leftover budget and cannot promote itself | Synthesis | The gap is real: a mark-driven store cannot notice a connection nothing marked. The mechanism is trivial and its cost is the whole problem, so it is metered by construction, and its output takes the ordinary one-signal rule, which is stricter than novelty scoring. What is unknown is the yield: whether structural sampling finds anything worth the budget, on an instance of this size, is unmeasured and may be a reason not to run it at all |
 | **What deserves initiation** | **Open** | The salience judgement behind agent-initiated contact predates this design and is not settled by it. The chapter states constraints that hold whatever the answer is |
 
 ## Unresolved, gathered
@@ -205,11 +206,12 @@ Five of these block something. The rest are deferred with a named forcing condit
 10. **The credence shape**, with fusion operators deliberately unused. Nothing to fuse while teller counts are zero or one; forced by the first claim to gather two independent tellers, which the harness can alarm on.
 11. **What deserves initiation.** [`off-turn.md`](off-turn.md) constrains it without settling it. Forced at stage 9, when an off-turn message is first composed.
 12. **Whether the structural questions are sufficient.** [`query-surface.md`](query-surface.md) names five, and whether they cover what the agent actually asks is untested. Answerable cheaply by classifying the live log's recorded blocks against them, and worth doing before stage 2 freezes the surface.
-13. **The dispositional fallback.** A habitual modality alongside the frame is the extension [`statements.md`](statements.md) declines. Forced if gloss-only writes on dispositional content become a material fraction of writes.
+13. **Whether exploration earns its budget.** [`off-turn.md`](off-turn.md) bounds the cost and the risk; neither says the yield is positive. Forced whenever the pass is first enabled, and answerable by counting how many exploration notes are ever corroborated into promotion.
+14. **The dispositional fallback.** A habitual modality alongside the frame is the extension [`statements.md`](statements.md) declines. Forced if gloss-only writes on dispositional content become a material fraction of writes.
 
 **Not measurable here.**
 
-14. **Relay-chain dependence.** The live corpus cannot contain the phenomenon: one multi-party conversation, three tellers, and no claim asserted by two of them, so a null would prove nothing. The stage 6 gate is the measurement rather than a prior experiment. Its prerequisite is that the agent's outbound turns are first-class glosses carrying witness sets, which is a stage 2 obligation.
+15. **Relay-chain dependence.** The live corpus cannot contain the phenomenon: one multi-party conversation, three tellers, and no claim asserted by two of them, so a null would prove nothing. The stage 6 gate is the measurement rather than a prior experiment. Its prerequisite is that the agent's outbound turns are first-class glosses carrying witness sets, which is a stage 2 obligation.
 
 ## Things deliberately not claimed
 

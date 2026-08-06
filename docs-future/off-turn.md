@@ -1,6 +1,6 @@
 # Off-turn work
 
-The store changes when nobody is talking. Consolidation, re-derivation after a severance, episode composition, structuring retries, decay, wake-ups, and whatever the agent decides to do on its own initiative all run outside a turn.
+The store changes when nobody is talking. Consolidation, re-derivation after a severance, episode composition, structuring retries, decay, wake-ups, exploration, and whatever the agent decides to do on its own initiative all run outside a turn.
 
 None of it is a separate write path. Off-turn work inherits every commitment the on-turn path carries, and two of those bite harder here, because there is no participant present to notice a mistake.
 
@@ -59,6 +59,24 @@ Most of what consolidation does today is recovering structure that was never cap
 **Near-miss resolution remains**, and is the genuine residue: the overlapping-but-not-agreeing [Event](events-and-roles.md) participant sets, alias-equivalent relations, and claims a critic flagged as candidates rather than resolving. These are judgements, they are queued as candidates, and an unresolved one reaches a person rather than being decided by a threshold.
 
 **Distillation remains**, unchanged and public-only.
+
+## Exploration
+
+Every queue above is fed by a mark, and a mark is left when something changes. A store driven only by marks is structurally incapable of noticing that two things it has known separately for months are connected, because nothing changed to say so.
+
+**Exploration** is the one pass with no mark behind it. It samples a pair of memories, asks what connects them, and keeps a note if the answer is worth anything.
+
+Four constraints make it affordable and safe, and each of them is a rule the design already has rather than a new one.
+
+**It runs on what is left over.** Exploration consumes the judgement budget remaining after the queues drain, never competing with them and never a reason to raise the budget. This is the one mechanism whose cost is unrelated to what changed, which makes it exactly the shape [the graveyard lesson](lineage.md) warns about: an ambient generator's cost per fact does not fall as the store grows, it rises with it. The honest position is that the loop is trivial to describe and its cost is the entire problem, so it is metered by construction and switched off first under pressure.
+
+**It samples structurally, not randomly.** Random pairing is the crude form of the idea, and a typed graph can do better: two memories with no path between them but neighbouring in embedding space, two Events sharing one participant and nothing else, a claim whose relation has no instances in a neighbourhood full of them. These are queries rather than guesses, and they are available precisely because [a fact stopped being a sentence](overview.md).
+
+**Its output is a working note, never an utterance and never a settled claim.** An exploration writes into [the scratchpad](memory-typology.md), so it inherits promotion by reflection, a taint set, and the audience arithmetic that goes with them. It never speaks: what it produces is something the agent might later have a reason to say, not a reason to say it.
+
+**It cannot promote itself.** A daydreamed link has exactly one signal behind it, the model that proposed it, and [agreement before promotion](the-seam.md) requires two independent ones. So an exploration's output stays a candidate until ordinary evidence arrives to corroborate it, and if none ever does it decays with the rest of the scratchpad. This is stricter than scoring the idea for novelty and keeping the good ones, and it is the correct strictness: a plausible connection between two true facts is exactly what a language model produces when there is no connection at all.
+
+The privacy consequence needs stating, because the pairing sampler is the first mechanism here that deliberately reaches across memories with unrelated audiences. The most interesting pair is often the cross-person one, and that is also the disclosure hazard: pairing a confidence with a public fact yields a note that encodes the confidence. The [intersection rule](statements.md) covers it, the taint set carries it into promotion, and the sampler is not exempt from either. An exploration that pairs across audiences produces a note no wider than the narrower of them.
 
 ## Agent-initiated work
 

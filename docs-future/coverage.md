@@ -94,7 +94,7 @@ Two things the table does not say on its own.
 | **#7** persistent-memory landscape | Its data-model half is discharged by the surveys in [`research/`](research/). The issue stays open for the parts this tree does not touch: how such systems present themselves, how they integrate, and what they are like to use |
 | **#93** challenge-response for cross-platform merges | Retained as the gate on irreversible disclosure. The design makes it load-bearing rather than optional, since recall and disclosure are separated |
 | **#15** self-observations | The agent writes observations about itself as an ordinary fallible teller; the operator-fixed charter is a directive and outside the fact model |
-| **#20** autonomous activity | The exception queue and drift detection are its skeleton |
+| **#20** autonomous activity | Both halves now have a design. Outwards-directed initiation is constrained in [`off-turn.md`](off-turn.md) with salience left open; self-directed reflection is the promotion pass plus [exploration](off-turn.md), the one pass with no mark behind it. The exception queue and drift detection remain the skeleton |
 | **#105** API reference cost | A standing constraint on the [query surface](query-surface.md), which is why co-retrieval rides the search result rather than adding a call |
 
 ### Made worse
