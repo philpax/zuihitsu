@@ -44,13 +44,16 @@ Verification status of the dual-trace lane: none. It postdates the adversarial p
 
 Status of the modelling study: primary evidence. Unlike every other lane, it rests on direct observation of this system's own data rather than on literature, so it needs no external corroboration. It was deliberately run before the design chapters were written, and it changed them: it found that the two hypotheses the design most feared were both unfounded, and that two genuine expressiveness gaps none of the seven lanes anticipated were real. Its verdict is that the model is sufficient to proceed with two additions and one correction. The correction, that a gloss belongs to an utterance rather than to a Statement, contradicted a design assumption and is the clearest case in the tree of evidence arriving before commitment rather than after.
 
-### [2026-08-06](2026-08-06/): log measurements
+### [2026-08-06](2026-08-06/): log measurements, and fixes landed in the current system
 
 - [`log-measurements.md`](2026-08-06/log-measurements.md) records the figures the design cites from the running instance's own event log: payload composition, model-call latency, posture and teller distributions, what a block touches, derived-structure counts, and duplication.
+- [`current-system-fixes.md`](2026-08-06/current-system-fixes.md) records what a wave of agent-behaviour work in the current system established, where it bears on this design: span justification as a check, withdrawal without substitution as a rule for a pass, a redaction leak carrying no text, and drift going unseen under green runs.
 
-Status: primary evidence, unverified by an adversarial pass. Like the modelling study it rests on direct observation rather than literature. Unlike the modelling study it was gathered after the chapters it supports, through review passes whose figures had previously survived only in commit messages. Several were independently corroborated on a second read of the log; the latency percentiles and the touched-per-block distribution were not. The note marks which are which, and marks one figure as arithmetic rather than observation.
+Status of the log measurements: primary evidence, unverified by an adversarial pass. Like the modelling study it rests on direct observation rather than literature. Unlike the modelling study it was gathered after the chapters it supports, through review passes whose figures had previously survived only in commit messages. Several were independently corroborated on a second read of the log; the latency percentiles and the touched-per-block distribution were not. The note marks which are which, and marks one figure as arithmetic rather than observation.
 
 The counts drift as the instance runs. Nothing in the design should depend on their exact values, and where a claim needs a precise figure the note says so.
+
+Status of the current-system fixes: primary evidence of a different kind. Its figures come from the eval harness rather than from the live log, so they describe scenario runs. It is the one snapshot here recording what the current system did rather than what a literature or a corpus says, and it is included because a fix shipped against the old model is a measurement of the problem the new model claims to remove.
 
 ## The failure survey
 
