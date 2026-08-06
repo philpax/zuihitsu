@@ -80,6 +80,7 @@ The stage is where the issue actually closes, from [`evolution.md`](evolution.md
 | **#126** brief names a participant by their arrival stub | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed | 5 |
 | **#127** redaction decided per read path, so a new path leaks by omission | Visibility is computed once in the substrate before rendering, and zero residue is held as a [non-interference invariant](privacy-and-provenance.md) rather than as a rule each read path must remember | 7 |
 | **#124** agent refuses a fact its own brief surfaced | The same single resolution point: what was surfaced and what is sayable are computed from one predicate, so they cannot disagree | 7 |
+| **#116** the agent's name is prose inside its self memory | [The self slot](memory-typology.md). The issue asks for a structured, operator-authored, latest-wins record folded into a readable field, which is what the slot is; the name is one of the things it holds | 2, at genesis |
 
 Two things the table does not say on its own.
 
@@ -105,9 +106,19 @@ Two things the table does not say on its own.
 
 **#123** (the present set conflates audience with participation, leaking confidences to silent channel members) is a warning this design must take seriously rather than a problem it fixes. [Transmission principles](privacy-and-provenance.md) are predicates over *who is present*, which makes the definition of "present" load-bearing for every audience decision in the model. If that set is wrong, richer conditions evaluated against it are wrong more expressively. Defining presence correctly, separating being in a channel from being in the conversation, is a prerequisite for the privacy chapter rather than a consequence of it. The same definition decides the witness set on a gloss, which is the one field in the model that widens an audience rather than restricting it, so a wrong answer here is wrong in both directions at once.
 
+### The design changes what the fix should be
+
+Three issues stay open and stop being what they were. Fixing them against the current model is still correct; fixing them the way they are written would be building something this design then has to undo.
+
+**#97** (a block's buffered `memory.create` colliding with a platform mint) closes in its reported form and not in general. The reported case is the agent minting a platform-qualified stub while a connector mints the same name, and under [the write surface](write-surface.md) the agent performs no handle selection and mints no qualified stub at all, so that collision becomes unrepresentable. What this design says nothing about is two writers racing on a name the agent *can* mint, which is the general race and is untouched.
+
+**#109** (Discord reply context) proposes injecting a reference token into the relayed message text. Under this design an utterance is a first-class [gloss](two-traces.md), and [`evolution.md`](evolution.md) stage 2 makes the agent's outbound turns glosses too, so a reply is a relation between two glosses rather than a token spliced into prose. Same information, structural rather than lexical, and reachable by a query.
+
+**#110** (Discord attachments) proposes fetching text attachments and inlining their contents. A text attachment is a document arriving through a connector, which is what [the bulk-ingestion path](memory-typology.md) exists for, so the question becomes whether an attachment opens an ingest job with its own source layer rather than being spliced into a message. The non-text half of the issue, telling the agent that something it cannot perceive was shared, is unaffected and remains a connector fix.
+
 ### Not addressed
 
-**#96**, **#97** (mint races), **#99**, **#118**, **#119**, **#120**, **#121**, **#72**, **#75**, and **#1** are implementation and tooling concerns orthogonal to the data model. **#109** and **#110** are connector gaps. **#116** is a logging gap. **#18** (subagent spawning) is a capability question this design neither needs nor blocks. None is made harder by this design, and none is made easier.
+**#96** (operator imprint concurrency), **#99**, **#118**, **#119**, **#120**, **#121**, **#72**, **#75**, and **#1** are implementation and tooling concerns orthogonal to the data model. **#18** (subagent spawning) is a capability question this design neither needs nor blocks, though off-turn work now has a budget model a bounded subagent would sit inside. None is made harder by this design, and none is made easier.
 
 ## New work this design creates
 
