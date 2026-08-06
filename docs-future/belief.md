@@ -18,7 +18,17 @@ s14 (person/quill, persona_of, person/ferrer)
     credence  confirmed · two independent tellers
 ```
 
-A claim first recorded as a hedge and later corroborated is **one Statement whose credence moved**, not two entries whose relationship is invisible. The current system produces the latter: [the corpus study](research/2026-08-03/modelling-study.md) found a claim recorded as "likely" and, later, the same claim asserted flatly, both alive at once with nothing connecting them and no way to tell that the second was the first, confirmed.
+A claim first recorded as a hedge and later asserted flatly is **one Statement with two tellings**, not two entries whose relationship is invisible. The current system produces the latter: [the corpus study](research/2026-08-03/modelling-study.md) found a claim recorded as "likely" and, later, the same claim asserted flatly, both alive at once with nothing connecting them and no way to tell that the second was the first, firmed up.
+
+## A hedge is not a credence
+
+The two are routinely conflated and they are different objects. Credence is the store's, derived from how many independent tellers stand behind a claim. A hedge is the teller's, and it belongs to the act of telling, which is why it rides as [the `expressed` qualifier](statements.md) on the telling rather than moving anything.
+
+The consequence is worth being blunt about, because it contradicts a natural reading of the previous section. When the same teller says "probably X" and later says "X", **the credence does not move.** There is still one teller and no corroboration, so nothing about the evidence has changed. What changed is how firmly that person put it, and that is recorded where it happened.
+
+This is not a technicality. The showcase case in the live corpus is exactly this shape: one teller, hedged, then the same teller, flat, with no second source anywhere in the arc. A design that moved credence there would be inferring corroboration from emphasis, which is the verbalised-confidence failure wearing a human face rather than a model's. The same rule kills the neighbouring error: two independent tellers each saying "probably" are two pieces of evidence for a claim neither committed to, and their `expressed` qualifiers are what keep that visible instead of rounding it to `confirmed · two independent tellers`.
+
+What a firming-up does earn is a surface that reads honestly: two tellings, the second unhedged, from someone who was unsure and now is not. That is more informative than a credence tick, and it is the thing an agent deciding whether to act on a claim actually wants.
 
 The representation separates strength of belief from amount of evidence, which is the distinction a single probability collapses. "One unreliable person said this once" and "it is genuinely uncertain whether this is true" are different states and must not compare equal.
 
@@ -29,6 +39,8 @@ Two tellers repeating each other are not two pieces of evidence.
 This is the same soundness problem that makes attribute overlap useless for [identity](identity.md), and it has the same answer: dependence is a **provenance determination**, not a judgement. If two attestations trace to a common source, or one teller was present when the other learned it, they are dependent, and dependent evidence adds nothing.
 
 Both conditions are read from the record rather than inferred. The derivation graph carries the first; the [witness set](statements.md) on the gloss carries the second.
+
+A third path runs through the agent itself, and it needs the same treatment. The agent is a witness to everything told to it and never an independent teller of what it was told, so re-recording a claim in its own words adds an occasion rather than a source. And because the agent's own utterances are glosses whose witnesses are their recipients, a relay is visible: someone who learned a fact from the agent and later tells it back is a distinct teller whose evidence traces to the original. Dependence through the agent is the commonest kind in a store the agent is constantly reading back to people, and it is detectable only because the relay left a record.
 
 In a shared channel this is the ordinary case rather than a corner one. Everyone present hears everything, so three people repeating what a fourth said in the room is one piece of evidence, and a credence that counted three would be badly wrong in the direction that matters. Sociality is what makes corroboration meaningful and, in the same stroke, what makes dependence detection load-bearing.
 

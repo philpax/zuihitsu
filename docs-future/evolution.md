@@ -114,7 +114,7 @@ Merges as revocable assumptions, assumption stamps, fold-filter severance, relat
 Credence from evidence counting, trust discounting, dependence detection, non-prioritised revision.
 
 *Unblocks:* principled contradiction handling; the recitation defence at the belief layer.
-*Gating:* two dependent attestations produce no credence gain. A low-credibility teller does not overturn a well-corroborated claim. A hedged claim later corroborated is one Statement whose credence moved.
+*Gating:* two dependent attestations produce no credence gain, including the two dependence paths that run through the agent, a claim it re-recorded and a claim it relayed and was told back. A low-credibility teller does not overturn a well-corroborated claim. A claim hedged and later asserted flatly **by the same teller** is one Statement with two tellings whose credence has not moved, while the same claim corroborated by a second independent teller does move.
 *Risk:* the credence shape is a live disagreement. Ship the representation and discounting; leave fusion operators unused until validated.
 
 ## Stage 7: transmission principles and forgetting

@@ -151,9 +151,12 @@ Provenance qualifiers sit exactly one level deep. A qualifier never carries its 
 s12 (person/wren, keeps_pet, animal/pepper)
     told_by   person/wren
     told_in   turn:01J7…
+    expressed hedged
     observed  2026-07-14
     recorded  2026-07-16
 ```
+
+`expressed` records how firmly the telling was put: hedged, plain, or emphatic. It qualifies the act of telling, not the claim, and it is deliberately not a credence. Two people each saying "probably" are two tellers who both declined to commit, which is a different state from two people asserting flatly, and a model that keeps only the count cannot tell them apart. Keeping it here rather than as a nested attitude matters because hedging is constant: paying for a Statement-in-an-object-slot every time somebody says "I think" would be absurd, where a qualifier on the telling costs one field. See [belief](belief.md) for what it does and does not move.
 
 `told_by` names a teller. A Statement with several tellers is a fact a set of people stand behind, which is what an endorsement is: there is no separate attestation object, and each teller's endorsement carries its own transmission principle and its own retraction authority. The last teller's retraction ends the Statement's life; an earlier one's does not.
 
@@ -176,6 +179,12 @@ A [transmission principle](privacy-and-provenance.md) is evaluated against the p
 [Dependence between attestations](belief.md) is partly determined by it. Two tellers who were both present when a third said something are not two pieces of evidence, and in a shared channel that is the ordinary case rather than the exception.
 
 The set widens an audience, which no other field does, so it is built from demonstrated participation rather than from channel membership. See [privacy and provenance](privacy-and-provenance.md).
+
+Two rules about the agent's own place in this follow, and both exist to stop the agent inflating its own evidence.
+
+**The agent is a witness to everything told to it, and never an independent teller of it.** A claim the agent re-records in its own words is the same claim it was told, so the re-recording adds an occasion and not a teller. Without this, a single sentence read back into the store counts as corroboration from two sources, which the live corpus makes a large problem rather than a theoretical one: a substantial fraction of recorded content is agent-told, much of it restating what a participant had just said.
+
+**What the agent says is an utterance like any other.** Its outbound turns produce glosses whose witnesses are their recipients, which is what makes a relay chain visible. If one person tells the agent something, the agent relays it, and the recipient later tells it back, the second teller is genuinely distinct and their evidence is entirely derived from the first. That is dependence through the agent rather than through a shared occasion, and it is only detectable because the relay left a record. See [belief](belief.md).
 
 ## Validity
 
