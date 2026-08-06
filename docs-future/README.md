@@ -28,6 +28,7 @@ The design. [`overview.md`](overview.md) is the way in; the rest can be read in 
 | [`the-seam.md`](the-seam.md) | the model proposes, the critics dispose, and drift is watched from outside |
 | [`query-surface.md`](query-surface.md) | structural questions, structural answers, and a deliberately small API |
 | [`write-surface.md`](write-surface.md) | two verbs, structuring inside the transaction, and the parse handed back for correction |
+| [`off-turn.md`](off-turn.md) | passes as ordinary writers, queues instead of sweeps, and initiative that is exception-triggered |
 | [`lineage.md`](lineage.md) | what each ancestor contributed, and what was deliberately left behind |
 
 The supporting material:

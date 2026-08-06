@@ -46,7 +46,7 @@ A private scratchpad: persistent but transient, the agent's own head.
 
 Outside the visibility model entirely. It has no audience because it has no readers, no teller because nothing told it, and no credence because it asserts nothing. It is the staging area where a thought is held long enough to become something or be discarded.
 
-A reflection pass promotes or discards. Promotion means writing an actual Statement, with all the provenance and audience condition that entails. Discarding means the note is gone.
+A [reflection pass](off-turn.md) promotes or discards. Promotion means writing an actual Statement, with all the provenance and audience condition that entails. Discarding means the note is gone.
 
 How the scratchpad is stored is genuinely unresolved: keeping it in the log preserves the commitment that the system is a pure function of its log, but scratchpad churn is exactly the transient state that should not bloat replay. A compactable channel whose net effect after reflection is a single promote-or-discard is the leading candidate, and a side table is a defensible alternative. Recorded as open in [`confidence.md`](confidence.md).
 
