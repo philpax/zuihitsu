@@ -105,6 +105,6 @@ Both are load-bearing behaviours moving from wording into structure, which is th
 
 Not everything here is a fix. Three items are new obligations that did not exist before:
 
-- **The referential frame** is a new concept the agent must be taught to set, and a new axis every read must resolve. It buys correctness on 39% of the observed corpus and costs a field on every Statement and a decision on every write.
+- **The referential frame** is a new concept the agent must be taught to set, and a new axis every read must resolve. It costs a field on every Statement and a decision on every write. What it buys is bounded by what it fixes: 39% of the observed corpus is *exposed* to layer confusion, and the frame separates the layers on a subject already chosen. A claim about a persona's principal misfiled onto the persona is a wrong subject rather than a wrong layer, and no value of the enum repairs it. The gate is [`evolution.md`](evolution.md) stage 1, which requires the misattributed case to resolve to the right subject and says plainly that failing it means a referent pointer is owed.
 - **The episodic layer** costs a record-time model call and permanent log volume per occasion, unless the ablation shows the benefit is retrieval-side.
 - **The critic bank** is code that did not exist, and every critic is a place a correct write can be wrongly rejected. A persistent rejection that indicates a schema gap rather than a mistake is one of the four things that reaches a person.

@@ -51,7 +51,11 @@ Three fields cannot be extracted, because they are judgements about the conversa
 
 **The frame.** Whether a claim is about an entity, the character it presents, or the material that character draws from. A sentence about a persona agent's opinions is indistinguishable, on its own, from a sentence about the agent's configuration. Only the participant in the conversation knows which was meant.
 
-**The audience.** Who may learn this. The utterance rarely says.
+**The audience.** Who may learn this. The utterance rarely says, and one utterance rarely has one answer.
+
+A compound utterance cannot carry a single transmission principle, so the write does not ask it to. The call's `visibility` is a default for the parse, and the parse does not commit until every proposal's principle is settled: the agent either accepts the default for all of them or sets the ones that differ. Declining to look is not available, because the field is required per Statement rather than per call.
+
+This is the [seam's own rule](the-seam.md) applied to the behaviour that carries the privacy commitment. Noticing that one clause of a sentence is sensitive is a judgement whose failure is silent and whose consequence is a leaked confidence, so it becomes a required field rather than a habit the prompt asks for. The corpus's flagship case is exactly this shape: one biography sentence yielding seven public claims and one that had to be held back, split by hand months later.
 
 **The teller**, where it is not the obvious speaker. Relaying what someone else said is a different claim from saying it.
 
@@ -78,18 +82,20 @@ The last row is what the correction loop buys. A misparse today becomes a fact n
 
 Putting a model call on the write path is a real cost and a real risk, and the design should not pretend otherwise.
 
-**It is not on the read path.** Reads never call a model. That is a fixed point, and nothing here touches it.
+**It is not on the read path.** No read produces stored state from a model call. That is the fixed point, and nothing here touches it.
+
+The fixed point is about derivation, not about latency. A read may consult a model for a **transient ranking input** that is never stored and never folded, which is the same exemption [`overview.md`](overview.md) already grants query embedding and which now also covers the reranking pass in [the query surface](query-surface.md). Anything a read computes this way is discarded when the read returns; nothing downstream may depend on it having happened.
 
 **The failure mode to fear is thrashing.** A rejected write produces a teachable error, the agent retries, the retry runs another extraction, and the loop can spin. This is the existing teachable-error retry shape with a model call added to each iteration.
 
 Four things bound it:
 
-- **Extraction is per block, not per call.** Several `record` calls in one block structure together, so a block writing six facts pays once.
+- **Extraction is per block, not per call.** Several `record` calls in one block structure together, so a block writing six facts pays once. The consequence is that `r` is a **deferred handle**: it is empty until the block ends, and the parse is read and amended in a later block of the same turn. The correction loop is same-turn, not same-block, which is what preserves the context that produced the write while still batching the extraction.
 - **A structuring failure never loses the utterance.** If extraction fails or the critics reject everything, the gloss is committed alone, with no structure. The agent's words survive; only the structure is missing, and a later pass can supply it. A write path that can lose what someone said in order to protect its own schema has the priorities backwards.
 - **Retries are capped.** A bounded number of structuring attempts per block, after which the write degrades to gloss-only and the agent is told so.
 - **`claim` is always available and always cheap.** The escape from a fighting extractor is to say the structure directly.
 
-**If it still thrashes, the dial exists.** Structuring can move to end-of-turn, or back to a pass, at the cost of losing the same-turn correction loop. The eager-against-lazy question is recorded as open in [`confidence.md`](confidence.md) precisely because it is an empirical call, and the constraint-tax measurement in [`evolution.md`](evolution.md) stage 2 is where it gets made. What must not happen is structure being derived from prose that was already committed, because that reinstates the re-derivation tax the whole design exists to end.
+**If it still thrashes, the dial exists.** Structuring can move to end-of-turn, or back to a pass, at the cost of losing the same-turn correction loop. The eager-against-lazy question is recorded as open in [`confidence.md`](confidence.md) precisely because it is an empirical call, and the constraint-tax measurement in [`evolution.md`](evolution.md) stage 2 is where it gets made. What must not happen is structuring-from-committed-prose becoming the **routine** path, because that reinstates the re-derivation tax the whole design exists to end. Structuring an utterance whose extraction failed is the exception the rule is drawn around: it is queued once, retried once, and either succeeds or stays gloss-only. The tax is a pass that re-reads everything indefinitely, not a queue that drains what fell through.
 
 ## Rejection is a teaching surface
 

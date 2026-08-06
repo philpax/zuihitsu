@@ -44,6 +44,9 @@ The subject is always a memory handle. The object is one of four things:
 - **a typed value**: a date, a duration, a measure with a unit, a count over a kind, or a recurrence, each of which is a first-class value rather than a string that happens to parse
 - **an opaque literal**, for content that has internal structure the store does not model, such as a formula or a code fragment
 - **another Statement**, for a propositional attitude
+- **a gloss or turn reference**, for a claim about something that was said
+
+The last of these is what a metalinguistic claim needs. A great deal of what a personal agent records is somebody's stance toward a specific past utterance: rating a line, conceding one phrase and disputing another, quoting how they were described. The target is a thing that was said, which the store already holds as a first-class node, and neither of the alternatives works: an opaque literal duplicates text the gloss already carries and is unqueryable, while minting a handle for a passing phrase is the same absurdity that [counting](#counting) exists to avoid.
 
 ### A Statement as an object
 
@@ -57,6 +60,8 @@ s4  (person/quill, argues, s3)
 `s4` is asserted. `s3` is **quoted, not asserted**: it is visible only as the object of `s4`, never as a fact about `revolution/1789`, and never returned by a read that asks what the store believes about the revolution. This is the same quotation boundary that governs claims arriving from another agent, applied one level inward.
 
 Nesting is bounded to one level. A claim about a claim about a claim is expressible as prose in the gloss and is not worth the machinery.
+
+The bound costs something real, and the corpus shows where. An attitude toward a *position* rather than toward a proposition, rebutting the view that something was a crash rather than rebutting the claim itself, is depth two, and flattening it to depth one discards that the disagreement is with a stance somebody holds. Part of the attitude class this mechanism is justified by has that shape, so the fix covers most of the class rather than all of it.
 
 The alternative, putting an unparsed sentence in the object slot, reinstates prose-as-fact one level down and is the specific thing this model exists to prevent.
 
@@ -110,6 +115,8 @@ Without the frame, `s8` written against `person/quill` is well-typed, passes eve
 The frame is load-bearing in three places. A read defaults to `actual` and must opt into the others, so a question about what a bot runs on never returns what its character believes. A `source` claim never propagates to the entity presenting the persona. And a frame mismatch between subject and relation is a checkable condition, so the critic bank has something to check.
 
 The frame is not a hedge and not a credence. A `persona` claim can be perfectly certain; it is simply certain about a character.
+
+What the frame does **not** fix is a wrong subject. It marks which layer a claim is made in, on a subject already chosen, so a claim about the person *behind* a persona that was filed onto the persona itself is not repaired by any of the three values: the claim is not about the character, and `source` points at the material the character draws on rather than at the principal presenting it. The corpus contains that case, a detail about the operator's household recorded against the persona agent. The frame addresses layer mixing; referent misattribution is a neighbouring failure needing a referent pointer, which is costed in [`evolution.md`](evolution.md) stage 1 rather than assumed here.
 
 It is also not new. Cyc solved this generally with microtheories, asserting in a fiction context that a character is a fourth-grader while asserting in the real-world context that the same character is a cartoon. The frame is a deliberate simplification of that idea: closed where microtheories are open, three-valued where they are a lattice, and checkable by a critic where a general context logic is not. See [`lineage.md`](lineage.md).
 
@@ -221,9 +228,15 @@ s16 (person/rowan, collaborates_with, person/wren)
 
 Provenance is computed with the conclusion rather than attached afterwards, and it records the evidence and the criterion, not merely which model and template ran. The assumption stamp lists the revocable assumptions the derivation treated as holding, which is what makes retraction propagate: withdrawing `merge#7` voids everything stamped with it and re-derives from what remains.
 
+A derived Statement's transmission principle is **the intersection of its premises'**, computed with the conclusion like everything else in the record. This holds wherever a derivation happens, on a turn or in [a pass](off-turn.md), and it is what stops an inference from being the aggregate leak the [distillation boundary](privacy-and-provenance.md) exists to prevent: a conclusion that could only have been reached from a confidence is that confidence, restated.
+
 ## Equality
 
-Two Statements are the same Statement when their claim, frame, and validity interval agree. This is a structural test, not a similarity threshold.
+Two Statements are the same Statement when their claim, frame, validity interval, **and assertedness** agree. This is a structural test, not a similarity threshold.
+
+Assertedness is in the key because leaving it out collapses a quotation into a belief. A proposition quoted as the object of one person's attitude and the same proposition later asserted flatly by someone else share a claim, a frame, and an interval, and they are not the same Statement: one is a fact the store holds and the other is a fact about what somebody said. Collapsing them either makes the store believe what it only quoted, or swallows a real assertion into a node that is never independently retrievable.
+
+Promotion is therefore explicit. When a quoted proposition is later asserted, the assertion is its own Statement with its own tellers, credence, and transmission principle, and the two are related rather than merged. The quoted one remains what it always was: readable only through the attitude that carries it, and ended by the retraction of that attitude rather than by any authority of its own.
 
 The consequence is that a re-mention resolves to the existing Statement rather than appending a near-copy, and that the commonest form of duplication stops needing a similarity threshold to catch. In the observed corpus, sixteen entries were exact textual duplicates of another entry and many more were rewordings of one claim; all of them collapse structurally.
 
@@ -231,7 +244,7 @@ Deduplicating claims does **not** deduplicate occasions. Two Statements that res
 
 ## What a Statement is not
 
-Three kinds of content are deliberately outside this model.
+Five kinds of content are deliberately outside this model.
 
 **Directives.** Instructions about how to behave in a context, and the agent's own charter, are configuration rather than memory. They have no teller, no truth value, no credence, no validity interval, and no audience. They live in their own kind, with their own lifecycle, and are never mistaken for facts. The observed corpus held twenty-two such entries filed as ordinary content, which is a category error this model declines to inherit.
 
@@ -239,4 +252,8 @@ Three kinds of content are deliberately outside this model.
 
 **Figurative content.** Metaphor and analogy are carried by the gloss, as described above. There is no claim to extract, and extraction would destroy the content.
 
-Naming these three is part of the model. A representation that accommodates everything constrains nothing, and the value of the Statement is precisely in what it refuses to hold.
+**Dispositions and generics.** A tendency, a habit, or a recurring dynamic between two people is not a claim that holds over an interval; it is a claim about how things usually go. Someone who tends to talk at length, or a pair whose exchanges reliably spark each other's side projects, has no representation here: the subject may be a dyad rather than a handle, the quantification is habitual rather than temporal, and a rate stated as a bound is neither a count over a kind nor a recurrence. These degrade to a thin claim leaning on the gloss. The corpus contains several, and one of them is the fourth entry of the [flagship four-copy case](events-and-roles.md), so this is a known gap rather than a rare one. A habitual modality alongside the frame is the obvious extension and is deliberately not taken here.
+
+**Third-party deontics.** What someone else has forbidden or permitted the agent, told by them, is a Statement and not [configuration](memory-typology.md): it has a teller, a validity interval, an audience, and a truth value, all of which a directive lacks. What flattens is the deontic force. The object is an activity description, which the store holds only as an opaque literal, and the modality ends up in the relation name. This is a recorded cost rather than a solved problem, and filing such a claim as a directive would put another person's constraint into the agent's own charter, which is the worse error.
+
+Naming these five is part of the model. A representation that accommodates everything constrains nothing, and the value of the Statement is precisely in what it refuses to hold.
