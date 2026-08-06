@@ -78,6 +78,23 @@ The self slot is an append-only sequence of versions, of which one is current. I
 
 The current system keeps the charter as immutable content entries on a `self` memory, which protects the wording and not the slot. Immutability stops an entry being rewritten; it does not stop the entry being retracted, selected into a synthesis by a consolidation pass, summarised into a regenerable description, or dropped from a surface by an audience evaluation. A thing that must appear in every prompt should not be reachable by the machinery whose entire purpose is deciding what to leave out.
 
+### Directives are a kind of their own
+
+The slot holds what the agent is. **Directives** are instructions about how to behave, and they are neither memory nor charter: they are scoped configuration with their own authors and their own lifecycle.
+
+The live instance makes the distinction concrete. A connector mints a directive when it opens a context, saying what that context is like and how to behave in it, and it re-mints it whenever the context is re-established. Such a directive is per-context, not global; it is authored by a connector, not by the operator; and it is not part of who the agent is anywhere else. The self slot cannot absorb it, because the slot is always in context and singular, and the fact model cannot hold it either, because it has no teller, no truth value, and no audience.
+
+A directive therefore carries four things:
+
+| | |
+|---|---|
+| **Scope** | global, per-context, or per-conversation. Scope decides where it applies, and a directive is never in a prompt outside its scope |
+| **Author** | operator or connector. Never the agent |
+| **Lifecycle** | versioned like the slot, so re-establishing a context supersedes rather than appends. The observed failure is a directive re-appended verbatim ten times, which no amount of structural equality would have fixed, because each copy was a real event |
+| **Composition** | narrower scope layers over wider, and a conflict is a teachable error to the author rather than a silent precedence rule |
+
+**A connector-authored directive is bounded.** Nothing else in the design lets a connector write configuration, and the [connector contract](privacy-and-provenance.md) deliberately confines connectors to stubs and naming, so this is a new authority path and gets explicit limits: per-context scope only, never global, never able to touch the self slot, and attributed to the connector wherever it surfaces. A connector that is buggy or compromised can then shape one context's manner and nothing else, which is the blast radius the platform already has anyway.
+
 ### What stays on the memory side
 
 Claims *about* the agent are ordinary Statements with the agent as their subject: what it did, what it noticed about itself, what someone told it about how it comes across. Those carry tellers, accrue credence, can be contradicted, and can be wrong, and the agent writes them as [an ordinary fallible teller](privacy-and-provenance.md). The slot holds only what the agent is by construction, which is not the sort of thing that can be corroborated.

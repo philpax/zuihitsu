@@ -255,7 +255,7 @@ Deduplicating claims does **not** deduplicate occasions. Two Statements that res
 
 Five kinds of content are deliberately outside this model.
 
-**Directives.** Instructions about how to behave in a context, and the agent's own charter, are configuration rather than memory. They have no teller, no truth value, no credence, no validity interval, and no audience. They live in their own kind, with their own lifecycle, and are never mistaken for facts. The observed corpus held twenty-two such entries filed as ordinary content, which is a category error this model declines to inherit.
+**Directives.** Instructions about how to behave in a context, and the agent's own charter, are configuration rather than memory. They have no teller, no truth value, no credence, no validity interval, and no audience. The charter lives in [the self slot](memory-typology.md) and a directive in [its own kind](memory-typology.md), scoped and versioned, and neither is ever mistaken for a fact. The observed corpus held twenty-two such entries filed as ordinary content, which is a category error this model declines to inherit.
 
 **Formal content.** A proof, a formula, or a fragment of code has internal structure the store does not model. It is held as an opaque literal under a typed relation, which is honest: the structure adds nothing, queries nothing, and checks nothing, and pretending otherwise would be decoration.
 
