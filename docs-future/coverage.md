@@ -64,9 +64,9 @@ The stage is where the issue actually closes, from [`evolution.md`](evolution.md
 | **#112** episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it | 4 |
 | **#74** search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate | 4 |
 | **#114** fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
-| **#113** undated events stamped with the assertion day | The episode holds "when I learned this", so [`valid`](time.md) can stay open without the claim falling out of the timeline | 3 |
+| **#113** undated events stamped with the assertion day | The episode holds "when I learned this", so [`valid`](time.md) can stay open without the claim falling out of the timeline | 4, the stage that builds the episode |
 | **#115** date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change | 3 |
-| **#106** volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the "as of" rather than a guess | 3 |
+| **#106** volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the "as of" rather than a guess | 4, since the ladder reads the episode |
 | **#44** long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent, through [the bulk path](memory-typology.md) | 4, costed at 0c |
 | **#42** relation schemas cannot be edited | Deprecate-and-alias | 2 |
 | **#94** autonomous identity unification | Revocable graded merges, relational evidence, tiered reversibility | 5 |
