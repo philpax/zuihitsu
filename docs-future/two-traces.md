@@ -73,7 +73,7 @@ An episodic trace:
 - is never distilled into a description of another memory
 - never accrues attestation or corroboration
 - is marked as a reconstruction wherever it surfaces
-- **is composed from public content only**
+- **is composed under the intersection rule**, and never over anything held in confidence
 
 These are enforced by the critic bank, not by instruction. See [the seam](the-seam.md).
 
@@ -83,8 +83,10 @@ The sixth rule is the one that costs something, so it is worth stating why it is
 
 A narrative body recounts an occasion, and an occasion routinely contains claims with different audiences. Without the rule, a session in which someone said one public thing and one thing in confidence produces a body carrying both, and that body then rides every search result touching the session as an [episode anchor](query-surface.md). That is a second read path with no audience computed on it, which is precisely the "handed content it must remember not to repeat" the query surface promises never happens. Withholding after the fact is how residue leaks.
 
-An episode is a synthesis of an occasion, which makes it a distillation by another name, and [distillation is public-only](privacy-and-provenance.md) for exactly this reason. Applying the existing boundary is cheaper and more consistent than inventing a second one.
+An episode is a synthesis of an occasion, which makes it a distillation by another name, and a distillation is a derivation. So it takes the rule derivations already take: [a derived Statement's transmission principle is the intersection of its premises'](statements.md). An episode drawing on public and attributed content is attributed, surfaces to anyone, and discharges its obligation by naming its tellers, which an account of an occasion does anyway.
 
-The cost is real and lands in the worst place. The occasions that matter most to a personal agent are often the confiding ones, and this rule makes their narratives thin. Worse, the dual-trace evidence puts the gain in **depth** rather than coverage, a few points from recording more occasions against twenty from recording them richly, so the rule bites the exact dimension the second trace was adopted for. We take it anyway, because a thin episode is disappointing and a leaked confidence is unrecoverable, but the design should not pretend the trade is free. It is registered as a cost in [`confidence.md`](confidence.md), not as a solved problem.
+**A confidence is the exception, and the only one.** A narrative body cannot be partially surfaced: unlike an Event, whose edges assemble per audience, prose is one object that is either rendered or not. A body drawing on something told in confidence would therefore either leak it or be silenced whole, and neither is acceptable, so an episode is never composed over an `in_confidence` Statement at all.
 
-Composing several bodies per occasion, one per audience posture, is the alternative that keeps depth. It multiplies record-time model calls and permanent log volume by the number of postures in play, and it raises a residue question of its own, since the existence of a richer body is itself observable to anyone who can see that a thinner one was rendered. That is why it is not the default.
+The distinction matters more than it looks, and measuring the live corpus is what made it visible. Of the recorded content, the overwhelming majority is public, a fifth is attributed, and a single entry is a confidence. A public-only rule would therefore have excluded a fifth of the corpus, concentrated in the two richest sessions, to protect one entry. Attributed content is repeatable content with a naming obligation, not withheld content, and excluding it buys no privacy whatever while costing exactly the depth the second trace was adopted for.
+
+The residual risk is that narrative prose is a weaker attribution surface than a rendered field, so a teller's name can dissolve into a sentence. Two guards, in the design's usual division of labour: a hard critic requires an episode drawing on any non-public Statement to carry its teller list structurally beside the body, and a soft critic checks that the prose itself attributes. The structural list is what the audience model relies on; the prose is a courtesy.

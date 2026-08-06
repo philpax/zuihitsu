@@ -23,7 +23,7 @@ The rules follow from that:
 - Never distilled into another memory's description.
 - Never accrues attestation or corroboration.
 - Marked as a reconstruction wherever it surfaces.
-- Composed from public content only, because a narrative that recounts a confidence is a second read path with no audience computed on it. See [the two traces](two-traces.md) for what this costs.
+- Composed under the intersection rule, and never over a confidence, because a narrative body cannot be partially surfaced. See [the two traces](two-traces.md).
 
 Retrieval is the part that differs most from the current design. An episode is a **linked companion** to the Statements recorded during it, not a fallback consulted when semantic search misses. Each knows the other structurally, so surfacing one surfaces the other without a second search. The experimental evidence is specific on this point: the gain lives where both traces are present and their anchors can be cross-referenced, and it is exactly zero where a single lookup suffices. A fallback tier would be consulted precisely when the pair is least useful.
 
