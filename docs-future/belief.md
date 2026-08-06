@@ -28,6 +28,10 @@ Two tellers repeating each other are not two pieces of evidence.
 
 This is the same soundness problem that makes attribute overlap useless for [identity](identity.md), and it has the same answer: dependence is a **provenance determination**, not a judgement. If two attestations trace to a common source, or one teller was present when the other learned it, they are dependent, and dependent evidence adds nothing.
 
+Both conditions are read from the record rather than inferred. The derivation graph carries the first; the [witness set](statements.md) on the gloss carries the second.
+
+In a shared channel this is the ordinary case rather than a corner one. Everyone present hears everything, so three people repeating what a fourth said in the room is one piece of evidence, and a credence that counted three would be badly wrong in the direction that matters. Sociality is what makes corroboration meaningful and, in the same stroke, what makes dependence detection load-bearing.
+
 The rule is deliberately conservative. Detecting dependence is the load-bearing part; the arithmetic applied afterwards is a no-op in the dependent case, which is trivially sound. Nothing here relies on a contested fusion operator, and [`confidence.md`](confidence.md) records why that restraint is deliberate.
 
 Trust discounting is the other operator that does real work: an attestation from a partially reliable teller contributes proportionally less, with the shortfall becoming uncertainty rather than disbelief. Being told something by someone unreliable is not evidence against it.

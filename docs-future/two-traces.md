@@ -24,12 +24,15 @@ This follows from how people talk. One sentence routinely carries many claims: [
 
 ```
 g1  utterance, turn:01J7…
+    witnesses  [person/rowan, person/quill]
 s8, s9, s10, …  →  g1
 ```
 
-Two consequences matter.
+Three consequences matter.
 
 **Visibility stays per-Statement.** One utterance can yield claims with different audiences, and the corpus contains the case: a biography recorded as one public entry including a private detail, later split so the detail could be held back. Structure fragments, and the transmission principle rides the fragments.
+
+**The occasion's witnesses ride the gloss.** Who else was present when something was said is a property of the occasion, not of each claim drawn from it, and both the audience evaluator and the dependence test in [belief](belief.md) read it from there. See [Statements](statements.md).
 
 **Some content is only a gloss.** Metaphor, analogy, and reframing have no claim to extract, and decomposing them destroys what was said. A Statement over such an utterance carries a thin claim and leans on the narrative for everything. This is a designed outcome, and the corpus study found it independently: a real fraction of what a personal agent records is content whose only faithful representation is the prose.
 

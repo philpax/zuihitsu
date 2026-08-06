@@ -8,7 +8,7 @@ Each Statement carries the condition under which it may travel. The conditions a
 
 | | |
 |---|---|
-| `in_confidence` | only back to the teller |
+| `in_confidence` | only back to those who were present when it was said |
 | `attributed` | may be repeated, always with its teller named |
 | `public` | may be repeated freely, and may be distilled |
 | `reciprocal` | may be shared with someone who has shared comparably |
@@ -20,9 +20,29 @@ Making these data rather than a fixed enum buys three things a four-value enum c
 
 The evaluator stays cheap, deterministic, and fail-closed. A principle is a predicate resolved against the present set, never a query over a knowledge base, and an unresolvable condition denies. Audiences are predicates over who is present rather than enumerated sets, because enumerating audiences over a growing population is combinatorial and the enumeration is never right for long.
 
+## A principle is evaluated over a set
+
+The audience is rarely one person. A principle is universally quantified over who is present and fails closed on any member, so the strictest member governs: a Statement does not surface to a group containing anyone it could not surface to alone.
+
+Three consequences are worth stating outright, because each surprises.
+
+**`except(S)` silences a Statement entirely** in any room containing a member of `S`, rather than rendering some reduced version of it. There is no partial surface, because a partial surface is residue.
+
+**`reciprocal` resolves per member**, and therefore almost never clears in a group. Sharing comparably is a relation between two people and does not generalise to everyone who happens to be present.
+
+**`in_confidence` is relative to the witness set**, not to the teller alone. What was said in front of four people may be repeated to those four, and withholding it from one of them is not discretion but a conspicuous silence in front of someone who knows better. The dyadic case, where the teller is the only witness, is what the name was coined for and remains the common one; it is now the degenerate case of a general rule rather than the rule itself.
+
+The witness set rides the [gloss](statements.md), because it is a property of the occasion rather than of each claim drawn from it. It is also the most dangerous field in the model, because it is the only one that **widens** an audience.
+
+Channel membership is not presence. A silent member of a busy room did not necessarily see what was said, and treating the roster as the witness set would license repeating a confidence to someone who never heard it: the same leak the present-set definition already has to prevent, arriving through the opposite door. The witness set is therefore built from demonstrated participation in the span, never from the roster, and where a connector cannot vouch for that, it falls back to the teller alone. Widening requires evidence; narrowing does not.
+
+The asymmetry is worth keeping in view. As a licence to disclose, the witness set is only as good as the platform's account of who was there. As evidence of **dependence** in [belief](belief.md), it costs nothing to be generous with, because over-counting witnesses only suppresses corroboration, and suppressed corroboration is a claim held less firmly rather than a confidence spoken to the wrong person.
+
 ## Zero residue
 
 An uncleared confidence must leave no trace. Not a softened version, not a hint, not a conspicuous gap: an observer must not be able to distinguish a surface where the fact was withheld from one where it was never known.
+
+The property is relative to what the observer could otherwise know. A fact someone witnessed is not withheld from them, and it is the witness set that makes the distinction computable rather than a matter of the agent's tact.
 
 This is a non-interference property, and it is held as an invariant rather than a convention. The mechanism that makes it enforceable is that **only `public` Statements may be distilled**. Distillation is a derived flow, and derived flows are where a withheld fact leaks in aggregate: a description synthesised from everything the store knows will encode what it knows even when it never states it.
 

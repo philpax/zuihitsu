@@ -44,8 +44,10 @@ Scenarios mirror the four capabilities the evidence distinguishes, with single-o
 
 [Issue #123](https://github.com/philpax/zuihitsu/issues/123) reports that the present set conflates being in a channel with being in a conversation, so a confidence can reach a silent member. This design makes audience conditions predicates over who is present, which means a wrong present set produces wrong answers more expressively than the current enum does.
 
-*Unblocks:* stage 7, and reduces a class of live leak in the meantime.
-*Gating:* a scenario where a silent channel member does not receive a confidence.
+The same definition decides the **witness set** on a gloss, and the two pull in opposite directions. A present set that is too wide leaks a confidence to a silent member; a witness set that is too wide licenses repeating something to someone who never saw it, which is the same leak arriving through the other door. Both read the same underlying judgement about who was in the conversation, so a stage that gets it wrong is wrong twice, and the witness set is the more dangerous of the two because it widens rather than restricts.
+
+*Unblocks:* stage 7, the witness set everything in [`privacy-and-provenance.md`](privacy-and-provenance.md) and [`belief.md`](belief.md) leans on, and reduces a class of live leak in the meantime.
+*Gating:* a scenario where a silent channel member does not receive a confidence, and its mirror, where a confidence is not repeated back to a member who was present but silent.
 *Risk:* the correct definition may be platform-specific, in which case it belongs to the connector contract rather than the core.
 
 ### 0c. Extraction economics against the existing corpus

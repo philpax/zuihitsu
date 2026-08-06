@@ -38,6 +38,7 @@ The five corrections are folded into the chapters. They were: the identification
 | Instance-level counting is distinct from class-level cardinality | Verified | OWL 2 allows asserting a cardinality class of an individual, but has no unique-name assumption and no temporal scoping, so the idea carries over and the mechanism does not |
 | The frame is a simplification of Cyc's microtheories | Verified | Context-relative truth, with fictional content in its own context, is the established solution. The frame is closed, three-valued, and non-nestable where microtheories are none of those |
 | Collective against distributive plurals is declined, not unknown | Verified | Conceptual graphs mark the distinction natively. This is a cost decision, and the design should not imply otherwise |
+| **The witness set on an utterance** | **Synthesis** | Follows from multi-party channels being the ordinary case for a social agent. Nothing surveyed carries it, and the two mechanisms that need it, audience evaluation and dependence detection, each stated the requirement before the datum existed to satisfy it |
 
 ### Events and roles
 
@@ -47,6 +48,7 @@ The five corrections are folded into the chapters. They were: the identification
 | Role inventories past the first two positions are inconsistent even among experts | Verified | Documented for the standard numbered inventories |
 | The small closed role set is sufficient | Observed | Every multi-participant happening in the corpus was expressible with agent, theme, source, and time |
 | Event-to-event relations are needed | Observed | Causation and consequence had no home and fell back to prose |
+| Multiple fillers per role, with counts reserved for unindividuated participants | Synthesis | Follows from each role-edge being its own Statement with its own audience. The corpus study tested the sufficiency of the role *inventory*, never filler multiplicity, so the set-wise resolution test is unmeasured |
 
 ### Relations
 
@@ -80,6 +82,7 @@ The five corrections are folded into the chapters. They were: the identification
 | **Fusion operators** | **Open, deliberately unused** | Named critics attack both the operators and the mapping to evidence counts. The chapter relies only on dependence *detection* plus a no-gain rule, which is trivially sound |
 | Non-prioritised revision is the right default | Verified | Credibility-limited belief revision |
 | The exact credence shape | **Open** | The lanes disagreed. Three tested shapes exist; a lighter one is a documented fallback |
+| Dependence detection is the common case in a shared channel | Synthesis | Sociality makes corroboration real and dependence ordinary in the same stroke. This moves the load onto the detection rule, which is now the load-bearing part of the credence design rather than a soundness caveat on it |
 
 ### Time
 
@@ -115,6 +118,7 @@ The five corrections are folded into the chapters. They were: the identification
 | A redaction can be proven to have occurred without revealing content | **Synthesis** | Our combination of shredding with append-only tombstones |
 | The retraction-authority lattice | Synthesis | The prior art leaves the subject-differs-from-author case explicitly open; the lattice is our answer |
 | Combinatorial audience contexts are a genuine gap | Verified as a gap | No surveyed work handles a dynamic context population well. Predicates over the present set are the only tractable form found |
+| Principles are universally quantified over the present set and fail closed on any member | Synthesis | The set-shaped evaluator was implied by audiences-as-predicates from the start; the per-principle consequences, and `in_confidence` becoming relative to the witness set, are our own working out |
 
 ### The seam
 
@@ -154,6 +158,7 @@ The questions that need evidence rather than more design:
 9. **Severance re-derivation cost**, claimed cheap and unmeasured.
 10. **TypeDB's cardinality annotations**, whose documentation was unreachable during the counting survey and which remain unverified.
 11. **Whether the frame's three values are the right three.** Proposed from one corpus. A second instance with a different social world might need a fourth or find one redundant.
+12. **Whether the witness set is knowable.** A channel's membership is readable; who actually saw a message is not. The chapter resolves this by asymmetry, building the set from demonstrated participation and falling back to the teller alone, so it may narrow freely and widens only on evidence. What counts as demonstrated participation is the same judgement [`evolution.md`](evolution.md) stage 0b owes for the present set, and it may be platform-specific, in which case it belongs to the connector contract.
 
 ## Things deliberately not claimed
 
