@@ -33,6 +33,9 @@ The marks already exist, or are cheap consequences of things that do:
 | **gloss-only** | an utterance committed without structure after a structuring failure, retried once |
 | **contested** | a contradiction pair coexisting, awaiting evidence or a person |
 | **candidate** | a merge or a resolution below its threshold, awaiting corroboration |
+| **pending structure** | a span of an [ingested document](memory-typology.md) committed to the source layer, kept off every read surface until its job completes |
+| **unreflected** | a working note awaiting the promote-or-discard pass |
+| **unsummarised** | a closed session that met the bar for an episode and has not been composed |
 
 A tick that finds empty queues costs a queue read. A tick that finds work does exactly that work, and the cost is proportional to what changed rather than to what is stored.
 

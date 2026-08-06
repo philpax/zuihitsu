@@ -49,7 +49,7 @@ This path involves **no model call**. It is a direct structural write, checked b
 
 Three fields cannot be extracted, because they are judgements about the conversation rather than facts about the sentence.
 
-**The frame.** Whether a claim is about an entity, the character it presents, or the material that character draws from. A sentence about a persona agent's opinions is indistinguishable, on its own, from a sentence about the agent's configuration. Only the participant in the conversation knows which was meant.
+**The frame.** Whether a claim is about an entity, the character it presents, the material that character draws from, or [the person behind the character](statements.md). A sentence about a persona agent's opinions is indistinguishable, on its own, from a sentence about the agent's configuration, and a detail about the human running the persona looks like both. Only the participant in the conversation knows which was meant, which is why the redirect is declared here and never inferred by an extractor.
 
 **The audience.** Who may learn this. The utterance rarely says, and one utterance rarely has one answer.
 
@@ -109,4 +109,5 @@ A persistent rejection that the agent cannot resolve is one of the four conditio
 - **No credence.** The agent cannot set how strongly a claim is believed. Credence is derived from evidence, and letting the writer assert it would reintroduce verbalised confidence through the back door.
 - **No handle selection.** The agent writes to the handle it was given. Identity resolution happened before the turn started.
 - **No critic bypass.** There is no force flag. An operator has a separate path; the agent does not.
+- **No bulk ingestion.** A long document goes through [`ingest`](memory-typology.md), which is a job rather than a call: it batches extraction, carries one transmission principle for the whole source instead of a decision per Statement, and reports through a handle rather than a parse. Everything above describes the conversational path.
 - **No charter writes.** The [self slot](memory-typology.md) is not reachable from the memory verbs. The agent can observe something about itself, which is an ordinary Statement, and it can propose a new version, which reaches a person.

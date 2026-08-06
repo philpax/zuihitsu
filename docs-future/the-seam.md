@@ -22,6 +22,7 @@ Sound, symbolic, and gating. A write that violates one is rejected with a teacha
 - **Temporal well-formedness**: intervals that begin before they end, occurrences that do not silently become triggers.
 - **Audience invariants**: no endorsement wider than the transmission principle it was founded under, checked at write time rather than hoped for as an emergent property.
 - **Merge authority**: who may assert an identity claim.
+- **Referent redirect**: a claim written in the `principal` frame resolves onto the subject's principal through a registered `presents` edge, or is rejected with the question that would fix it. Never inferred, because a misfire files a claim about a bot onto a human.
 - **Duplicate resolution**: a re-mention resolves to the existing Statement rather than appending a near-copy, and an ambiguous match is a teachable error rather than a silent merge.
 - **The episodic wall**: an episodic trace can never be a premise, never be distilled, never accrue attestation, and never carry a teller other than the agent.
 

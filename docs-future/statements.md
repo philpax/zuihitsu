@@ -186,21 +186,24 @@ The observed-against-recorded pair is a genuine axis, not bookkeeping. It is wha
 
 ### Who else heard it
 
-Provenance names the teller. Who else was present when the utterance was made is the **witness set**, and it belongs to the [gloss](two-traces.md) rather than to each Statement, because it is a property of the occasion. One sentence spoken in a room of four yields eight Statements and one witness set.
+Provenance names the teller. Who else was there belongs to the [gloss](two-traces.md) rather than to each Statement, because it is a property of the occasion: one sentence spoken in a room of four yields eight Statements and one account of who heard it.
+
+That account is **two sets**, because one field cannot serve both readers. The **disclosure set** is who demonstrably took part, and it is the only one the audience evaluator reads. The **exposure set** is who the utterance reached, and it is read only by the dependence test. See [privacy and provenance](privacy-and-provenance.md) for why the narrow one licenses and the wide one only suppresses.
 
 ```
 g1  utterance, turn:01J7…
     told_by    person/wren
-    witnesses  [person/rowan, person/quill]
+    disclosure [person/rowan]
+    exposure   [person/rowan, person/quill]
 ```
 
-Two mechanisms read it, and neither is computable without it.
+Two mechanisms read these, and neither is computable without them.
 
-A [transmission principle](privacy-and-provenance.md) is evaluated against the present audience *less* the witnesses. Something said in front of four people is not a confidence held from any of the four, and withholding it from someone who was standing there is not discretion; it is a conspicuous silence in front of a person who knows better.
+A [transmission principle](privacy-and-provenance.md) is evaluated against the present audience *less* the disclosure set. Something said in front of four people is not a confidence held from any of the four, and withholding it from someone who was standing there is not discretion; it is a conspicuous silence in front of a person who knows better.
 
-[Dependence between attestations](belief.md) is partly determined by it. Two tellers who were both present when a third said something are not two pieces of evidence, and in a shared channel that is the ordinary case rather than the exception.
+[Dependence between attestations](belief.md) is partly determined by the exposure set. Two tellers who were both present when a third said something are not two pieces of evidence, and in a shared channel that is the ordinary case rather than the exception.
 
-The set widens an audience, which no other field does, so it is built from demonstrated participation rather than from channel membership. See [privacy and provenance](privacy-and-provenance.md).
+The disclosure set widens an audience, which no other field in the model does, so it is built from demonstrated participation rather than from channel membership. See [privacy and provenance](privacy-and-provenance.md).
 
 Two rules about the agent's own place in this follow, and both exist to stop the agent inflating its own evidence.
 
@@ -236,7 +239,7 @@ s15 (person/quill, persona_of, person/ferrer)
     credence  confirmed · two independent tellers
 ```
 
-A claim recorded as a hedge does not need the hedge in its text. "Likely drawn from Ferrer" and a later flat assertion of the same relation are one Statement whose credence moved, not two entries whose relationship is invisible.
+A claim recorded as a hedge does not need the hedge in its text. "Likely drawn from Ferrer" and a later flat assertion of the same relation are one Statement told twice, not two entries whose relationship is invisible. How firmly each telling was put rides the `expressed` qualifier above; the credence moves only if a second independent teller arrives, because one person growing surer is not corroboration. See [belief](belief.md).
 
 Two tellers who are repeating each other are not two pieces of evidence. Dependence between attestations is a provenance determination, and dependent evidence produces no confidence gain. See [belief](belief.md).
 
