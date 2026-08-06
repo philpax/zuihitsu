@@ -16,7 +16,7 @@ Around that keystone:
 - [**Identity**](identity.md) is a revocable, graded assumption held below a substrate wall, so the agent sees one resolved handle per person and never reasons about the machinery.
 - [**Belief**](belief.md) is credence derived from counting evidence, never from a model stating a number.
 - [**Time**](time.md) separates what happened, what the agent must do, and what fires, so a dated description can never wake anything up.
-- [**Memory**](memory-typology.md) is four kinds with four lifecycles, not one container with one decay rule.
+- [**Memory**](memory-typology.md) is four kinds with four lifecycles, not one container with one decay rule, and the agent's own charter is a slot outside all four rather than an entry inside one.
 - [**Privacy**](privacy-and-provenance.md) is a transmission condition carried as data on each Statement, evaluated deterministically and fail-closed.
 - The [**write seam**](the-seam.md) is typed: the model proposes structure and a bank of critics disposes, so a write can be rejected rather than merely recorded.
 - The [**query surface**](query-surface.md) stays handle-shaped and small, however rich the substrate gets, and the [**write surface**](write-surface.md) is two verbs that hand the parse back for correction.

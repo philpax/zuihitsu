@@ -23,7 +23,7 @@ The design. [`overview.md`](overview.md) is the way in; the rest can be read in 
 | [`identity.md`](identity.md) | revocable graded merges, held below a substrate wall |
 | [`belief.md`](belief.md) | credence from counting evidence, never from the model's mouth |
 | [`time.md`](time.md) | occurrence, task, and trigger kept apart, so a description cannot fire |
-| [`memory-typology.md`](memory-typology.md) | four kinds with four lifecycles, and directives outside all of them |
+| [`memory-typology.md`](memory-typology.md) | four kinds with four lifecycles, and the self in a slot outside all of them |
 | [`privacy-and-provenance.md`](privacy-and-provenance.md) | transmission conditions as data, zero residue, retraction against erasure |
 | [`the-seam.md`](the-seam.md) | the model proposes, the critics dispose, and drift is watched from outside |
 | [`query-surface.md`](query-surface.md) | structural questions, structural answers, and a deliberately small API |
