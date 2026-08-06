@@ -42,4 +42,6 @@ The supporting material:
 
 The design targets a new instance at genesis. The existing instance is not migrated, so no upcasting path from the current event log is owed, and several choices here take advantage of that freedom. `evolution.md` is a codebase path, not a data path.
 
+This tree is temporary. Each change drains into [`../docs/`](../docs/) in the commit that implements it, the meta-documents are deleted once the chapters are empty, and `research/` returns to `docs/` with its dates. [`evolution.md`](evolution.md) states the rule.
+
 The failure survey that grounds the whole exercise is [`../docs/ontology-failures/2026-07-23.md`](../docs/ontology-failures/2026-07-23.md), which stays in `docs/` because it records real failures of the real system.
