@@ -92,6 +92,8 @@ Measures with units, such as a word count or an elapsed duration, are the neighb
 
 A count over participants is for the **unindividuated** case only. Where the participants are known people they are role-edges on an [Event](events-and-roles.md), one per participant, each an independently addressable Statement with its own teller and its own audience. Collapsing known participants into a count discards exactly the property the Event node exists to provide. "About thirty people showed up" is a count; "Wren, Rowan, and Quill lifted the piano" is three `agent` edges. A count whose members later become salient individuates by the ordinary refinement above.
 
+The same rule decides how a list is recorded. Nine named authors are individuated by the speaker in the act of listing them, so they are nine Statements rather than one opaque list, and the list form is reserved for the case where nobody has individuated anything, where it is the same object as a count over a kind. A list that begins vague and later becomes specific refines exactly as a count does.
+
 Collective and distributive readings are not distinguished in either shape. Whether they lifted it together or separately lives in the gloss.
 
 This is a **declined** distinction, not an unknown one. Conceptual graphs mark it in the notation, separating a collective plural from a distributive one, and the lattice-theoretic treatment of plurals behind that notation is mature. We are choosing not to pay for it, and [`research/2026-08-03/counting-and-quantity.md`](research/2026-08-03/counting-and-quantity.md) records where to go if plurals ever become load-bearing.
@@ -196,6 +198,8 @@ s14 (person/quill, runs_on, model/opus-4.8)   valid [2026-07-16, …)
 ```
 
 Supersession closes a window; it never deletes. Learning that someone has changed employer closes the old interval and opens a new one, and both remain readable. This is what makes "where did they work in 2020" answerable at all, and it is why a time-bounded fact stops having to be prose.
+
+A closure records **why** it happened, as a small closed set: superseded by a later claim, corrected by one, expired against a stated horizon, retired as no longer worth carrying, or withdrawn by its teller. Without it, a claim that was corrected and a claim that simply stopped holding read identically afterwards, which is the same conflation the retraction distinction below exists to prevent, one level down. The values are the decisions [the staleness ladder](time.md) already enumerates, and an explicit unknown is available so declining is recorded rather than guessed.
 
 Two supersession axes stay distinct. Closing a validity window says the claim stopped being true. Retracting says it was never true. Conflating them loses the difference between a person changing jobs and the store having been wrong about their job.
 

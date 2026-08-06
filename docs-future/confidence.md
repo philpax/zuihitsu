@@ -43,6 +43,8 @@ The five corrections are folded into the chapters. They were: the identification
 | The one-level nesting bound covers most of the attitude class | **Observed, partial** | A fraction of the observed attitudes are depth two, an attitude toward a position rather than toward a proposition, and flattening loses that the disagreement is with a stance somebody holds |
 | Dispositions and generics are declined | **Synthesis, newly admitted** | Named as unrepresentable in three chapters before it was ever registered. A habitual modality is the obvious extension and is not taken |
 | Third-party deontics flatten | Observed | Present in the live log. They are Statements rather than configuration, and the deontic force ends up in the relation name |
+| A closure records why it happened | Synthesis | Supersession recorded that a window ended and never what ended it, so a corrected claim and one that stopped holding read identically. The closed set reuses the decisions the staleness ladder already enumerates, with an explicit unknown so declining is recorded |
+| Enumerations are many Statements, not an opaque list | Synthesis | Settled by implication from the counting rule already in the chapter: a list of named entities is individuated in the act of listing, and the opaque form is reserved for the unindividuated case, where it is the same object as a count over a kind |
 | A derived Statement's principle is the intersection of its premises' | Synthesis | Previously stated only for off-turn passes, leaving on-turn derivation, which is the commoner case, with no audience rule |
 | **The witness set on an utterance** | **Synthesis** | Follows from multi-party channels being the ordinary case for a social agent. Nothing surveyed carries it, and the two mechanisms that need it, audience evaluation and dependence detection, each stated the requirement before the datum existed to satisfy it |
 
@@ -64,6 +66,7 @@ The five corrections are folded into the chapters. They were: the identification
 | Declared domain and range catch reversed edges | Observed | The live link graph contains reversed and cross-typed edges that a declared range rejects |
 | A free-text side channel keeps a closed vocabulary honest | Single-source | One production system, which found 78% of its edges were one-off free-text before normalising |
 | Architecture claims about role-typed hypergraph stores | Corroborated | Vendor-authored in part; only the architecture is relied on, never the performance claims |
+| Cardinality belongs on the relation definition | Verified | Confirmed against TypeDB's constraint documentation, previously unreachable. Its annotations are schema-level only, with no uncertainty bounds and no temporal scoping, which corroborates the class-level half and supplies nothing for instance-level counting |
 
 ### Identity
 
@@ -74,9 +77,9 @@ The five corrections are folded into the chapters. They were: the identification
 | Attribute overlap is unsound because knowledge can be recited | Verified | A record-linkage independence violation |
 | Relational structure is expensive to forge | Verified | Collective entity resolution; the patient-attacker caveat stands and is stated in the chapter |
 | The substrate wall fixes the behaviour leak | Synthesis | The architectural-metadata principle is established; that it fixes our specific 0.30 relay failure is our inference |
-| Severance re-derivation is cheap in practice | **Open** | Bounded by derivations touched rather than log size, but the cost claim is unmeasured |
+| Severance re-derivation is cheap in practice | Bounded by construction | Only revocable assumptions are stamped, in practice zero or one merge, so the voided set is what the record already names and there is no search. Measured small on the live log, whose entire derived-link population is in the low hundreds. Shares a tripwire with the stamp representation below: revisit if mean stamps per derivation ever exceeds one |
 | Crumble and accretion thresholds | **Open** | Empirical tuning, needing data. Genuine same-person profiles also diverge |
-| Assumption-stamp representation | **Open** | Per-event set against a shared environment table: a storage-versus-fold-time trade, unresolved |
+| Assumption-stamp representation | Synthesis | Per-event set. A shared environment table is an indirection that pays off when stamps are large and shared, and at a cardinality of zero or one it buys fold-time joins with nothing. Same tripwire as above |
 
 ### Belief
 
@@ -87,7 +90,7 @@ The five corrections are folded into the chapters. They were: the identification
 | Trust discounting is sound | Verified | |
 | **Fusion operators** | **Open, deliberately unused** | Named critics attack both the operators and the mapping to evidence counts. The chapter relies only on dependence *detection* plus a no-gain rule, which is trivially sound |
 | Non-prioritised revision is the right default | Verified | Credibility-limited belief revision |
-| The exact credence shape | **Open** | The lanes disagreed. Three tested shapes exist; a lighter one is a documented fallback |
+| The exact credence shape | Deferred, not blocking | The lanes disagreed, and the corpus says it is not on the critical path: no claim in the live log is asserted by two distinct human tellers, so teller counts are zero or one and there is nothing to fuse. Ship the representation and trust discounting; the forcing condition is the first claim to accumulate two independent tellers, which the harness can alarm on |
 | The agent is a witness to what it is told and never an independent teller of it | Observed, newly stated | 77 of 198 live entries are agent-told, many restating a participant's own sentence, so without the rule a single sentence read back into the store counts as corroboration from one source |
 | Dependence also runs through the agent's own relays | Synthesis | The agent's outbound utterances are glosses whose witnesses are their recipients, which is what makes a claim relayed and later told back detectable as an echo rather than a second source. Untested, and the commonest dependence path in a store the agent reads back to people |
 | `expressed` is a provenance qualifier, and a hedge never moves credence | Synthesis | Resolves the showcase arc, where one teller hedges and later asserts flatly with no corroboration anywhere: the credence must not move, and what changed belongs on the telling. Cheaper than a nested attitude for something as constant as hedging, and it keeps "two tellers who both said probably" from reading as confirmation. [`evolution.md`](evolution.md) stage 6's gate is rewritten to match |
@@ -112,16 +115,17 @@ The five corrections are folded into the chapters. They were: the identification
 | **Episodic as linked companion rather than fallback tier** | **Single-source** | Rests entirely on the dual-trace study below |
 | Procedural memory indexed by description embedding, decayed by invocation | Verified | An established agent design |
 | Access-frequency and recency ranking is embedder-independent | Verified | The narrow claim is safe |
-| **That the same ranking is replay-deterministic** | **Open** | Four chapters lean on it. For access counts to be foldable, every read must append an event, against a log already dominated by recorded model calls and re-folded whole by the console. The alternatives are a coarse bucketed access event or dropping the replay claim and treating ranking as a transient read-time input. Previously carried along by the embedder-independence grade, which is a different claim |
+| That the same ranking is replay-deterministic | Observed | Decided: an agent-visible read appends an event. The objection was arithmetic and the arithmetic does not hold. Read events are a memory-id list against a payload dominated by model calls two orders of magnitude larger, so bytes rise by a fraction of a percent and the event count by roughly a tenth, and the ratio is scale-invariant. The unit is the agent-visible read, never the substrate lanes, so a fused search stays one event |
 | Bulk ingestion needs a path of its own | **Open** | The "no new machinery" claim is withdrawn: per-utterance extraction over a long document is hundreds of calls, tens of megabytes, and tens of minutes. The constraints on a bulk path are stated in the chapter; the mechanism is undesigned and its cost model is owed beside stage 0c |
 | That human recall activation transfers to agent salience | **Synthesis** | By analogy, not proof. Only the narrow claim above is relied on |
 | Directives are a category error inside the fact model | Observed | 22 of 198 entries, one repeated verbatim ten times |
 | An episodic narrative is composed under the intersection rule, never over a confidence | Observed | Closes a second read path with no audience computed on it, using the rule derivations already take rather than a boundary of its own. The measurement corrected an earlier public-only rule: attributed content is a fifth of the live corpus and is repeatable-with-attribution rather than withheld, so excluding it cost a fifth of the depth to protect a single entry. The residual risk, prose being a weaker attribution surface than a field, is met by a structural teller list beside the body |
-| Promotion out of working memory intersects a per-note taint set | Synthesis | Closes the one path where an endorsement could exceed what it was founded under, since a note is founded under nothing. Per note rather than per session, because a taint set that accumulates converges on everything read and makes promotion impossible. Unmeasured against real deliberation lengths |
+| Promotion out of working memory intersects a per-note taint set | Observed | Closes the one path where an endorsement could exceed what it was founded under, since a note is founded under nothing. Measured on the live log: memories touched per block run to a median of 1 and a maximum of 11, and even the per-turn accumulation the chapter rejects stays small, so the monotone-convergence worry does not bite at observed deliberation depths |
+| "Consulted" is defined operationally, not semantically | Observed | The measurement's real finding. The brief enters context as kilobytes of memory content with no read event, so a semantic definition taints every note with everything on the first note. Explicit reads plus the turn's ambient recall, both already recorded and foldable, with the brief excluded because it is audience-computed before composition |
 | The directive kind: scope, author, lifecycle, composition | Observed, newly defined | The live log's connector-minted per-context directives are the shape that forced it: neither always-in-context nor operator-owned, so neither the slot nor the fact model can hold them. The connector authority is new and explicitly bounded to per-context scope |
 | The self belongs in a slot rather than in a memory | Synthesis | Follows from the charter needing to be unreachable by the machinery that decides what to omit. The current system's immutable charter entries protect the wording and not the slot, which is an argument from mechanism rather than a measured failure |
 | An agent that cannot edit its own charter avoids unbounded drift | Synthesis | The self-reinforcing-loop argument is the same one used for credence and merges. The cost, that growth in self-conception needs operator attention, is stated and unquantified |
-| Scratchpad storage | Synthesis, forced | Settled toward log-with-compaction by the taint set, which is state the fold must reproduce, so a side table is not available. This is the lane's own weakest recommendation adopted for a reason the lane did not have |
+| Scratchpad storage | Observed, forced | Settled toward log-with-compaction by the taint set, which is state the fold must reproduce, so a side table is not available. The volume worry that motivated the side table does not survive the ratio: a note is preceded by the recorded model call that wrote it, which is two orders of magnitude larger, and both terms scale with turns |
 
 ### Privacy and provenance
 
@@ -135,8 +139,8 @@ The five corrections are folded into the chapters. They were: the identification
 | The retraction-authority lattice | Synthesis | The prior art leaves the subject-differs-from-author case explicitly open; the lattice is our answer |
 | Combinatorial audience contexts are a genuine gap | Verified as a gap | No surveyed work handles a dynamic context population well. Predicates over the present set are the only tractable form found |
 | Marking a derivation as owing recomputation when its premises gain support | Corroborated | Current memory systems mark a synthesis stale when unprocessed evidence bears on it. Ours rides machinery the derivation record already carries; the cost of maintaining the work list is unmeasured |
-| **One witness set cannot serve disclosure and dependence at once** | **Open** | The chapter argues an asymmetry, narrow for licensing and generous for dependence, but it is a single field and the narrow construction wins. Someone who read a claim without participating is invisible to it, so repeating it later reads as independent corroboration. Two sets, a disclosure set and an exposure set, is the candidate fix |
-| **Credence rendering is audience-relative or it leaks** | **Open** | "Three people told me this" reveals a third endorser to a room that may not learn of them; "two people" makes the store's belief vary by room. The second is probably right and no chapter takes it, nor works out what it means for a derivation computed in one room against a credence that differs in another |
+| Two witness sets, disclosure and exposure | Synthesis | Taken. The narrow set licenses and the wide set only ever suppresses, which is the general principle: a field that only suppresses may be generous, a field that licenses must be demonstrated. Both rest on stage 0b's judgement about who was in the conversation, so they are defined together |
+| The belief is absolute and the evidence account is filtered | Synthesis | Taken, and it is the only option consistent with computing visibility once in the substrate: a room-dependent credence makes a derivation rest on different evidence per conversation. Where the only distinguishing fact is an unnameable endorser, the ordinal surfaces with no account, which is the zero-residue standard rather than a special case |
 | Principles are universally quantified over the present set and fail closed on any member | Synthesis | The set-shaped evaluator was implied by audiences-as-predicates from the start; the per-principle consequences, and `in_confidence` becoming relative to the witness set, are our own working out |
 
 ### The seam
@@ -181,25 +185,29 @@ The five corrections are folded into the chapters. They were: the identification
 
 ## Unresolved, gathered
 
-The questions that need evidence rather than more design:
+Five of these block something. The rest are deferred with a named forcing condition, and saying which is which is the point of the list.
 
-1. **Encoding against retrieval** for the second trace. Decides the cost of the whole episodic layer.
-2. **The constraint tax** on the target model, per behaviour.
-3. **The credence shape**, with fusion operators deliberately unused until validated.
-4. **Crumble and accretion thresholds** for tentative merges.
-5. **Assumption-stamp representation**: per-event set against shared environment table.
-6. ~~**Scratchpad storage**~~: settled by the taint requirement toward log-with-compaction. Log volume under real note churn is unmeasured.
-7. **Eager against lazy structuring**, against the constraint tax. This is also the question of whether a model call belongs on the write path at all. Structuring inside the transaction buys the same-turn correction loop and pays for it with latency and a thrashing risk on the rejection-retry cycle. The mitigations are stated in [`write-surface.md`](write-surface.md); whether they suffice is unmeasured, and the fallback is to move structuring to end-of-turn or to a pass.
-8. **Enumeration representation**: many Statements against one opaque list. The corpus found both defensible and the design states no preference.
-9. **Severance re-derivation cost**, claimed cheap and unmeasured.
-10. **TypeDB's cardinality annotations**, whose documentation was unreachable during the counting survey and which remain unverified.
-11. **Whether the frame's three values are the right three.** Proposed from one corpus. A second instance with a different social world might need a fourth or find one redundant.
-12. ~~**The five findings an adversarial review left open**~~: all five are now decided and registered in their chapters' tables above. What remains unmeasured is stated with each: the depth cost of public-only episodes, taint-set size under real deliberation, relay detection in practice, and log volume for a compacted scratchpad.
-13. **Whether ranking is replay-deterministic**, which is really a question about whether reads append events. See the typology table.
-14. **The bulk-ingestion path**, whose constraints are stated and whose mechanism and cost model are owed.
-15. **Why a validity window closed.** Supersession records that a window ended, never what ended it, so a claim corrected by a later correction reads the same as one that simply stopped holding.
-16. **What deserves initiation.** The salience judgement behind agent-initiated contact. [`off-turn.md`](off-turn.md) constrains it without settling it, and the constraints hold whatever the answer turns out to be.
-17. **Whether the witness set is knowable.** A channel's membership is readable; who actually saw a message is not. The chapter narrows the set to demonstrated participation, which is right for disclosure and wrong for dependence, and one field cannot be both. See the privacy table above for the two-set candidate. What counts as demonstrated participation is the same judgement [`evolution.md`](evolution.md) stage 0b owes for the present set, and it may be platform-specific, in which case it belongs to the connector contract.
+**Blocking.**
+
+1. **Encoding against retrieval** for the second trace ([`evolution.md`](evolution.md) stage 0a). Decides the cost of the whole episodic layer, and therefore stage 4's scope.
+2. **The constraint tax** on the target model, per behaviour (stage 2). Decides how many behaviours are schema-constrained.
+3. **Extraction convergence** (stage 0c). The design's central economic claim, that structural equality replaces similarity-threshold deduplication, rests on an extractor converging on the same triple from different prose. The live log supplies a labelled re-mention set for free: every consolidation and arbitration event names entries the running system itself judged to be one claim.
+4. **The present set, and with it both witness sets** (stage 0b). Defines who was in a conversation, which the audience evaluator and the dependence test both read.
+5. **The bulk-ingestion path.** Its shape is designed in [`memory-typology.md`](memory-typology.md); its cost model is owed beside stage 0c, whose harness it shares.
+
+**Deferred, with what would force it.**
+
+6. **Eager against lazy structuring.** The dial is already designed in [`write-surface.md`](write-surface.md). Forced by stage 2's constraint-tax measurement.
+7. **Whether the frame's three values are the right three.** Forced by stage 1, which is where the referent redirect is tested.
+8. **Crumble and accretion thresholds** for tentative merges. No data exists and none is manufacturable short of a long-running multi-platform instance, so stage 5 ships conservative defaults with an operator exception at the boundary.
+9. **The credence shape**, with fusion operators deliberately unused. Nothing to fuse while teller counts are zero or one; forced by the first claim to gather two independent tellers, which the harness can alarm on.
+10. **What deserves initiation.** [`off-turn.md`](off-turn.md) constrains it without settling it. Forced at stage 9, when an off-turn message is first composed.
+11. **Whether the structural questions are sufficient.** [`query-surface.md`](query-surface.md) names five, and whether they cover what the agent actually asks is untested. Answerable cheaply by classifying the live log's recorded blocks against them, and worth doing before stage 2 freezes the surface.
+12. **The dispositional fallback.** A habitual modality alongside the frame is the extension [`statements.md`](statements.md) declines. Forced if gloss-only writes on dispositional content become a material fraction of writes.
+
+**Not measurable here.**
+
+13. **Relay-chain dependence.** The live corpus cannot contain the phenomenon: one multi-party conversation, three tellers, and no claim asserted by two of them, so a null would prove nothing. The stage 6 gate is the measurement rather than a prior experiment. Its prerequisite is that the agent's outbound turns are first-class glosses carrying witness sets, which is a stage 2 obligation.
 
 ## Things deliberately not claimed
 
