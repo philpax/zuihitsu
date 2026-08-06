@@ -8,7 +8,7 @@ None of it is a separate write path. Off-turn work inherits every commitment the
 
 Every pass crosses the same typed [seam](the-seam.md), meets the same critics, and can be rejected. There is no maintenance bypass, no privileged verb, and no pass-only authority.
 
-Four rules follow, and each closes a way a pass could otherwise evade a constraint.
+Five rules follow, and each closes a way a pass could otherwise evade a constraint.
 
 A pass writes as the agent. It is never a teller on someone's behalf, and its output is a derived [Statement](statements.md) carrying `derived_from`, its activity, its criterion, and its assumption stamp. "How do you know?" answers for pass-written content exactly as it answers for anything else, which is the difference between curation and accretion.
 
@@ -17,6 +17,8 @@ A pass may not widen an audience. A synthesis carries no more than the intersect
 A pass may not cross the [episodic wall](two-traces.md). An episode is not a premise, and no amount of off-turn deliberation promotes a reconstruction into a fact.
 
 A pass may not touch the [self slot](memory-typology.md). The one piece of state that conditions every turn is out of reach of the machinery that decides what to drop.
+
+A pass may withdraw a value it did not author, and may never substitute one. Where a pass judges a field wrong, it retracts the field and records why, leaving the Statement without it. Writing a replacement value is refused. The two errors do not cost the same: a withdrawn occurrence disarms a wake-up and leaves a claim a reader still reaches, where a substituted one arms a different wrong wake-up under the authority of whoever wrote the original. The current system reached this rule from the same asymmetry, after finding that a date the agent wrote at append time was never examined at all, which left a date lifted from a namesake standing unchallenged ([`research/2026-08-06/current-system-fixes.md`](research/2026-08-06/current-system-fixes.md)).
 
 ## The work list replaces the sweep
 

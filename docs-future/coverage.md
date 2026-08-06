@@ -32,7 +32,7 @@ Hygiene thresholds are embedder geometry. This is better than it first appears, 
 
 Load-bearing behaviour is prompt-sensitive. [Forced-choice elicitation](the-seam.md) collapses omission variance, which is what produced the 6%-to-75% swing. It relocates variance into field content, introduces junk fill, and costs an unmeasured constraint tax. This is the shakiest of the five, and the design's own answer is to measure per behaviour rather than assume.
 
-The neural writer is unverified. [Hard critics](the-seam.md) check typing, domain and range, mutual exclusion, temporal well-formedness, audience invariants, and duplicate resolution. They do not check truth. A confidently recorded, well-typed falsehood passes at write time exactly as it does today. Faithfulness checking at runtime is unsolved here as it is across the field, and the mitigations, agreement before promotion and drift detection from outside the loop, reduce the rate rather than close the gap. This is the largest residual in the design.
+The neural writer is unverified. [Hard critics](the-seam.md) check typing, domain and range, mutual exclusion, temporal well-formedness, audience invariants, duplicate resolution, and span justification. Only the last of these touches faithfulness, and it checks groundedness rather than truth: a value must be traceable to words in the gloss, which catches a value read from nowhere and passes a value read wrongly from something the utterance does say. A confidently recorded, well-typed falsehood therefore still passes at write time exactly as it does today. Faithfulness checking at runtime is unsolved here as it is across the field, and the mitigations, agreement before promotion and drift detection from outside the loop, reduce the rate rather than close the gap. This is the largest residual in the design.
 
 ## Regressions
 
@@ -46,12 +46,13 @@ Narrative licenses invention. The mechanism works by asking a model to commit to
 
 ## Mitigations the design erases
 
-The survey notes that a mitigation in the current ontology is itself evidence of a workaround tax the redesign should erase. Two prompt-borne mitigations become structure:
+The survey notes that a mitigation in the current ontology is itself evidence of a workaround tax the redesign should erase. Three mitigations become structure:
 
 - The write-time cross-subject advisory, which steers the agent around the one-subject representation, becomes the Event node. There is nothing left to steer around.
 - The temporal extraction's third-party-routine rule, which teaches the model not to stamp a recurrence on a fact describing someone else's job, becomes the absence of a trigger. The rule is unnecessary because the outcome is unrepresentable.
+- The current-day guard's text check, which asks whether a statement could have supplied today's date, becomes [span justification](the-seam.md). The current system calls that check a heuristic over text rather than a property of it, and accepts false suppressions in both directions to keep it. A span matched against the gloss is a property of the text, so the heuristic has nothing left to approximate.
 
-Both are load-bearing behaviours moving from wording into structure, which is the class 10 remedy applied to classes 2 and 4.
+The first two are load-bearing behaviours moving from wording into structure, which is the class 10 remedy applied to classes 2 and 4. The third is a heuristic being replaced by a decidable check rather than by a representation, which is a weaker kind of erasure and worth naming as one.
 
 ## Issues
 
@@ -64,7 +65,6 @@ The stage is where the issue closes, from [`evolution.md`](evolution.md). Readin
 | #112 episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it | 4 |
 | #74 search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate | 4 |
 | #114 fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
-| #113 undated events stamped with the assertion day | The episode holds when the agent learned a fact, so [`valid`](time.md) can stay open without the claim falling out of the timeline | 4, the stage that builds the episode |
 | #115 date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change | 3 |
 | #106 volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the reference point rather than a guess | 4, since the ladder reads the episode |
 | #44 long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent, through [the bulk path](memory-typology.md) | 4, costed at 0c |
@@ -76,17 +76,27 @@ The stage is where the issue closes, from [`evolution.md`](evolution.md). Readin
 | #58 procedural memories | The procedural kind, indexed by description, decayed by invocation | 4 |
 | #59 persistent scratchpad | The working kind, outside the visibility model, stored in a compactable channel because promotion carries a taint the fold must reproduce | 4 |
 | #90 eval corpus redundancy | The four-capability taxonomy with a required null arm | 0a |
-| #125 agent-authored occurrence dates an entry to another referent's date | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case | 2, gated at 1 |
-| #126 brief names a participant by their arrival stub | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed | 5 |
 | #127 redaction decided per read path, so a new path leaks by omission | Visibility is computed once in the substrate before rendering, and zero residue is held as a [non-interference invariant](privacy-and-provenance.md) rather than as a rule each read path must remember | 7 |
 | #124 agent refuses a fact its own brief surfaced | The same single resolution point: what was surfaced and what is sayable are computed from one predicate, so they cannot disagree | 7 |
 | #116 the agent's name is prose inside its self memory | [The self slot](memory-typology.md). The issue asks for a structured, operator-authored, latest-wins record folded into a readable field, which is what the slot is; the name is one of the things it holds | 2, at genesis |
 
 Two things the table does not say on its own.
 
-These close for a new instance, not for the one that is running. The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so nine of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #106, #113, #114, #115, #124, #125, #126, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
+These close for a new instance, not for the one that is running. The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so six of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #106, #114, #115, #124, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
 
 Stage 0b is the one that pays before anything is built. It needs no new substrate, it reduces a live leak in the current system, and both witness sets plus every audience decision in the design read the definition it produces. Nothing else on this list returns anything until stage 2 exists.
+
+### Fixed in the current system
+
+Three issues this design addresses were fixed against the running system on 2026-08-06, before any of this was built ([`research/2026-08-06/current-system-fixes.md`](research/2026-08-06/current-system-fixes.md)). The design's answer to each still differs from the fix, so the rows are kept rather than dropped: a fix guards a failure the design makes unrepresentable.
+
+| Issue | Fixed by | Becomes |
+|---|---|---|
+| #113 undated events stamped with the assertion day | Span justification plus a current-day guard, cutting dated occurrences by roughly 40% | The [episode](memory-typology.md) holds when the agent learned a fact, so [`valid`](time.md) can stay open without the claim falling out of the timeline |
+| #125 agent-authored occurrence dates an entry to another referent's date | Withdrawal of a misdated occurrence, never substitution | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case |
+| #126 brief names a participant by their arrival stub | The brief rendering a block under its `same_as` class primary | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed |
+
+Two of the fixes feed back into the design rather than only out of it. Span justification is adopted as a [hard critic](the-seam.md), generalised from one field to every extracted value. Withdrawal without substitution is adopted as a rule for [off-turn passes](off-turn.md).
 
 ### Answered obliquely
 

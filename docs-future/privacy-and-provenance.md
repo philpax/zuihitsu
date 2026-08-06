@@ -50,6 +50,8 @@ An uncleared confidence must leave no trace. Not a softened version, not a hint,
 
 The property is relative to what the observer could otherwise know. A fact someone witnessed is not withheld from them, and it is the disclosure set that makes the distinction computable rather than a matter of the agent's tact.
 
+Residue is not only text. A date, a count, a marker, or the shape of a gap discloses on its own terms, and "something on the 16th" is a fact about a person the reader was not cleared for even with every word stripped. The current system found this the hard way: of three read-path leaks fixed on 2026-08-06, the one that no text-shaped fix would have caught was a visible link row carrying an occurrence read off a withheld entry ([`research/2026-08-06/current-system-fixes.md`](research/2026-08-06/current-system-fixes.md)). That is the argument for computing visibility once over the object rather than per rendering path, since a path that renders no text still renders something.
+
 This is a non-interference property, and it is held as an invariant rather than a convention. The mechanism that makes it enforceable is the intersection rule: a distillation carries no more than the intersection of what it drew on, with one form of distillation restricted further.
 
 The two forms differ in whether the result can name its sources.
