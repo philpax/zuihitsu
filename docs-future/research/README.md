@@ -44,6 +44,14 @@ Added after the design was taken up: one lane on one paper, and one falsificatio
 
 **Status of the modelling study: primary evidence.** Unlike every other lane, it rests on direct observation of this system's own data rather than on literature, so it needs no external corroboration. It was deliberately run *before* the design chapters were written, and it changed them: it found that the two hypotheses the design most feared were both unfounded, and that two genuine expressiveness gaps none of the seven lanes anticipated were real. Its verdict is that the model is sufficient to proceed with two additions and one correction. The correction, that a gloss belongs to an utterance rather than to a Statement, contradicted a design assumption and is the clearest case in the tree of evidence arriving before commitment rather than after.
 
+### [2026-08-06](2026-08-06/): log measurements
+
+- [`log-measurements.md`](2026-08-06/log-measurements.md) records the figures the design cites from the running instance's own event log: payload composition, model-call latency, posture and teller distributions, what a block touches, derived-structure counts, and duplication.
+
+**Status: primary evidence, unverified by an adversarial pass.** Like the modelling study it rests on direct observation rather than literature, and unlike the modelling study it was gathered *after* the chapters it supports, through review passes whose figures had previously survived only in commit messages. Several were independently corroborated on a second read of the log; the latency percentiles and the touched-per-block distribution were not. The note marks which are which, and marks one figure as arithmetic rather than observation.
+
+The counts drift as the instance runs. Nothing in the design should depend on their exact values, and where a claim needs a precise figure the note says so.
+
 ## The failure survey
 
 Both snapshots are grounded in [`../../docs/ontology-failures/2026-07-23.md`](../../docs/ontology-failures/2026-07-23.md), which stays in `docs/` because it records observed failures of the system that actually runs. It is the adjustment input for the whole exercise, and [`../coverage.md`](../coverage.md) grades the design against it class by class.
