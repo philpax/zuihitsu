@@ -28,13 +28,13 @@ Around that keystone:
 
 Four commitments constrain every chapter, and a proposal that violates one is wrong rather than interesting.
 
-**The log is the only truth, and replay is deterministic.** Every model and embedder call that *affects stored state* happens at record time and is written to the log, so the fold calls nothing and no derived state exists that a fold cannot reproduce. A live read may still call a model for a transient ranking input, as `memory.search` vectorises a query today and as the reranking pass in [the query surface](query-surface.md) does; such an input is discarded when the read returns and is never a stored derivation. The commitment is about what the fold must reproduce, not about what a read may consult.
+**The log is the only truth, and replay is deterministic.** Every model and embedder call that *affects stored state* happens at record time and is written to the log, so the fold calls nothing and no derived state exists that a fold cannot reproduce. A live read may still call a model for a transient ranking input, as `memory.search` vectorises a query today and as the reranking pass in [the query surface](query-surface.md) does. The call itself is never recorded and never replayed. What a read does append is the fact that it happened and which memories it surfaced, so [access ranking](query-surface.md) is foldable; the ranking computation stays outside the log and the fold reads only its outcome. The commitment is about what the fold must reproduce, not about what a read may consult.
 
 **Privacy is at least as strong as it is today.** Per-fact audience conditions, zero residue from an uncleared confidence, and a subject guard that holds by construction rather than by convention.
 
 **The agent-facing surface stays simple.** The agent addresses people and memories by handle and asks structured questions. It never speaks ontology-language, never picks between sibling handles, and never manages the machinery. Richness lives in the substrate; the surface exposes a small vocabulary and teaches through errors at the point of failure.
 
-**Scale is unbounded.** Ingesting a long document is a normal operation rather than an exception, and any mechanism whose cost per fact fails to fall as the log grows is a mechanism that eventually kills the instance.
+**Scale is unbounded.** Ingesting a long document is a normal operation rather than an exception, and any mechanism whose cost per fact fails to fall as the log grows is a mechanism that eventually kills the instance. One mechanism is excepted by name, and only because it is bounded by a fixed budget instead: [exploration](off-turn.md), whose cost is unrelated to what changed. Anything else claiming that exemption is wrong rather than interesting.
 
 ## What is different
 

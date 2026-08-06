@@ -12,7 +12,7 @@ Four rules follow, and each closes a way a pass could otherwise launder somethin
 
 **A pass writes as the agent.** It is never a teller on someone's behalf, and its output is a derived [Statement](statements.md) carrying `derived_from`, its activity, its criterion, and its assumption stamp. "How do you know?" answers for pass-written content exactly as it answers for anything else, which is the difference between curation and accretion.
 
-**A pass may not widen an audience.** Distillation is public-only, a synthesis carries no more than the intersection of what it drew on, and no pass extends a [witness set](privacy-and-provenance.md). An audience is widened by evidence arriving, never by tidying.
+**A pass may not widen an audience.** A synthesis carries no more than the intersection of what it drew on, a description is restricted further to public content because it cannot name a teller, and no pass extends a [disclosure set](privacy-and-provenance.md). An audience is widened by evidence arriving, never by tidying.
 
 **A pass may not cross the [episodic wall](two-traces.md).** An episode is not a premise, and no amount of off-turn deliberation promotes a reconstruction into a fact.
 
@@ -61,7 +61,7 @@ Most of what consolidation does today is recovering structure that was never cap
 
 **Near-miss resolution remains**, and is the genuine residue: the overlapping-but-not-agreeing [Event](events-and-roles.md) participant sets, alias-equivalent relations, and claims a critic flagged as candidates rather than resolving. These are judgements, they are queued as candidates, and an unresolved one reaches a person rather than being decided by a threshold.
 
-**Distillation remains**, unchanged and public-only.
+**Distillation remains**, under the rule in [privacy and provenance](privacy-and-provenance.md): the intersection in general, public-only for a description, which cannot attribute what it summarises.
 
 ## Exploration
 
@@ -71,7 +71,9 @@ Every queue above is fed by a mark, and a mark is left when something changes. A
 
 Four constraints make it affordable and safe, and each of them is a rule the design already has rather than a new one.
 
-**It runs on what is left over.** Exploration consumes the judgement budget remaining after the queues drain, never competing with them and never a reason to raise the budget. This is the one mechanism whose cost is unrelated to what changed, which makes it exactly the shape [the graveyard lesson](lineage.md) warns about: an ambient generator's cost per fact does not fall as the store grows, it rises with it. The honest position is that the loop is trivial to describe and its cost is the entire problem, so it is metered by construction and switched off first under pressure.
+**It runs on what is left over.** Exploration consumes the judgement budget remaining after the queues drain, never competing with them and never a reason to raise the budget.
+
+This is the design's **one declared exception** to the falling-cost commitment, and it is worth being exact about what is excepted. Every other mechanism does work proportional to what changed, so its cost per fact falls as the store grows. Exploration does not: its cost is unrelated to what changed, and the space it samples grows with the store, which is the shape [the graveyard lesson](lineage.md) warns about. What bounds it is a fixed budget rather than a falling rate, so total cost stays flat while yield per unit of it declines. That is a weaker guarantee, taken deliberately, for the one mechanism that buys something no mark-driven pass can. It is metered by construction, switched off first under pressure, and [registered](confidence.md) as possibly not worth running at all.
 
 **It samples structurally, not randomly.** Random pairing is the crude form of the idea, and a typed graph can do better: two memories with no path between them but neighbouring in embedding space, two Events sharing one participant and nothing else, a claim whose relation has no instances in a neighbourhood full of them. These are queries rather than guesses, and they are available precisely because [a fact stopped being a sentence](overview.md).
 

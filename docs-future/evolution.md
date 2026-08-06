@@ -134,7 +134,7 @@ Credence from evidence counting, trust discounting, dependence detection, non-pr
 Postures promoted to registered conditions, retraction against erasure, propagation through the derivation graph, the authority lattice, and inter-agent claims as quotations. Gated on stage 0b.
 
 *Unblocks:* cross-boundary confidences; a lawful erasure story.
-*Gating:* zero residue holds as non-interference under an erasure that propagates through derived conclusions. Public-only distillation never leaks an attributed or private claim. A new read path cannot leak by omission, because visibility is computed once rather than per path.
+*Gating:* zero residue holds as non-interference under an erasure that propagates through derived conclusions. A description, which cannot attribute, is composed from public content alone; an episode, which carries a teller list, takes the intersection and never draws on a confidence. A new read path cannot leak by omission, because visibility is computed once rather than per path.
 *Risk:* the combinatorial blowup if audiences ever become richer than predicates over the present set.
 
 ## Stage 8: drift and the exception queue

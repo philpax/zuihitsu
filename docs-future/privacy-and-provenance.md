@@ -10,7 +10,7 @@ Each Statement carries the condition under which it may travel. The conditions a
 |---|---|
 | `in_confidence` | only back to those who were present when it was said |
 | `attributed` | may be repeated, always with its teller named |
-| `public` | may be repeated freely, and may be distilled |
+| `public` | may be repeated freely, and may be distilled into a description |
 | `reciprocal` | may be shared with someone who has shared comparably |
 | `with_consent(e)` | permitted once a named consent event is in the log |
 | `purpose(p)` | permitted only in service of a named purpose |
@@ -30,15 +30,15 @@ Three consequences are worth stating outright, because each surprises.
 
 **`reciprocal` resolves per member**, and therefore almost never clears in a group. Sharing comparably is a relation between two people and does not generalise to everyone who happens to be present.
 
-**`in_confidence` is relative to the witness set**, not to the teller alone. What was said in front of four people may be repeated to those four, and withholding it from one of them is not discretion but a conspicuous silence in front of someone who knows better. The dyadic case, where the teller is the only witness, is what the name was coined for and remains the common one; it is now the degenerate case of a general rule rather than the rule itself.
+**`in_confidence` is relative to who was there**, not to the teller alone. What was said in front of four people may be repeated to those four, and withholding it from one of them is not discretion but a conspicuous silence in front of someone who knows better. The dyadic case, where the teller is the only witness, is what the name was coined for and remains the common one; it is now the degenerate case of a general rule rather than the rule itself.
 
-The witness set rides the [gloss](statements.md), because it is a property of the occasion rather than of each claim drawn from it. It is also the most dangerous field in the model, because it is the only one that **widens** an audience.
+Who was there rides the [gloss](statements.md), because it is a property of the occasion rather than of each claim drawn from it, and it is the most dangerous datum in the model, because it is the only one that **widens** an audience.
 
-Channel membership is not presence. A silent member of a busy room did not necessarily see what was said, and treating the roster as the witness set would license repeating a confidence to someone who never heard it: the same leak the present-set definition already has to prevent, arriving through the opposite door. The witness set is therefore built from demonstrated participation in the span, never from the roster, and where a connector cannot vouch for that, it falls back to the teller alone. Widening requires evidence; narrowing does not.
+Channel membership is not presence. A silent member of a busy room did not necessarily see what was said, and treating the roster as licence would mean repeating a confidence to someone who never heard it: the same leak the present-set definition already has to prevent, arriving through the opposite door. Widening requires evidence; narrowing does not.
 
-One set cannot do both jobs, so there are two.
+That rules out one field serving both readers, so there are two.
 
-The **disclosure set** is the narrow one described above: demonstrated participation, fail-closed, the only one the audience evaluator ever reads. The **exposure set** is a superset, everyone a connector can say the utterance was delivered to, and it is read only by [the dependence test](belief.md). Someone who read a claim without participating is invisible to the first and present in the second, which is what stops their later repetition of it reading as independent corroboration.
+The **disclosure set** is the narrow one: demonstrated participation in the span, fail-closed, falling back to the teller alone where a connector cannot vouch for more, and the only one the audience evaluator ever reads. The **exposure set** is a superset, everyone a connector can say the utterance was delivered to, and it is read only by [the dependence test](belief.md). Someone who read a claim without participating is invisible to the first and present in the second, which is what stops their later repetition of it reading as independent corroboration.
 
 The principle underneath generalises past this field and is worth stating once: **a field that only ever suppresses may be generous; a field that ever licenses must be demonstrated.** Over-including an exposure set suppresses corroboration, so a claim is held less firmly than the evidence warrants, which is a recoverable error. Over-including a disclosure set speaks a confidence to the wrong person, which is not.
 
@@ -50,9 +50,15 @@ An uncleared confidence must leave no trace. Not a softened version, not a hint,
 
 The property is relative to what the observer could otherwise know. A fact someone witnessed is not withheld from them, and it is the witness set that makes the distinction computable rather than a matter of the agent's tact.
 
-This is a non-interference property, and it is held as an invariant rather than a convention. The mechanism that makes it enforceable is that **only `public` Statements may be distilled**. Distillation is a derived flow, and derived flows are where a withheld fact leaks in aggregate: a description synthesised from everything the store knows will encode what it knows even when it never states it.
+This is a non-interference property, and it is held as an invariant rather than a convention. The mechanism that makes it enforceable is that **a distillation carries no more than the intersection of what it drew on**, with one form of distillation restricted further.
 
-Distilling only public content is therefore a declassification boundary, deliberately drawn, and the one place where the general rule is relaxed under an explicit condition.
+The two forms differ in whether the result can name its sources.
+
+**A description is public-only.** It is unattributed prose that rides every surface a memory appears on, so it has nowhere to put a teller and no way to be gated once written. A description synthesised from everything the store knows would encode what it knows even when it never states it, which is where a withheld fact leaks in aggregate. Restricting the input to `public` content is a declassification boundary, deliberately drawn.
+
+**An [episode](two-traces.md) takes the intersection**, because it carries a structural teller list beside its body and is itself audience-gated. Composing it over `attributed` content is therefore not a leak: an attributed claim is repeatable with its teller named, and the episode names it. A confidence is excluded outright, since prose is one object that cannot be partially surfaced.
+
+The difference is not a special case for episodes. It is the general rule applied to two artefacts with different capabilities, and a description's extra restriction follows from its being unable to attribute.
 
 A related invariant follows the same logic: a description is a synthesis of what others have said, never a synthesis of the agent's own private reasoning about a memory. The agent's working notes are not an input to what it tells people.
 
