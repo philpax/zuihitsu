@@ -1,6 +1,9 @@
 //! Scaffold body tests — feature gating, dotpoint content, and template version checks.
 
-use crate::{InstanceFeatures, agent::genesis::tests::scaffold_body, event::PromptTemplateName};
+use crate::{
+    InstanceFeatures, agent::genesis::tests::scaffold_body, event::PromptTemplateName,
+    ids::Namespace,
+};
 
 #[test]
 fn the_scaffold_and_flush_name_the_sandbox_language_as_luau() {
@@ -246,4 +249,44 @@ fn the_merge_dotpoint_teaches_recording_and_a_rationale_before_proposing() {
         ..Default::default()
     });
     assert!(!off.contains("on their current stub before you propose"));
+}
+
+#[test]
+fn the_scaffold_substitutes_every_namespace_placeholder() {
+    // The dotpoints spell namespace prefixes as `{{person}}`-style placeholders that `render`
+    // substitutes from `Namespace`, so the prompt cannot drift from the handles the code mints. A
+    // placeholder with no matching `.replace` ships its literal braces to the model, which nothing
+    // else catches — the relation registry has the equivalent guard, and this is the namespaces'.
+    for features in [
+        InstanceFeatures::default(),
+        InstanceFeatures {
+            linking: false,
+            merging: false,
+            calendar: false,
+            transcripts: false,
+            browsing: false,
+            ..Default::default()
+        },
+    ] {
+        let body = scaffold_body(&features);
+        assert!(
+            !body.contains("{{"),
+            "an unsubstituted placeholder reached the scaffold: {body}"
+        );
+    }
+}
+
+#[test]
+fn the_namespace_dotpoint_names_every_namespace() {
+    // Every namespace the code recognizes is a kind the agent can file under, so the dotpoint that
+    // teaches the kinds must name all of them — a namespace added to the enum without a mention here
+    // is one the agent never learns exists.
+    let body = scaffold_body(&InstanceFeatures::default());
+    for namespace in Namespace::ALL {
+        assert!(
+            body.contains(namespace.prefix()),
+            "the scaffold never teaches {}: {body}",
+            namespace.prefix()
+        );
+    }
 }

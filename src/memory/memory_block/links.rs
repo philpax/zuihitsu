@@ -4,14 +4,14 @@ use std::collections::{BTreeSet, HashSet};
 
 use crate::{
     event::{EventPayload, LinkPosture, LinkSource, MergeProposalSource, Teller, Visibility},
-    graph::{Graph, RelationView},
+    graph::{Graph, MemoryView, RelationView},
     ids::MemoryId,
     memory::{
         memory_block::{
             Authority, ForcedVisibility, LinkDirection, LinkOptions, LinkRef, MemoryBlock,
             MemoryError, RehomedLink, RelationSpec, parse_cardinality, reconcile_forced_visibility,
         },
-        visibility::link_visible,
+        visibility::{link_visible, visible},
     },
     time::TemporalRef,
     vocabulary::RelationName,
@@ -222,9 +222,10 @@ impl MemoryBlock {
                 };
                 // The far memory's freshest dated fact, so a link to a dated event carries *when*. Read
                 // against the canonical primary the ref now carries; `class_entries` folds the whole
-                // identity, so member and primary yield the same date. Committed state only and not
-                // visibility-filtered, mirroring the link read itself.
-                let occurred_at = latest_dated_occurrence(&graph, other.id)?;
+                // identity, so member and primary yield the same date. Committed state only, and
+                // filtered for who is present — the edge clearing the audience does not clear the
+                // entries the date is read from.
+                let occurred_at = latest_dated_occurrence(&graph, &other, &self.present_set)?;
                 refs.push(LinkRef {
                     relation: edge.relation,
                     other: other.id,
@@ -456,22 +457,33 @@ impl MemoryBlock {
 /// wins, and an extracted date carries onto the handle only when the class holds no authored date at
 /// all — a guess never shadows a stated fact. Within each tier, entries compose in commit order, so
 /// the last dated one wins — the freshest dated fact, which for a linked event (a shipped decision, a
-/// scheduled meeting) is the *when* the agent relays. Not link-visibility-filtered: this reads the far
-/// memory's entries to find *when* a linked event happened, which is not gated on the link's audience
-/// posture — the link read itself already filtered the edge through `link_visible`.
+/// scheduled meeting) is the *when* the agent relays.
+///
+/// Filtered by the same [`visible`] predicate the entry reads apply, because the edge's own posture
+/// does not speak for the far memory's entries: a link the audience may see can point at a memory
+/// holding a confidence it may not, and a date is disclosure too — "something on the 16th" is a fact
+/// about a person the reader was not cleared for, even stripped of its words. With no one present the
+/// filter is skipped, matching the carve-out every other read carries.
 fn latest_dated_occurrence(
     graph: &Graph,
-    id: MemoryId,
+    memory: &MemoryView,
+    present_set: &[MemoryId],
 ) -> Result<Option<TemporalRef>, MemoryError> {
+    let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
+    let audience = !present_set.is_empty();
     let mut latest_authored = None;
     let mut latest_extracted = None;
-    for entry in graph.class_entries(id)? {
-        if entry.occurred_at.is_some() {
-            if entry.occurred_authored {
-                latest_authored = entry.occurred_at;
-            } else {
-                latest_extracted = entry.occurred_at;
-            }
+    for entry in graph.class_entries(memory.id)? {
+        if entry.occurred_at.is_none() {
+            continue;
+        }
+        if audience && !visible(&entry, memory, present_set, &class_of)? {
+            continue;
+        }
+        if entry.occurred_authored {
+            latest_authored = entry.occurred_at;
+        } else {
+            latest_extracted = entry.occurred_at;
         }
     }
     Ok(latest_authored.or(latest_extracted))
@@ -482,10 +494,15 @@ mod tests {
     use super::latest_dated_occurrence;
     use crate::{
         event::{Event, EventPayload, EventSource, Teller, Visibility},
-        graph::Graph,
+        graph::{Graph, MemoryView},
         ids::{EntryId, MemoryId, Namespace, Seq},
         time::{CivilDate, TemporalRef, Timestamp},
     };
+
+    /// The far memory's view, which the occurrence read needs to run the audience predicate against.
+    fn view(graph: &Graph, id: MemoryId) -> MemoryView {
+        graph.memory_by_id(id).unwrap().expect("the memory exists")
+    }
 
     fn event(seq: u64, payload: EventPayload) -> Event {
         Event {
@@ -549,7 +566,9 @@ mod tests {
 
         // Authored wins even though the extracted entry is newer.
         assert_eq!(
-            latest_dated_occurrence(&graph, id).unwrap().as_ref(),
+            latest_dated_occurrence(&graph, &view(&graph, id), &[])
+                .unwrap()
+                .as_ref(),
             Some(&july),
         );
 
@@ -585,7 +604,9 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(
-            latest_dated_occurrence(&graph, only).unwrap().as_ref(),
+            latest_dated_occurrence(&graph, &view(&graph, only), &[])
+                .unwrap()
+                .as_ref(),
             Some(&june),
         );
     }

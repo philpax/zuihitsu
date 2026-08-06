@@ -3,8 +3,16 @@
 use crate::agent::lua::tables::modules::{metatables::*, *};
 
 /// The `calendar` global: `upcoming`, `overdue`, `on`, and `recurring`, each returning a list of memory
-/// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own
-/// queries and are not visibility-filtered (like `mem:entries`, the agent sees its whole memory).
+/// handles, soonest first. Unlike the brief's `<upcoming/>` block these are the agent's own queries and
+/// are not audience-filtered — but because they return *handles*, not content: every read through a
+/// handle applies the predicate itself, so what the agent can say is gated where it reads, not here.
+/// (`mem:entries` is filtered, redacting a confidence the present audience may not see; the exemption
+/// is the handle lookup's, not a general one the content reads share.)
+///
+/// The residue is that window membership is derived from occurrences that may sit on a guarded entry,
+/// so the handle list can hint that a memory holds a date. Bounded: a handle name is never
+/// visibility-gated anyway, and the date itself still requires a filtered read.
+///
 /// Strict locking: each returned memory is locked, since the query read (and touched) it.
 pub(crate) fn calendar_table(lua: &Lua, api: &BlockApi, metatable: &Table) -> mlua::Result<Table> {
     let calendar = lua.create_table()?;

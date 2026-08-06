@@ -6,7 +6,10 @@
 
 use std::{
     collections::HashSet,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -88,6 +91,12 @@ pub async fn run_all(
 ) -> Result<(), EvalError> {
     let permits = Arc::new(Semaphore::new(concurrency.max(1)));
     let judge = Arc::new(Judge::new(deps.model.clone()));
+    // A suite's per-scenario results print only once every run has landed, so without a heartbeat the
+    // log carries no progress for hours and its tail shows whatever the last turn emitted — which
+    // reads the same whether the run is working or wedged. One line per completed run is ~1/minute at
+    // the observed rate: enough to see movement, not enough to drown the turn logs.
+    let to_drive = (active.len() as u32 * runs).saturating_sub(done.len() as u32);
+    let completed = Arc::new(AtomicU32::new(0));
 
     let mut set: JoinSet<Result<(), EvalError>> = JoinSet::new();
     for (scenario_index, scenario) in active.iter().enumerate() {
@@ -106,6 +115,8 @@ pub async fn run_all(
             let deps = deps.clone();
             let judge = judge.clone();
             let sink = sink.clone();
+            let completed = completed.clone();
+            let scenario_name = scenario.meta().name;
             let scenario_index = scenario_index as u32;
             set.spawn(async move {
                 let _permit = permit;
@@ -124,7 +135,15 @@ pub async fn run_all(
                 let mut record = assess(scenario.as_ref(), run_index, driven, &judge).await;
                 record.started_at_ms = started_at_ms;
                 record.finished_at_ms = now_ms();
-                sink.run_finished(scenario_index, record)
+                sink.run_finished(scenario_index, record)?;
+                tracing::info!(
+                    completed = completed.fetch_add(1, Ordering::Relaxed) + 1,
+                    of = to_drive,
+                    scenario = %scenario_name,
+                    run = run_index,
+                    "run complete"
+                );
+                Ok(())
             });
         }
     }

@@ -181,13 +181,13 @@ async fn the_scheduler_driver_fires_due_wakeups_on_a_tick() {
     // yet due when written.
     let plant = ScriptedModel::new([
         run_lua_call(
-            r#"memory.get("person/dave@chat"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/dave@chat"):append("dentist cleaning on the 1st of July", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         Completion::Reply(
             serde_json::json!({
                 "description": "Dave.",
-                "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
+                "occurrences": [{ "entry": 1, "cue": "on the 1st of July", "occurred_at": { "day": "2026-07-01" } }],
             })
             .to_string(),
         ),
@@ -263,13 +263,13 @@ async fn a_wakeup_fired_before_the_idle_close_surfaces_at_the_reopen() {
     // Plant a calendared item dated weeks ahead, scheduled by the turn-end synthesis.
     let plant = ScriptedModel::new([
         run_lua_call(
-            r#"memory.get("person/dave@chat"):append("dentist cleaning", { by_agent = true, visibility = "public" })"#,
+            r#"memory.get("person/dave@chat"):append("dentist cleaning on the 1st of July", { by_agent = true, visibility = "public" })"#,
         ),
         Completion::Reply("noted".to_owned()),
         Completion::Reply(
             serde_json::json!({
                 "description": "Dave.",
-                "occurrences": [{ "entry": 1, "occurred_at": { "day": "2026-07-01" } }],
+                "occurrences": [{ "entry": 1, "cue": "on the 1st of July", "occurred_at": { "day": "2026-07-01" } }],
             })
             .to_string(),
         ),

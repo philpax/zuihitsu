@@ -362,7 +362,7 @@ async fn real_model_extracts_temporal_references() {
 
     // Scan the namespaces a turn like this could write into for entries that gained an occurrence.
     let (mut total, mut timed) = (0usize, 0usize);
-    for prefix in ["person/", "topic/", "project/", "event/"] {
+    for prefix in ["person/", "topic/", "org/", "project/", "event/"] {
         for memory in h.engine.graph.lock().memories_in_namespace(prefix).unwrap() {
             for entry in h.engine.graph.lock().entries_local(memory.id).unwrap() {
                 total += 1;

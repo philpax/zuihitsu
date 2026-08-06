@@ -17,7 +17,9 @@ pub(in crate::agent::lua) enum HandleError {
     /// `mem:retract` was given a value that is neither an entry handle nor an entry-id string.
     WrongEntryType { type_name: &'static str },
     /// `links.create`/`links.remove` was given a name string — in the subject or the object
-    /// position — that is not a known memory.
+    /// position — that is not a known memory, where minting one is not on offer: an unlink (which
+    /// never creates its target), or a name `links.create` declines to mint (a machinery-owned
+    /// handle, or one in no recognised namespace).
     UnknownLinkTarget { name: String },
     /// `links.create`/`links.remove` was given a value — in the subject or the object position —
     /// that is neither a handle nor a name string.

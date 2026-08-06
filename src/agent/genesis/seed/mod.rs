@@ -25,23 +25,30 @@ pub(super) fn seed_tags() -> Vec<TagDef> {
 /// The seed relations are a minimum-viable ontology: the structural universals the system itself
 /// leans on — identity (`same_as`), participation (`participates_in`/`has_participant`), composition
 /// (`part_of`/`contains`), origin (`created_by`/`created`), operatorship (`operator_of`/`operates`),
-/// and acquaintance (`knows`/`known_by`). These earn seeding because they are domain-independent
-/// scaffolding that any instance's graph is built out of, and because code matches on several of them
-/// (`same_as` drives identity-class merging, and the rest anchor the reference examples and the
-/// scaffold's placement teaching).
+/// acquaintance (`knows`/`known_by`), placement (`located_at`/`location_of`), and membership
+/// (`member_of`/`has_member`). These earn seeding because they are domain-independent scaffolding
+/// that any instance's graph is built out of, and because code matches on several of them (`same_as`
+/// drives identity-class merging, and the rest anchor the reference examples and the scaffold's
+/// placement teaching).
 ///
-/// Social and environmental semantics — mentorship, venues, employment, and the rest — are
-/// deliberately *not* seeded. They belong to the agent's own operating environment, so the agent
-/// coins them itself (`links.register`) with names and directions that fit what it actually
-/// encounters. Per-instance registrations persist in the log, so one agent's coined vocabulary is
-/// stable across its whole life; which label a given instance mints (e.g. `mentors` versus
-/// `mentored_by`) may vary between instances, and that is fine — what matters is that the agent
-/// reaches for a typed relation at all, not that it lands on a build-blessed spelling.
+/// The bar for a seat is observed fragmentation: a meaning the agent reaches for so regularly that,
+/// unseeded, it arrives under scattered spellings or bends an existing relation past its stated
+/// scope. Placement was the first (`held_at`, `occurs_at`, `based_in`), and membership the second —
+/// belonging split across `part_of`, whose own description disclaims people, and `participates_in`,
+/// which means an event, with `works_at` and `employed_by` around the edges.
+///
+/// The remaining social and environmental semantics — mentorship and the rest — are deliberately
+/// *not* seeded. They belong to the agent's own operating environment, so the agent coins them itself
+/// (`links.register`) with names and directions that fit what it actually encounters. Per-instance
+/// registrations persist in the log, so one agent's coined vocabulary is stable across its whole
+/// life; which label a given instance mints (e.g. `mentors` versus `mentored_by`) may vary between
+/// instances, and that is fine — what matters is that the agent reaches for a typed relation at all,
+/// not that it lands on a build-blessed spelling.
 pub(super) fn seed_relations() -> Vec<RelationDef> {
     use Cardinality::{Many, One};
     use RelationName::{
-        Contains, Created, CreatedBy, HasParticipant, KnownBy, Knows, LocatedAt, LocationOf,
-        OperatedBy, OperatorOf, PartOf, ParticipatesIn, SameAs,
+        Contains, Created, CreatedBy, HasMember, HasParticipant, KnownBy, Knows, LocatedAt,
+        LocationOf, MemberOf, OperatedBy, OperatorOf, PartOf, ParticipatesIn, SameAs,
     };
     vec![
         RelationDef {
@@ -114,6 +121,22 @@ pub(super) fn seed_relations() -> Vec<RelationDef> {
             reflexive: false,
             description: "Where a thing is held or found — an event's venue, a team's office, a \
                 thing's place. Many things can share one place.",
+        },
+        // Standing membership is the same story as placement: with no seed for it the agent split a
+        // person's belonging across part_of and participates_in — stretching both past their stated
+        // scope, part_of explicitly disclaiming people and participates_in meaning an event — and
+        // coined member_of, works_at, employed_by, and involved_in around the edges. One relation for
+        // belonging to an organization or group, employment being its commonest case.
+        RelationDef {
+            name: MemberOf,
+            inverse: HasMember,
+            from_card: Many,
+            to_card: Many,
+            symmetric: false,
+            reflexive: false,
+            description: "A person belongs to an organization or group — an employer, a team, a \
+                board, a school. Standing membership, not attendance at an event \
+                (participates_in) and not composition of a topic (part_of).",
         },
     ]
 }

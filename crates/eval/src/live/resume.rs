@@ -36,6 +36,10 @@ pub struct ResumeState {
     /// `(scenario index, the completed run)`, one entry per `(scenario, run)` after last-write-wins
     /// deduplication, ordered by that key.
     pub completed: Vec<(u32, RunRecord)>,
+    /// When the newest run completed, in epoch milliseconds — `None` when none has. How long ago that
+    /// was is what distinguishes a run still working from one whose process is alive but producing
+    /// nothing, which no other field in the sidecar reveals.
+    pub last_completed_at_ms: Option<i64>,
 }
 
 /// Fold a `.jsonl` sidecar from an interrupted run into its [`ResumeState`]. Only runs with a
@@ -55,6 +59,7 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
     // Keyed by `(scenario, run index)` so a re-driven run's fresh record overwrites the one it
     // supersedes; the `BTreeMap` also yields a deterministic `(scenario, run)` order.
     let mut completed: BTreeMap<(u32, u32), RunRecord> = BTreeMap::new();
+    let mut last_completed_at_ms: Option<i64> = None;
     for line in BufReader::new(file).lines() {
         let line = line.map_err(|source| EvalError::WriteOutput {
             path: path.to_path_buf(),
@@ -75,8 +80,13 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
             // reads it straight back. A run with a `RunStarted` but no completion died mid-flight and
             // re-drives clean. `RunEvent`s are broadcast-only and never reach the sidecar.
             LiveEvent::RunCompleted {
-                scenario, record, ..
+                scenario,
+                record,
+                at_ms,
+                ..
             } => {
+                last_completed_at_ms =
+                    Some(last_completed_at_ms.map_or(at_ms, |seen: i64| seen.max(at_ms)));
                 completed.insert((scenario, record.index), record);
             }
             LiveEvent::RunStarted { .. }
@@ -98,6 +108,7 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
         meta,
         scenarios,
         completed,
+        last_completed_at_ms,
     })
 }
 
@@ -123,6 +134,9 @@ pub fn resume_state_from_package(package: EvalPackage) -> ResumeState {
         })
         .collect();
     ResumeState {
+        // Every run in a finished package completed by the time it was written, so the package's own
+        // finish is the newest completion it can attest to.
+        last_completed_at_ms: Some(meta.finished_at_ms),
         meta,
         scenarios: scenario_metas,
         completed,

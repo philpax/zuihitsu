@@ -334,6 +334,7 @@ impl std::str::FromStr for NamespacedMemoryName {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Namespace {
     Person,
+    Org,
     Place,
     Event,
     Topic,
@@ -342,9 +343,11 @@ pub enum Namespace {
 
 impl Namespace {
     /// Every namespace, in the order the scaffold introduces them — so a definition that enumerates the
-    /// kinds (the genesis scaffold, the console legend) iterates this rather than re-listing prefixes.
-    pub const ALL: [Namespace; 5] = [
+    /// kinds (the genesis scaffold, the data-model reference) iterates this rather than re-listing
+    /// prefixes.
+    pub const ALL: [Namespace; 6] = [
         Namespace::Person,
+        Namespace::Org,
         Namespace::Place,
         Namespace::Event,
         Namespace::Topic,
@@ -355,6 +358,7 @@ impl Namespace {
     pub const fn prefix(self) -> &'static str {
         match self {
             Namespace::Person => "person/",
+            Namespace::Org => "org/",
             Namespace::Place => "place/",
             Namespace::Event => "event/",
             Namespace::Topic => "topic/",

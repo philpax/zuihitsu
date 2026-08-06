@@ -228,7 +228,8 @@ impl Scenario for SensitiveNonPerson {
         let confidential = analysis::tag_applied(events, "confidential");
         let non_public_topic = analysis::entries(events).into_iter().any(|entry| {
             (entry.memory.starts_with("project/")
-                || entry.memory.starts_with(Namespace::Topic.prefix()))
+                || entry.memory.starts_with(Namespace::Topic.prefix())
+                || entry.memory.starts_with(Namespace::Org.prefix()))
                 && entry.visibility != Visibility::Public
         });
         let marked = confidential || non_public_topic;
@@ -363,7 +364,8 @@ impl Scenario for InfersNonPersonSensitivity {
         let non_public = analysis::entries(events).into_iter().any(|entry| {
             (entry.memory.starts_with("project/")
                 || entry.memory.starts_with(Namespace::Topic.prefix())
-                || entry.memory.starts_with(Namespace::Event.prefix()))
+                || entry.memory.starts_with(Namespace::Event.prefix())
+                || entry.memory.starts_with(Namespace::Org.prefix()))
                 && entry.visibility != Visibility::Public
         });
         let marked = confidential || non_public;

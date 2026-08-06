@@ -316,6 +316,13 @@ pub fn weekday(date: &str) -> Option<String> {
     Some(format_with(Timestamp::from_millis(millis), "%A"))
 }
 
+/// The lowercase full weekday name of `now`'s own civil day (e.g. `monday`), or `None` if `now` is not
+/// a valid date. Lowercase because the callers that ask which weekday it is are matching against
+/// folded text rather than rendering it.
+pub fn today_weekday(now: Timestamp) -> Option<String> {
+    weekday(&today(now)).map(|name| name.to_lowercase())
+}
+
 /// The soonest civil day on or after `now`'s day whose weekday is `name` (a case-insensitive full
 /// weekday name), or `None` if `name` is not a weekday — `today` itself when today already matches. So
 /// "this Friday" is a lookup, never arithmetic the model carries in its head.

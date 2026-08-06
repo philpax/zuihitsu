@@ -29,6 +29,15 @@ pub enum MemoryError {
         name: MemoryName,
         similar: Vec<MemoryName>,
     },
+    /// A `links.create` named an endpoint that does not exist but near-matches one that does. An
+    /// endpoint naming a free handle is minted rather than refused; this is the case that is not free
+    /// enough — minting it would split one subject's facts across two memories, so the agent is shown
+    /// the neighbours and picks the handle it meant. `similar` is never empty here: a name with no
+    /// near-matches takes the minting path instead of this error.
+    LinkEndpointNearMatch {
+        name: MemoryName,
+        similar: Vec<MemoryName>,
+    },
     /// A `link`/`unlink` named a relation that is not a registered link type.
     UnknownRelation(RelationName),
     /// A `tags.create` named a tag already in the vocabulary — creation forces a fresh purpose, so a
@@ -179,6 +188,16 @@ impl std::fmt::Display for MemoryError {
                     f,
                     "a memory named {:?} already exists; fetch it with memory.get, or use \
                      memory.get_or_create(name) when you are unsure whether it exists",
+                    name.as_str()
+                )?;
+                write_similar(f, "handles", similar.iter().map(MemoryName::as_str))
+            }
+            MemoryError::LinkEndpointNearMatch { name, similar } => {
+                write!(
+                    f,
+                    "no memory named {:?}, but a near-match exists — linking would mint a second \
+                     memory and split one subject's facts. Link the existing handle if it is who \
+                     you mean, or pass a name no neighbour shadows and it is created for you",
                     name.as_str()
                 )?;
                 write_similar(f, "handles", similar.iter().map(MemoryName::as_str))

@@ -220,6 +220,7 @@ the rest at runtime.
 Memory names use namespace prefixes. The recognised namespaces are exactly:
 
 - `person/<handle>` — people
+- `org/<handle>` — organisations (companies, teams, institutions); an employer is an organisation, not a topic
 - `place/<handle>` — places
 - `event/<handle>` — things that happen at a time (appointments, meetings, recurring schedules)
 - `topic/<handle>` — subjects of interest
@@ -232,7 +233,7 @@ The recognised set lives in one place in the code (the `Namespace` enum, plus th
 handle), so the scaffold that teaches the prefixes and the code that mints and reads handles cannot
 drift. A memory name is otherwise a free string: `memory.create` accepts any name and does not reject
 an unrecognised prefix or a bare name, so a handle like `project/atlas` is a perfectly valid memory —
-it carries no *kind*, since only the five prefixes above are recognised. In particular, only
+it carries no *kind*, since only the six prefixes above are recognised. In particular, only
 `person/` memories carry a subject-guard, so a non-person memory's private entries have no read-time
 subject protection (see [Visibility](visibility.md)).
 

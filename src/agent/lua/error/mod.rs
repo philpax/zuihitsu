@@ -13,6 +13,7 @@ mod lookup;
 pub(super) use args::{ArgError, CalendarError, TemporalArgError};
 pub(super) use block::{
     BlockConsistencyError, ConcatError, MissingReturnError, SearchWriteError, TaintedWriteError,
+    with_lesson,
 };
 pub(super) use handle::{
     FindEntryError, HandleAssignmentError, HandleError, HandleKind, PlaceholderError,

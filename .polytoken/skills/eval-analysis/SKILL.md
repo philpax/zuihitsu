@@ -6,6 +6,16 @@ description: Analyse an eval package — surface failures first, then scan succe
 
 An eval package (`eval/<name>.json`) is the agent's complete event log per run, plus verdicts. The goal is not just to confirm pass/fail — it's to understand *how* the agent behaved, whether the oracles caught everything they should, and whether the agent's behaviour matches the system's design intent even when it passes.
 
+## Step 0 — know what you are holding
+
+If the run may still be going, or you need to know whether a package is complete, run `eval status`
+(bare, for the run in flight, or with the run's name). It reports progress, liveness, and which bars
+would already fail — read from the `.jsonl` sidecar, which is the authoritative record.
+
+A package (`eval/<name>.json`) exists only once a run finishes; while one is in flight there is a
+`.jsonl` sidecar instead. Do not reach for a package that is not there yet, and do not judge a run's
+progress from its log — the per-scenario result lines print only at the very end.
+
 ## Step 1 — start with the summary and the failures
 
 Read the per-scenario summary first, then dig into the failures:

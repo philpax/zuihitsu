@@ -166,13 +166,14 @@ async fn describe_one(
     let now = engine.clock.now();
     let mut events = Vec::new();
     let mut resolved = std::collections::BTreeSet::new();
+    let mut withdrawn = std::collections::BTreeSet::new();
     let extraction_provenance = templates.extraction.as_ref().map(|template| ProducedBy {
         model_id: model.model_id().into(),
         template_name: PromptTemplateName::TemporalExtraction,
         template_version: template.version,
     });
 
-    let (memory, entries, eligible, teller_names) = {
+    let (memory, entries, eligible, challengeable, teller_names) = {
         let graph = engine.graph.lock();
         let Some(memory) = graph.memory_by_id(id)? else {
             return Ok(());
@@ -180,6 +181,14 @@ async fn describe_one(
         let entries = graph.class_entries(id)?;
         let eligible: std::collections::BTreeMap<EntryId, MemoryId> = graph
             .untimed_entries_since(id, described_seq)?
+            .into_iter()
+            .map(|entry_id| (entry_id, id))
+            .collect();
+        // The mirror window: entries written since the last pass that already carry a date. The pass
+        // may withdraw one whose date turns out to describe a different referent, and may never
+        // re-time it — see `occurrences::withdraw_misdated`.
+        let challengeable: std::collections::BTreeMap<EntryId, MemoryId> = graph
+            .timed_entries_since(id, described_seq)?
             .into_iter()
             .map(|entry_id| (entry_id, id))
             .collect();
@@ -204,7 +213,7 @@ async fn describe_one(
                 slot.insert(view.name.as_str().to_owned());
             }
         }
-        (memory, entries, eligible, teller_names)
+        (memory, entries, eligible, challengeable, teller_names)
     };
 
     // The live occurrences already on the memory's entries — the description mirror's authored date
@@ -263,11 +272,30 @@ async fn describe_one(
                         &occurrences::ResolveContext {
                             list: &public_entries,
                             eligible: &eligible,
+                            challengeable: &challengeable,
                             memory: &memory,
                             now,
                             siblings: &siblings,
                         },
                         &mut resolved,
+                        provenance,
+                        &mut events,
+                    );
+                    // The public half of the review: this list spans the class's `Public` entries,
+                    // timed ones included. Its counterpart below covers the non-public ones, which is
+                    // where an `Attributed` date lands — held out of descriptions for its provenance
+                    // marker, and so invisible to this pass.
+                    occurrences::withdraw_misdated(
+                        synthesis.misdated,
+                        &occurrences::ResolveContext {
+                            list: &public_entries,
+                            eligible: &eligible,
+                            challengeable: &challengeable,
+                            memory: &memory,
+                            now,
+                            siblings: &siblings,
+                        },
+                        &mut withdrawn,
                         provenance,
                         &mut events,
                     );
@@ -306,29 +334,49 @@ async fn describe_one(
     }
 
     if let Some(provenance) = &extraction_provenance {
-        let private_untimed: Vec<EntryView> = entries
+        // Every non-public entry this pass may act on: the untimed ones it may resolve, and the timed
+        // ones whose date it may withdraw. The timed half is load-bearing rather than symmetric — the
+        // description pass above is shown `Public` entries only (an `Attributed` entry is held out of
+        // descriptions to preserve its "via <teller>" marker), so without it an attributed date is
+        // reviewed by neither pass, which is precisely the shape #125 was filed for. The description
+        // this call returns is discarded either way; only its occurrences and challenges are read.
+        let private_reviewable: Vec<EntryView> = entries
             .iter()
             .filter(|entry| {
-                entry.visibility != Visibility::Public && eligible.contains_key(&entry.entry_id)
+                entry.visibility != Visibility::Public
+                    && (eligible.contains_key(&entry.entry_id)
+                        || challengeable.contains_key(&entry.entry_id))
             })
             .cloned()
             .collect();
-        if !private_untimed.is_empty() {
-            match synthesis::synthesize(&call, &memory, &private_untimed, &teller_names, now).await
+        if !private_reviewable.is_empty() {
+            match synthesis::synthesize(&call, &memory, &private_reviewable, &teller_names, now)
+                .await
             {
-                Ok(Some(synthesis)) => occurrences::resolve_occurrences(
-                    synthesis.occurrences,
-                    &occurrences::ResolveContext {
-                        list: &private_untimed,
+                Ok(Some(synthesis)) => {
+                    let ctx = occurrences::ResolveContext {
+                        list: &private_reviewable,
                         eligible: &eligible,
+                        challengeable: &challengeable,
                         memory: &memory,
                         now,
                         siblings: &siblings,
-                    },
-                    &mut resolved,
-                    provenance,
-                    &mut events,
-                ),
+                    };
+                    occurrences::resolve_occurrences(
+                        synthesis.occurrences,
+                        &ctx,
+                        &mut resolved,
+                        provenance,
+                        &mut events,
+                    );
+                    occurrences::withdraw_misdated(
+                        synthesis.misdated,
+                        &ctx,
+                        &mut withdrawn,
+                        provenance,
+                        &mut events,
+                    );
+                }
                 Ok(None) => {}
                 Err(error) => tracing::warn!(
                     memory = %memory.name.as_str(),

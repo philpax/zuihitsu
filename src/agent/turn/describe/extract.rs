@@ -21,13 +21,25 @@ pub(crate) struct SynthesizeArgs {
     /// reference.
     #[serde(default)]
     pub(super) occurrences: Vec<ExtractedOccurrence>,
+    /// The statement numbers (1-based) whose *already recorded* date belongs to a different referent
+    /// than the statement's own subject — a namesake, an inspiration, a comparison, a historical
+    /// analogy. Kept apart from `occurrences` because the two are different claims: an occurrence says
+    /// when an undated statement happened, while this says an existing date is not this subject's. The
+    /// only effect is to withdraw the date, returning the entry to untimed; it never substitutes one.
+    #[serde(default)]
+    pub(super) misdated: Vec<usize>,
 }
 
-/// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt) and
-/// the time it refers to.
+/// One extracted occurrence: the statement it applies to (1-based, as numbered in the prompt), the
+/// words in that statement the time was read from, and the time itself.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct ExtractedOccurrence {
     pub(super) entry: usize,
+    /// The exact words, copied from this statement, that name the time — "last Tuesday", "on the
+    /// 14th", "every Monday". Must appear verbatim in the statement it keys; a resolution whose cue is
+    /// not found there is dropped, so this is the claim being checked rather than a note about it.
+    #[serde(default)]
+    pub(super) cue: String,
     pub(super) occurred_at: ExtractedTime,
 }
 
@@ -149,9 +161,24 @@ pub(super) fn synthesize_argument(content: &str) -> Option<SynthesizeArgs> {
                 .collect()
         })
         .unwrap_or_default();
+    // Skipped leniently like the occurrences: a mis-shaped statement number withdraws nothing, which is
+    // the safe direction — a dropped challenge leaves a date standing, where a mis-parsed one would
+    // retract an entry the model never named.
+    let misdated: Vec<usize> = value
+        .get("misdated")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_u64)
+                .map(|statement| statement as usize)
+                .collect()
+        })
+        .unwrap_or_default();
     Some(SynthesizeArgs {
         description,
         occurrences,
+        misdated,
     })
 }
 

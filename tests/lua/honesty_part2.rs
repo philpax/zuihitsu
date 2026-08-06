@@ -215,3 +215,129 @@ async fn a_direct_read_withholds_a_confidence_from_a_present_outsider() {
         "history withholds the confidence from Erin too: {result}"
     );
 }
+
+#[tokio::test]
+async fn attesting_a_withheld_entry_does_not_hand_back_its_words() {
+    // An entry id survives the stub that hid its text, so it can be fed straight to mem:attest. The
+    // endorsement is allowed — standing behind a fact needs no sight of its wording — but neither the
+    // corroboration note nor the returned entry handle may be the way the confidence arrives.
+    let h = Harness::new();
+    h.run(r#"memory.create(PERSON_DAVE); memory.create(PERSON_ERIN)"#)
+        .await;
+    let id = |name: &str| {
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name(MemoryName::new(name))
+            .unwrap()
+            .unwrap()
+            .id
+    };
+    let (dave, erin) = (
+        id(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
+    );
+
+    h.run_as(
+        Teller::Participant(dave),
+        vec![dave],
+        r#"memory.get(PERSON_DAVE):append("interviewing at a competitor", { visibility = "private" })"#,
+    )
+    .await;
+
+    // Erin present, Dave absent: read the stubbed entry, then attest it by the id the stub still
+    // carries, reporting the note and the handed-back entry's own text.
+    let outcome = h
+        .run_as(
+            Teller::Participant(erin),
+            vec![erin],
+            r#"
+            local dave = memory.get(PERSON_DAVE)
+            local target = dave:entries()[1]
+            local entry = dave:attest(target.id)
+            return tostring(entry.text) .. " || " .. tostring(entry.withheld)
+            "#,
+        )
+        .await;
+    let BlockOutcome::Committed { result } = outcome else {
+        panic!("expected a committed attestation, got {outcome:?}");
+    };
+    assert!(
+        !result.contains("interviewing at a competitor"),
+        "the confidence must not come back through attest: {result}"
+    );
+    assert!(
+        result.contains("withheld"),
+        "the handed-back entry should render as withheld: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_visible_link_does_not_carry_a_date_from_a_withheld_entry() {
+    // A link's own posture speaks for the edge, not for the far memory's entries. A date is disclosure
+    // too — "something on the 16th" is a fact about a person the reader was not cleared for, even with
+    // its words stripped — so the occurrence a link row renders is filtered like any other read.
+    let h = Harness::new();
+    h.run(r#"memory.create(PERSON_DAVE); memory.create(PERSON_ERIN)"#)
+        .await;
+    let id = |name: &str| {
+        h.engine
+            .graph
+            .lock()
+            .memory_by_name(MemoryName::new(name))
+            .unwrap()
+            .unwrap()
+            .id
+    };
+    let (dave, erin) = (
+        id(MemoryName::from(Namespace::Person.with_name("dave")).as_str()),
+        id(MemoryName::from(Namespace::Person.with_name("erin")).as_str()),
+    );
+
+    // Dave confides a dated appointment onto a topic, and a public edge points at it.
+    // The harness skips genesis, so the seed relation this link instantiates is registered first.
+    h.run(
+        r#"links.register({ name = "operator_of", inverse = "operated_by", from_card = "many", to_card = "many", description = "operates" })"#,
+    )
+    .await;
+    h.run_as(
+        Teller::Participant(dave),
+        vec![dave],
+        r#"
+        local appt = memory.create("topic/appointment", "An appointment")
+        appt:append("the consultation", { visibility = "private", occurred_at = "2027-03-14" })
+        links.create(PERSON_DAVE, "operator_of", "topic/appointment", { visibility = "public" })
+        "#,
+    )
+    .await;
+
+    let read = r#"
+        local lines = {}
+        for _, l in ipairs(memory.get(PERSON_DAVE):links()) do
+            lines[#lines + 1] = tostring(l)
+        end
+        return table.concat(lines, "|")
+    "#;
+
+    // Erin present, Dave absent: the edge still renders, but its date does not.
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, vec![erin], read).await else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("operator_of"),
+        "the edge itself is public and should still render: {result}"
+    );
+    assert!(
+        !result.contains("2027-03-14"),
+        "the confidence's date must not ride out on a visible link: {result}"
+    );
+
+    // Dave himself present: his own dated confidence carries onto the link as before.
+    let BlockOutcome::Committed { result } = h.run_as(Teller::Agent, vec![dave], read).await else {
+        panic!("expected commit");
+    };
+    assert!(
+        result.contains("2027-03-14"),
+        "Dave present should see the date he gave: {result}"
+    );
+}

@@ -17,7 +17,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
     vec![
         TemplateDef {
             name: PromptTemplateName::Scaffold,
-            version: 28,
+            version: 32,
             body: scaffold_body(features),
             description: "The system-prompt scaffold: the standing instructions every turn is \
                           framed by.",
@@ -34,7 +34,7 @@ pub(crate) fn default_templates(features: &InstanceFeatures) -> Vec<TemplateDef>
         // one merely sends the reader to the entry.
         TemplateDef {
             name: PromptTemplateName::TemporalExtraction,
-            version: 6,
+            version: 10,
             body: body_of(include_str!("synthesis/temporal_extraction.md")),
             description: "Resolves when each entry is about in the real world, so a statement can \
                           carry an occurrence date.",
@@ -191,6 +191,7 @@ fn recall_point(features: &InstanceFeatures) -> String {
 fn render(raw: &str) -> String {
     body_of(raw)
         .replace("{{person}}", Namespace::Person.prefix())
+        .replace("{{org}}", Namespace::Org.prefix())
         .replace("{{place}}", Namespace::Place.prefix())
         .replace("{{event}}", Namespace::Event.prefix())
         .replace("{{topic}}", Namespace::Topic.prefix())

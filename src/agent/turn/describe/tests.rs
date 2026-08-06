@@ -1,7 +1,11 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    agent::turn::describe::{extract::ExtractedTime, synthesis::statements_prompt},
+    agent::turn::describe::{
+        extract::ExtractedTime,
+        occurrences::{quotes_the_statement, states_a_time},
+        synthesis::statements_prompt,
+    },
     event::{Teller, Visibility, Volatility},
     graph::{AttestationView, EntryOrigin, EntryView, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
@@ -125,6 +129,117 @@ fn statements_prompt_notes_a_multiply_attested_statement_and_ignores_a_hidden_on
 }
 
 #[test]
+fn a_cue_quoted_from_the_statement_passes_the_span_check() {
+    let text = "Met Dave at the gym last Tuesday, and the migration ships next Friday.";
+    assert!(quotes_the_statement("last Tuesday", text));
+    assert!(quotes_the_statement("next Friday", text));
+    // Case, surrounding punctuation, and runs of whitespace are all tidying a faithful quote picks up,
+    // so the fold ignores them rather than failing an honest cue.
+    assert!(quotes_the_statement("LAST TUESDAY", text));
+    assert!(quotes_the_statement("\"last Tuesday\"", text));
+    assert!(quotes_the_statement("last  Tuesday", text));
+    assert!(quotes_the_statement("ships next Friday.", text));
+    // A cue spanning the comma still folds to the same word sequence.
+    assert!(quotes_the_statement("gym last Tuesday, and", text));
+}
+
+#[test]
+fn a_cue_the_statement_does_not_contain_fails_the_span_check() {
+    let text = "Met Dave at the gym last Tuesday.";
+    // The date the model resolved to is not a quote of anything.
+    assert!(!quotes_the_statement("2026-06-02", text));
+    // A plausible time phrase the statement never used — the fabrication the check exists to catch.
+    assert!(!quotes_the_statement("next Friday", text));
+    // A paraphrase is not a quote, however faithful its meaning.
+    assert!(!quotes_the_statement("the previous Tuesday", text));
+    // Words present but not contiguous do not make a span.
+    assert!(!quotes_the_statement("Met Tuesday", text));
+    // An empty cue stands behind nothing.
+    assert!(!quotes_the_statement("", text));
+    assert!(!quotes_the_statement("   ", text));
+}
+
+/// 2026-06-08 is a Monday, which the weekday cases below turn on.
+fn monday() -> Timestamp {
+    Timestamp::from_millis(ms("2026-06-08"))
+}
+
+#[test]
+fn a_statement_naming_a_time_supports_a_current_day_resolution() {
+    let now = monday();
+    // A written date, in the formats a statement actually carries one in.
+    assert!(states_a_time("Signed the lease on 2026-06-08", now));
+    assert!(states_a_time("Closes 8 June", now));
+    assert!(states_a_time("Closes June 8", now));
+    assert!(states_a_time("Rent is due on the 8th", now));
+    assert!(states_a_time("Standup moved to 9:30", now));
+    assert!(states_a_time("Doors at 7pm", now));
+    // A same-day deictic puts the speaker's own day in the statement.
+    assert!(states_a_time("The surveyor called this morning", now));
+    assert!(states_a_time("It kicked off today.", now));
+    assert!(states_a_time("The ferry leaves tonight", now));
+    // Case is irrelevant — the cue is the word, not its rendering.
+    assert!(states_a_time("TODAY the vendor confirmed", now));
+}
+
+#[test]
+fn a_statement_naming_no_time_does_not_support_a_current_day_resolution() {
+    let now = monday();
+    // An intention waiting on a date nobody holds: said today, but about no day at all.
+    assert!(!states_a_time(
+        "Keen to help with setup once the room is sorted.",
+        now
+    ));
+    // A standing fact is timeless — true before today and after it.
+    assert!(!states_a_time("Leads the volcano project", now));
+    // The vague now-words anchor loosely to the moment of speaking without pinning a day, so they are
+    // grounds for omitting rather than for dating; treating them as support would readmit exactly the
+    // fabrication the guard exists to catch.
+    assert!(!states_a_time(
+        "Joined recently as the new lighting tech",
+        now
+    ));
+    assert!(!states_a_time("Has been travelling lately", now));
+    assert!(!states_a_time("Will send the invoice soon", now));
+    assert!(!states_a_time("Currently between jobs", now));
+    // A bare month names a month, not a day, so it cannot authorize the current day on its own.
+    assert!(!states_a_time("The launch is sometime in June", now));
+}
+
+#[test]
+fn a_bare_number_that_is_not_a_date_does_not_support_a_current_day_resolution() {
+    let now = monday();
+    // Floors, quarters, versions, counts, and street numbers are far commoner than dates, and each of
+    // these was observed keeping a fabricated current-day occurrence when any digit counted as a time.
+    assert!(!states_a_time(
+        "The coffee machine on floor 3 is out of beans.",
+        now
+    ));
+    assert!(!states_a_time(
+        "Dave is thinking through the Q3 roadmap.",
+        now
+    ));
+    assert!(!states_a_time("Runs the v2 migration", now));
+    assert!(!states_a_time("Has 3 kids", now));
+    // A bare year names no day either, and appears in event names constantly.
+    assert!(!states_a_time(
+        "The 2026 offsite is happening in Denver",
+        now
+    ));
+    assert!(!states_a_time("Lives at 42 Fitzroy St", now));
+}
+
+#[test]
+fn a_weekday_supports_a_current_day_resolution_only_on_that_weekday() {
+    // Said on the Monday it names, "Monday" is why a resolution landed on the current day.
+    assert!(states_a_time("Moved the standup to Monday", monday()));
+    // Said on a Monday, "Thursday" cannot be — so it does not disarm the guard. This is the case the
+    // extraction prompt teaches with a standing weekly fact, which must stay untimed.
+    assert!(!states_a_time("Moved the standup to Thursday", monday()));
+    assert!(!states_a_time("Runs the Tuesday reading group", monday()));
+}
+
+#[test]
 fn instant_date_only_coerces_to_day() {
     // The model uses `instant` for bare days; a date-only value becomes a `Day`, not an `Instant`.
     assert_eq!(
@@ -235,4 +350,41 @@ fn a_supported_recurrence_is_kept_and_a_free_phrase_is_dropped() {
         ExtractedTime::Recurring("FREQ=HOURLY".to_owned()).into_temporal_ref(),
         None
     );
+}
+
+#[test]
+fn the_synthesize_schema_offers_misdated_as_an_optional_list() {
+    // The schema is what the model is asked to produce on *every* synthesis call, so a malformed or
+    // required-by-accident field would degrade description quality suite-wide, not only dating. Pin the
+    // shape: present, optional, an integer array, and carrying its instruction.
+    let schema = crate::model::schema_of::<crate::agent::turn::describe::extract::SynthesizeArgs>();
+    let misdated = schema
+        .pointer("/properties/misdated")
+        .expect("the schema offers a misdated field");
+    assert_eq!(
+        misdated.pointer("/type").and_then(|t| t.as_str()),
+        Some("array"),
+        "{misdated}"
+    );
+    assert_eq!(
+        misdated.pointer("/items/type").and_then(|t| t.as_str()),
+        Some("integer"),
+        "{misdated}"
+    );
+    assert!(
+        misdated
+            .pointer("/description")
+            .and_then(|d| d.as_str())
+            .is_some_and(|d| d.contains("different referent")),
+        "the field carries its instruction: {misdated}"
+    );
+    // Required fields would force the model to emit the key on every call, including the overwhelming
+    // majority with nothing to report; `description` is the only thing the reply cannot omit.
+    let required: Vec<&str> = schema
+        .pointer("/required")
+        .and_then(|r| r.as_array())
+        .map(|r| r.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    assert!(!required.contains(&"misdated"), "required = {required:?}");
+    assert!(required.contains(&"description"), "required = {required:?}");
 }
