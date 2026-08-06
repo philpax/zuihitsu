@@ -91,7 +91,7 @@ Both are load-bearing behaviours moving from wording into structure, which is th
 
 ### Made worse
 
-**#66** (the console replica must bound its event-log mirror and time-travel window) moves from deferred to blocking. The console holds the whole log in browser memory and re-folds it from zero on every time-travel scrub, and this design multiplies the dominant term in log size: recorded model calls are already 96% of payload bytes in the live instance, and structuring adds a call per write block on top. Everything the design moves into the fold, severance filtering, alias resolution, credence derivation, frame defaulting, is then paid per scrub. A measured budget, bytes added per turn and browser fold time at realistic log sizes, is a prerequisite rather than a follow-up.
+**#66** (the console replica must bound its event-log mirror and time-travel window) moves from deferred to blocking. The console holds the whole log in browser memory and re-folds it from zero on every time-travel scrub, and this design multiplies the dominant term in log size: recorded model calls are already 96% of payload bytes in the live instance, and structuring adds a call per write block on top. Everything the design moves into the fold, severance filtering, alias resolution, credence derivation, frame defaulting, is then paid per scrub. A measured budget, bytes added per turn and browser fold time at realistic log sizes, is a prerequisite rather than a follow-up, and it now has a stage: [`evolution.md`](evolution.md) 0d.
 
 ### Inherited, not solved
 

@@ -131,6 +131,24 @@ Three properties are therefore owed by a bulk path, and none of them is expressi
 - **The gate runs before extraction, not as part of it.** A judgement about what warrants structuring that is itself a model call per span reduces writes without reducing calls, which is the wrong half.
 - **Failure is per span and never loses the source.** A span that will not structure stays a gloss under its source layer, exactly as an utterance does.
 
-Deferring the structuring to a later pass is not an option, for the reason [`write-surface.md`](write-surface.md) gives: structure recovered from committed prose is the tax this design exists to end, and an exception for documents is an exception for the largest inputs there are.
+### The path
 
-This is a real gap. The path is named and its constraints are stated; the mechanism is not designed, and the cost model belongs beside stage 0c's numbers rather than in a paragraph here.
+`ingest` is a verb of its own and a job rather than a call. The agent supplies a source and the fields no extractor can infer, and receives a handle; the work runs on [the heartbeat's judgement budget](off-turn.md), not inside the turn. Five phases.
+
+**The source layer lands first, and calls nothing.** The document is chunked deterministically, by heading and then by paragraph windows with fixed overlap, and every span commits as a gloss under one source memory, `observed` at the document's authored date and `recorded` now. This is why failure cannot lose the source: the source is durable before anything capable of failing has run, which is a construction rather than a handler.
+
+**The gate is symbolic first and batched second.** A model call per span to decide whether a span deserves a model call is the trap this path exists to avoid. So a symbolic pre-filter drops spans with no anchor at all, no resolvable handle, no date, no quantity, no registered relation stem, which removes navigation, boilerplate, and front matter for nothing. What survives is digested to its heading path and opening sentence, and one batched call selects from the digest. The gate costs a call per few hundred spans.
+
+**Extraction batches.** Selected spans pack into context-sized batches, one schema-constrained call each, every proposal tagged with its span. Cost becomes a function of document length over context window rather than of chunk count, which is the property that makes a long source affordable at all.
+
+**Critics run per proposal and call nothing.** A rejection does not fail its batch: the span stays gloss-only under the mark [`off-turn.md`](off-turn.md) already defines, retried once. Per-span failure without per-span calls.
+
+**Structure lands over the document.** Sections become memories under the source, linked by composition, with summarisation relations from a section to its digest, so a long work is navigable rather than one blob.
+
+### Two things this has to argue rather than assert
+
+**It is not deferred structuring.** The prohibition in [`write-surface.md`](write-surface.md) is on recovering structure from prose the store already treats as settled, which is the re-derivation tax. Here the source layer and its structure land in one job, and nothing reads the source as settled in between: a span committed in the first phase carries a pending mark that keeps it out of search and off every read surface until the job completes or degrades it to gloss-only. Ingest is one transaction spanning several blocks, which is the shape the write surface already accepts when it makes the returned parse a deferred handle.
+
+**Audience is per document, not per Statement.** A per-Statement audience decision over several hundred Statements is not answerable by anyone, so the required-field discipline is met differently rather than waived: the document carries one transmission principle, inherited by every span and every Statement drawn from it, defaulting to the stricter of what the agent supplied and what the requesting conversation permits. Anything derived later takes the ordinary intersection. Where a document genuinely mixes audiences, the whole of it takes the strict principle and the agent re-records the public parts by hand, which is the same trade [an episode](two-traces.md) makes.
+
+The cost model is four numbers, and stage 0c's harness produces them with the extractor pointed at a document instead of an entry: calls per hundred thousand words at a stated selection rate, recorded bytes per call, wall clock including the tail, and yield per selected span.

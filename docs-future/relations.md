@@ -59,7 +59,9 @@ With the hatch, the nuance goes into a field that is honest about being unstruct
 
 ## The seed vocabulary stays minimal
 
-The relations present at genesis are the structural universals the system itself depends on: identity, participation, composition, placement, origin, operatorship, and acquaintance.
+The relations present at genesis are the structural universals the system itself depends on: identity, participation, composition, placement, origin, operatorship, presentation, and acquaintance.
+
+Presentation is `presents`, from a principal to a persona they run. It is seeded rather than coined because the [frame's redirect](statements.md) resolves against it at write time, and a structural mechanism cannot wait on the agent to invent the relation it depends on. It sits beside operatorship, which is its nearest neighbour and equally structural.
 
 Social and environmental semantics are the agent's to coin at runtime. That has not changed, and it should not: an ontology preloaded with what the designers thought mattered is an ontology that constrains what the agent can notice. What has changed is that coinage now happens against a schema that can catch misuse, and that a mis-coined relation is repairable rather than permanent.
 
