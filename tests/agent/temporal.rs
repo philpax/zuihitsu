@@ -24,6 +24,9 @@ pub(super) struct SynthesizeReply {
     description: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     occurrences: Vec<SynthesizeOccurrence>,
+    /// Statement numbers the scripted extraction reports as carrying a date belonging to a different
+    /// referent. Serialized always, so a fixture that names none exercises the empty-list path too.
+    misdated: Vec<usize>,
 }
 
 impl SynthesizeReply {
@@ -31,6 +34,7 @@ impl SynthesizeReply {
         SynthesizeReply {
             description: text.into(),
             occurrences: Vec::new(),
+            misdated: Vec::new(),
         }
     }
 
@@ -38,19 +42,30 @@ impl SynthesizeReply {
         self.occurrences.push(occurrence);
         self
     }
+
+    /// Report `statement` (1-based) as carrying a date that describes a different referent.
+    pub(super) fn with_misdated(mut self, statement: usize) -> Self {
+        self.misdated.push(statement);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct SynthesizeOccurrence {
     pub(super) entry: usize,
+    /// The words the extraction claims to have read the time from. Checked against the statement's own
+    /// text, so a fixture states the cue its statement actually contains — a test that wants the
+    /// span check to fail names one the statement does not.
+    cue: String,
     occurred_at: SynthesizeTime,
 }
 
 impl SynthesizeOccurrence {
-    /// An occurrence on a specific day (the common case in tests).
-    pub(super) fn day(entry: usize, day: impl Into<String>) -> Self {
+    /// An occurrence on a specific day, cued by `cue` — the common case in tests.
+    pub(super) fn day(entry: usize, cue: impl Into<String>, day: impl Into<String>) -> Self {
         SynthesizeOccurrence {
             entry,
+            cue: cue.into(),
             occurred_at: SynthesizeTime::day(day),
         }
     }
@@ -140,7 +155,7 @@ async fn an_authored_occurrence_survives_a_current_day_extraction() {
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
             SynthesizeReply::description("Vendor demo, locked.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+                .with_occurrence(SynthesizeOccurrence::day(2, "this date", "2026-06-08")),
         ),
         no_conflict(),
     ]);
@@ -198,7 +213,7 @@ async fn a_differently_dated_extraction_still_applies() {
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
             SynthesizeReply::description("Vendor demo, moved.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-10-12")),
+                .with_occurrence(SynthesizeOccurrence::day(2, "the 12th", "2026-10-12")),
         ),
         no_conflict(),
     ]);
@@ -248,7 +263,7 @@ async fn a_current_day_extraction_applies_without_a_dated_sibling() {
         Completion::Reply("Noted.".to_owned()),
         synthesize_call(
             SynthesizeReply::description("Vendor demo, underway.")
-                .with_occurrence(SynthesizeOccurrence::day(2, "2026-06-08")),
+                .with_occurrence(SynthesizeOccurrence::day(2, "today", "2026-06-08")),
         ),
         no_conflict(),
     ]);
@@ -268,6 +283,71 @@ async fn a_current_day_extraction_applies_without_a_dated_sibling() {
     assert_eq!(entries[1].occurred_sort, Some(day_noon("2026-06-08")));
     assert_eq!(temporal_resolutions(&h.events()).len(), 1);
     assert!(temporal_resolve_failures(&h.events()).is_empty());
+}
+
+#[tokio::test]
+async fn a_current_day_extraction_is_suppressed_when_the_statement_names_no_time() {
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // An intention waiting on a date nobody holds yet. No sibling carries an occurrence, so the
+    // differently-dated branch cannot fire — the statement's own silence is what disarms the
+    // resolution, which would otherwise stamp the day the conversation happened onto a timeless fact.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { visibility = "public" })
+               demo:append("Keen to help with setup once the room is sorted.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, unscheduled.").with_occurrence(
+                SynthesizeOccurrence::day(2, "once the room is sorted", "2026-06-08"),
+            ),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Happy to pitch in", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    assert_eq!(entries[1].occurred_sort, None);
+    assert!(temporal_resolutions(&h.events()).is_empty());
+    // Name the branch: a bare failure count also passes when the reference merely failed to parse, or
+    // when the sibling branch fired for an unrelated reason.
+    let failures = temporal_resolve_failures(&h.events());
+    assert_eq!(failures.len(), 1);
+    let EventPayload::EntryTemporalResolveFailed { reason, .. } = &failures[0] else {
+        panic!(
+            "expected an EntryTemporalResolveFailed, got {:?}",
+            failures[0]
+        );
+    };
+    assert!(
+        reason.contains("names no time of its own"),
+        "expected the statement-names-no-time branch, got: {reason}"
+    );
 }
 
 #[tokio::test]
@@ -299,7 +379,7 @@ async fn temporal_extraction_resolves_an_untimed_entry() {
         // The synthesis call resolves statement 1's "last Tuesday" to a concrete day.
         synthesize_call(
             SynthesizeReply::description("Dave, met recently.")
-                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-02")),
+                .with_occurrence(SynthesizeOccurrence::day(1, "last Tuesday", "2026-06-02")),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -345,8 +425,11 @@ async fn temporal_extraction_does_not_override_an_explicit_occurred_at() {
         Completion::Reply("Noted.".to_owned()),
         // The model tries to time statement 1, but the agent already set it explicitly.
         synthesize_call(
-            SynthesizeReply::description("Dave.")
-                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-02")),
+            SynthesizeReply::description("Dave.").with_occurrence(SynthesizeOccurrence::day(
+                1,
+                "Met Dave",
+                "2026-06-02",
+            )),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))
@@ -485,4 +568,181 @@ async fn a_single_sided_arbitration_is_dropped() {
     h.describe(&model).await;
 
     assert!(belief_arbitrations(&h.events()).is_empty());
+}
+
+#[tokio::test]
+async fn a_resolution_whose_cue_is_absent_from_the_statement_is_dropped() {
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    // The date is plausible and lands nowhere near the current day, so no day-shaped check would
+    // question it — but the statement never says "next Friday", so the extraction cannot have read
+    // that from what it was shown. The span check is what catches it.
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo", { visibility = "public" })
+               demo:append("The migration is still waiting on the vendor.", { visibility = "public" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(
+            SynthesizeReply::description("Vendor demo, pending.")
+                .with_occurrence(SynthesizeOccurrence::day(2, "next Friday", "2026-09-04")),
+        ),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Where is the migration", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    assert_eq!(entries[1].occurred_sort, None);
+    assert!(temporal_resolutions(&h.events()).is_empty());
+    let failures = temporal_resolve_failures(&h.events());
+    assert_eq!(failures.len(), 1);
+    let EventPayload::EntryTemporalResolveFailed { reason, .. } = &failures[0] else {
+        panic!(
+            "expected an EntryTemporalResolveFailed, got {:?}",
+            failures[0]
+        );
+    };
+    assert!(
+        reason.contains("does not appear in the statement"),
+        "expected the span-check branch, got: {reason}"
+    );
+}
+
+#[tokio::test]
+async fn a_date_describing_another_referent_is_withdrawn_from_the_subject() {
+    // The #125 shape, at the visibility it actually occurs at: an entry about a person, dated to a year
+    // belonging to the namesake the statement mentions rather than to the person. `Attributed` is the
+    // load-bearing detail — a fact relayed about someone defaults there, and such an entry is held out
+    // of the description pass to preserve its "via <teller>" marker, so only the focused non-public pass
+    // ever sees it. Reviewing `Public` entries alone would leave this exact case unreachable.
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local wren = memory.create("person/wren", "Lighting tech", { visibility = "public" })
+               wren:append("is named for the keeper in the great storm of 14 March 1902", { visibility = "attributed", occurred_at = "1902-03-14" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        // The public description pass, which sees the seed mirror but not the attributed entry.
+        synthesize_call(SynthesizeReply::description(
+            "Lighting tech, named for a lighthouse keeper.",
+        )),
+        no_conflict(),
+        // The focused non-public pass, whose list is the attributed entry alone — statement 1 — and the
+        // only pass that ever sees it.
+        synthesize_call(SynthesizeReply::description("Lighting tech.").with_misdated(1)),
+    ]);
+    run_turn(h.as_turn(&model, "Wren joined the crew", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let wren = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Person.with_name("wren"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(wren.id).unwrap();
+    let dated = entries
+        .iter()
+        .find(|entry| entry.text.contains("named for the keeper"))
+        .expect("the namesake entry is on the memory");
+    assert!(
+        dated.occurred_at.is_none(),
+        "the namesake's 1902 date is withdrawn, leaving the entry untimed: {:?}",
+        dated.occurred_at
+    );
+}
+
+#[tokio::test]
+async fn an_authored_date_the_pass_does_not_challenge_is_left_alone() {
+    // The counter-test to the withdrawal above, and the guarantee #67 established: an authored date the
+    // pass does not name in `misdated` stands untouched. Withdrawal is only ever the outcome of a
+    // positive report, never of the pass merely looking at a dated entry.
+    let mut h = Harness::new();
+    genesis::rollout(
+        h.engine.store.lock().as_mut(),
+        &h.clock,
+        &seed(),
+        None,
+        &InstanceFeatures::default(),
+    )
+    .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+    h.baseline_descriptions();
+
+    let model = ScriptedModel::new([
+        run_lua_call(
+            r#"local demo = memory.create("event/demo", "Vendor demo")
+               demo:append("The vendor demo runs on the 3rd of October.", { visibility = "public", occurred_at = "2026-10-03" })"#,
+        ),
+        Completion::Reply("Noted.".to_owned()),
+        synthesize_call(SynthesizeReply::description("Vendor demo on 3 October.")),
+        no_conflict(),
+    ]);
+    run_turn(h.as_turn(&model, "Lock the demo", 8))
+        .await
+        .unwrap();
+    h.describe(&model).await;
+
+    let demo = h
+        .engine
+        .graph
+        .lock()
+        .memory_by_name(Namespace::Event.with_name("demo"))
+        .unwrap()
+        .unwrap();
+    let entries = h.engine.graph.lock().entries_local(demo.id).unwrap();
+    let dated = entries
+        .iter()
+        .find(|entry| entry.text.contains("vendor demo runs"))
+        .expect("the dated entry is on the memory");
+    assert!(
+        dated.occurred_at.is_some(),
+        "an unchallenged authored date is never withdrawn",
+    );
 }

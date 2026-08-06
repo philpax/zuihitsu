@@ -168,7 +168,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
              own observation (a synthesis or a flush) has no default — set its visibility yourself, \
              public or private.",
         )
-        .required("text", AT::String, "the entry text (must be under the character limit — summarize what you learned rather than pasting source content)")
+        .required("text", AT::String, "the entry text (must be under the character limit — summarize what you learned rather than pasting source content). To build it from a value, use a backtick string, which interpolates: `booked for {date}`. A plain quoted string does not — \"booked for {date}\" stores those braces literally, and is refused")
         .optional(
             "opts",
             object()
@@ -247,9 +247,11 @@ pub(super) fn entries() -> Vec<ApiEntry> {
             "Stand behind an existing entry's fact as a further teller, instead of recording it \
              again. When someone independently confirms something you already hold, attest the entry \
              rather than appending a duplicate — the fact gains a corroborating teller and keeps its \
-             wording. An ordinary <memory>:append already does this for you when it detects a \
-             near-duplicate (returning the existing entry with a note); reach for attest when you \
-             have the entry in hand and mean to corroborate it directly. The attestation is governed \
+             wording. An ordinary <memory>:append folds in a near-identical restatement for you \
+             (returning the existing entry with a note), but that fold is a safety net, not the path \
+             for a confirmation: a teller confirming a fact states their grounds along with it, which \
+             reads as a different fact to the duplicate check and lands as a second copy. Read the \
+             entry and attest it. The attestation is governed \
              like any confidence: its posture may sit at the entry's own audience or narrower, never \
              wider — if the fact is now openly stated where it was private, append it afresh instead.",
         )

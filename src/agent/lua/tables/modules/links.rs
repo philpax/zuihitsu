@@ -39,8 +39,8 @@ pub(crate) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
                     if let Value::Table(handle) = &object {
                         guard_search_write(handle)?;
                     }
-                    let from = link_target_id(&api, subject)?;
-                    let to = link_target_id(&api, object)?;
+                    let from = link_target_id(&api, subject, EndpointMode::Mint)?;
+                    let to = link_target_id(&api, object, EndpointMode::Mint)?;
                     // Neither endpoint may be a memory this block's search surfaced without naming it,
                     // however the endpoint was resolved (a name string is its own name) — the same
                     // block-boundary guard the content writers run.
@@ -72,8 +72,10 @@ pub(crate) fn links_table(lua: &Lua, api: &BlockApi) -> mlua::Result<Table> {
                         "a relation name string",
                         "links.remove(subject, \"knows\", object)",
                     )?;
-                    let from = link_target_id(&api, subject)?;
-                    let to = link_target_id(&api, object)?;
+                    // An unlink resolves both endpoints against what exists: removing an edge to a
+                    // memory there is no memory for is a slip, not a reason to create one.
+                    let from = link_target_id(&api, subject, EndpointMode::Existing)?;
+                    let to = link_target_id(&api, object, EndpointMode::Existing)?;
                     api.lock_all([from, to]).await;
                     api.block
                         .lock()

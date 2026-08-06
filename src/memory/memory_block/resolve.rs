@@ -8,7 +8,7 @@ use ulid::Ulid;
 use crate::{
     decay,
     event::{EventPayload, Teller, Visibility},
-    graph::{EntryView, Graph, GraphError},
+    graph::{EntryView, Graph, GraphError, MemoryView},
     ids::{EntryId, MemoryId, MemoryName},
     memory::{
         memory_block::{
@@ -236,6 +236,30 @@ impl MemoryBlock {
         }
     }
 
+    /// Whether one committed entry is a confidence the present audience may not see — the same
+    /// [`visible`] predicate [`MemoryBlock::annotate`] applies, for the by-id paths that resolve a
+    /// single entry instead of listing a memory's own. An entry id outlives the stub that hid its text,
+    /// so every path that turns an id back into content owes the audience this check; without it a
+    /// stubbed read hands out the id that undoes it.
+    ///
+    /// Carries `annotate`'s two carve-outs: with no one present — a solo flush or maintenance pass —
+    /// nothing is withheld, and the probe clears `superseded_by` so a superseded confidence is withheld
+    /// exactly as a live one is.
+    pub(super) fn withheld_from_present(
+        &self,
+        memory: &MemoryView,
+        view: &EntryView,
+    ) -> Result<bool, MemoryError> {
+        if self.present_set.is_empty() {
+            return Ok(false);
+        }
+        let graph = self.engine.graph.lock();
+        let class_of = |id| graph.class_id(id).map(|class| class.unwrap_or(id));
+        let mut probe = view.clone();
+        probe.superseded_by = None;
+        Ok(!visible(&probe, memory, &self.present_set, &class_of)?)
+    }
+
     /// Annotate each entry of a direct read with whether it is `withheld` and whether it is `stale`.
     ///
     /// *Withheld* applies the same [`visible`] predicate search does (resolving identity over the
@@ -365,17 +389,29 @@ impl MemoryBlock {
     /// entries plus this block's pending appends — the universe an entry-id prefix resolves against.
     /// A plain read: it touches nothing (the write it precedes records the class into the touched set).
     fn class_entry_texts(&self, id: MemoryId) -> Result<Vec<(EntryId, String)>, MemoryError> {
-        let (members, mut entries) = {
+        let (members, anchor, history) = {
             let graph = self.engine.graph.lock();
             let members: BTreeSet<MemoryId> =
                 graph.class_members(id)?.into_iter().chain([id]).collect();
-            let entries: Vec<(EntryId, String)> = graph
-                .class_history(id)?
-                .into_iter()
-                .map(|entry| (entry.entry_id, entry.text))
-                .collect();
-            (members, entries)
+            (members, graph.memory_by_id(id)?, graph.class_history(id)?)
         };
+        // The candidates render into [`MemoryError::AmbiguousEntryPrefix`], so a confidence the present
+        // audience may not see is stubbed here. The entry stays in the matching universe — a prefix
+        // still resolves to it, and the correction it precedes still lands — but a deliberately short
+        // prefix cannot turn the error into a listing of everything the class holds.
+        let mut entries: Vec<(EntryId, String)> = Vec::with_capacity(history.len());
+        for entry in history {
+            let withheld = match &anchor {
+                Some(memory) => self.withheld_from_present(memory, &entry)?,
+                None => false,
+            };
+            let text = if withheld {
+                WITHHELD_STUB.to_owned()
+            } else {
+                entry.text
+            };
+            entries.push((entry.entry_id, text));
+        }
         for event in &self.buffer {
             if let EventPayload::MemoryContentAppended {
                 id: entry_memory,

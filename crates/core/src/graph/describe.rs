@@ -125,4 +125,32 @@ impl Graph {
             Ok::<_, GraphError>(EntryId(parse_ulid(&entry_id)?))
         })
     }
+
+    /// The **timed** entries of `id` appended after `after` — the entries a per-memory temporal
+    /// extraction may challenge but never re-time. The mirror of [`Graph::untimed_entries_since`], and
+    /// deliberately a separate window: an occurrence already on an entry is the agent's own judgement,
+    /// which extraction may withdraw when the date turns out to describe a different referent than the
+    /// statement's subject, and may never replace with a guess of its own. Replacing is the failure that
+    /// made an authored date sacrosanct in the first place; withdrawing only ever returns the entry to
+    /// untimed, which disarms a wake-up rather than arming a wrong one.
+    ///
+    /// The same exclusions apply as for the untimed window — a superseded entry is dead, and a
+    /// description mirror names no time of its own — and `seq > after` keeps the window to what this
+    /// pass has not yet considered.
+    pub fn timed_entries_since(
+        &self,
+        id: MemoryId,
+        after: Seq,
+    ) -> Result<Vec<EntryId>, GraphError> {
+        let stmt = self.conn.prepare(
+            "SELECT entry_id FROM content_entries
+             WHERE memory_id = ?1 AND occurred_at IS NOT NULL AND superseded_by IS NULL
+                   AND description_mirror = 0 AND seq > ?2
+             ORDER BY seq",
+        )?;
+        query_map_into(stmt, params![id.0.to_string(), after.0 as i64], |row| {
+            let entry_id: String = row.get(0)?;
+            Ok::<_, GraphError>(EntryId(parse_ulid(&entry_id)?))
+        })
+    }
 }

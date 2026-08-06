@@ -64,10 +64,10 @@ impl std::str::FromStr for TagName {
 /// A link relation, by label. The relation registry lives in data (spec §Data model) and the agent
 /// registers relations at runtime, so this is a typed lens over the names: the build's seed
 /// relations are named variants that code can match (`SameAs` drives identity-class merging,
-/// `ParticipatesIn` event attendance, `PartOf` membership or aboutness), and everything else —
-/// including the inverse labels and every relation the agent coins for its own environment
-/// (mentorship, venues, employment) — falls to `Other`. It serializes as its bare name, so the wire
-/// format is just the string.
+/// `ParticipatesIn` event attendance, `PartOf` composition or aboutness, `MemberOf` standing
+/// membership), and everything else — including the inverse labels and every relation the agent coins
+/// for its own environment (mentorship and the like) — falls to `Other`. It serializes as its bare
+/// name, so the wire format is just the string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(as = "String"))]
 pub enum RelationName {
@@ -90,6 +90,9 @@ pub enum RelationName {
     LocatedAt,
     /// The inverse label of [`RelationName::LocatedAt`].
     LocationOf,
+    MemberOf,
+    /// The inverse label of [`RelationName::MemberOf`].
+    HasMember,
     Other(SmolStr),
 }
 
@@ -113,6 +116,8 @@ impl RelationName {
             "contains" => RelationName::Contains,
             "located_at" => RelationName::LocatedAt,
             "location_of" => RelationName::LocationOf,
+            "member_of" => RelationName::MemberOf,
+            "has_member" => RelationName::HasMember,
             _ => RelationName::Other(SmolStr::new(name)),
         }
     }
@@ -132,6 +137,8 @@ impl RelationName {
             RelationName::Contains => "contains",
             RelationName::LocatedAt => "located_at",
             RelationName::LocationOf => "location_of",
+            RelationName::MemberOf => "member_of",
+            RelationName::HasMember => "has_member",
             RelationName::Other(name) => name.as_str(),
         }
     }

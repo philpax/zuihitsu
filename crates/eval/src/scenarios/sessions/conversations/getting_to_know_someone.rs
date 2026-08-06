@@ -68,7 +68,9 @@ impl Scenario for GettingToKnowSomeone {
             .filter(|entry| entry.memory.starts_with(Namespace::Person.prefix()))
             .count();
         let accumulated = sam_entries >= 2;
-        let superseded = analysis::any_superseded(events);
+        // The location is as fairly modeled as a located_at edge as it is as entry text, so a
+        // correction lands either by superseding the entry or by moving the edge.
+        let corrected = analysis::any_correction_landed(events);
 
         let reply = analysis::last_agent_reply(events).unwrap_or_default();
         let judged = judge
@@ -96,10 +98,14 @@ impl Scenario for GettingToKnowSomeone {
                 format!("{sam_entries} entries landed on a person/ memory"),
                 "the facts did not accumulate on a person/ memory",
             ),
+            // Renamed from "superseded the stale location on the correction", which named one route to
+            // a correction rather than the property. The trend record keys per-criterion history by
+            // name, so this starts a fresh series — the honest cost of widening what is measured,
+            // where keeping the old name would have blended two different measurements under it.
             Verdict::oracle_outcome(
-                "superseded the stale location on the correction",
-                superseded,
-                "the Seattle entry was superseded by the Portland correction",
+                "retired the stale location on the correction",
+                corrected,
+                "the Seattle fact was retired, by superseding the entry or by moving the link",
                 "the stale location was left standing (or only the reply was updated)",
             ),
         ]

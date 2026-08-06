@@ -236,11 +236,27 @@ impl MemoryBlock {
         if let Some(entry) = self.entry_ref_by_id(entry_id) {
             return Ok(Some(entry));
         }
-        let committed = { self.engine.graph.lock().entry_by_id(entry_id)? };
+        // The withheld check runs here, not only on the listing reads: an entry id survives a stubbed
+        // read, so a by-id handback is reachable for a confidence the present audience may not see,
+        // and returning its text would undo the stub that hid it. Same predicate as `annotate`, with
+        // the same no-audience carve-out — supersession cleared, so a superseded confidence is
+        // withheld exactly as a live one is.
+        let Some((memory, view)) = ({
+            let graph = self.engine.graph.lock();
+            graph.entry_by_id(entry_id)?
+        }) else {
+            return Ok(None);
+        };
+        let withheld = self.withheld_from_present(&memory, &view)?;
         // A by-id handback carries only the founding teller; a live read is where the fuller attesting
         // set materializes with its audience.
-        Ok(committed
-            .map(|(_, view)| self.entry_ref(view, &BTreeSet::new(), false, false, Vec::new())))
+        Ok(Some(self.entry_ref(
+            view,
+            &BTreeSet::new(),
+            withheld,
+            false,
+            Vec::new(),
+        )))
     }
 }
 

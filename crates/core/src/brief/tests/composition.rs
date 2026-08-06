@@ -282,10 +282,15 @@ fn a_same_as_class_collapses_to_a_single_block() {
     // The present stub is present; the other two ride in the working set as would-be active threads.
     let out = compose_at_epoch(&graph, &settings, &[direct], None, &[canonical, chat]);
 
-    // One block for the identity, headed by the present stub — the bare stubs never get their own.
-    assert!(out.contains("## person/rowan@direct"));
-    assert!(!out.contains("## person/rowan\n"));
-    assert!(!out.contains("## person/rowan@chat"));
+    // One block for the whole identity, not one per stub. Which handle heads it is the class primary's,
+    // and nothing here is designated, so it falls to the earliest ULID among the three — a draw this
+    // fixture does not fix. The property under test is the collapse, so count the blocks rather than
+    // pin the winner; `a_present_stub_renders_under_its_designated_primary` covers which handle wins.
+    assert_eq!(
+        out.matches("## person/rowan").count(),
+        1,
+        "the class renders as exactly one block: {out}"
+    );
     // The two working-set stubs are the same identity as the present one, so nothing is left to render
     // as an active thread and the whole section drops.
     assert!(!out.contains("# Active threads"));
@@ -299,9 +304,69 @@ fn a_same_as_class_collapses_to_a_single_block() {
             .count(),
         1
     );
-    // The external edge surfaces on the collapsed block; the intra-class `same_as` plumbing does not.
-    assert!(out.contains("person/rowan@direct → knows → person/erin"));
+    // The external edge surfaces on the collapsed block, once, under whichever handle heads it; the
+    // intra-class `same_as` plumbing does not surface at all.
+    assert_eq!(out.matches("→ knows → person/erin").count(), 1, "{out}");
     assert!(!out.contains("same_as"));
+}
+
+#[test]
+fn a_present_stub_renders_under_its_designated_primary() {
+    // The operator designates a primary that is *not* the stub the participant arrives on — the one
+    // shape where the class handle and the arrival handle diverge. The block must be headed by the
+    // designated primary, because that is how the participant is named everywhere else the same prompt
+    // names them: `participant_names` labels their buffer turn with the class primary and
+    // `teller_display` attributes their facts the same way. Heading the block with the arrival stub
+    // instead puts two handles for one person in a single prompt with nothing saying they are the same,
+    // and the model reads that as two referents.
+    let bound = MemoryId::generate();
+    let formal = MemoryId::generate();
+    let (_store, graph) = materialized(vec![
+        EventPayload::LinkTypeRegistered {
+            name: RelationName::SameAs,
+            inverse: RelationName::SameAs,
+            from_card: Cardinality::Many,
+            to_card: Cardinality::Many,
+            symmetric: true,
+            reflexive: false,
+            description: String::new(),
+        },
+        // The bound stub is minted first, so it holds the earlier ULID and would win the class by the
+        // default rule — the designation below is what must override it.
+        created(bound, "person/wren@chat"),
+        created(formal, "person/wren"),
+        EventPayload::link_created(
+            bound,
+            formal,
+            RelationName::SameAs,
+            LinkPosture {
+                source: LinkSource::Operator,
+                told_by: None,
+                told_in: None,
+                visibility: Visibility::Public,
+            },
+        ),
+        EventPayload::class_primary_designated(formal, true),
+        appended(
+            formal,
+            1_000,
+            "runs the lighting board",
+            Teller::Agent,
+            Visibility::Public,
+        ),
+    ]);
+    let settings = Settings::default().brief;
+
+    let out = compose_at_epoch(&graph, &settings, &[bound], None, &[]);
+
+    assert!(
+        out.contains("## person/wren\n"),
+        "the block must be headed by the designated primary, got:\n{out}"
+    );
+    assert!(
+        !out.contains("## person/wren@chat"),
+        "the arrival stub must not head the block, got:\n{out}"
+    );
 }
 
 #[test]

@@ -482,8 +482,11 @@ async fn a_private_entry_stays_out_of_the_description_but_is_still_extracted() {
         synthesize_call(SynthesizeReply::description("Dave is a climber.")),
         // The focused extraction pass over the private untimed entry resolves its occurrence.
         synthesize_call(
-            SynthesizeReply::description("(discarded)")
-                .with_occurrence(SynthesizeOccurrence::day(1, "2026-06-16")),
+            SynthesizeReply::description("(discarded)").with_occurrence(SynthesizeOccurrence::day(
+                1,
+                "next Tuesday",
+                "2026-06-16",
+            )),
         ),
     ]);
     run_turn(h.as_turn(&model, "Remember Dave", 8))

@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    ConversationId, EntryId, Event, EventPayload, Initiation, MemoryId, Seq, Teller, TemporalRef,
-    TurnRole, Visibility,
+    ConversationId, EntryId, Event, EventPayload, Initiation, MemoryId, RelationName, Seq, Teller,
+    TemporalRef, TurnRole, Visibility,
 };
 
 use crate::analysis::EntryFacts;
@@ -471,6 +471,37 @@ pub fn any_superseded(events: &[Event]) -> bool {
     events
         .iter()
         .any(|event| matches!(event.payload, EventPayload::MemorySuperseded { .. }))
+}
+
+/// Whether the run redirected a link — removed one edge and created another from the same subject
+/// under the same relation, pointing somewhere new. The link-level counterpart of a supersession: a
+/// fact modeled as an edge (a location, an employer) is corrected by moving the edge, which leaves no
+/// [`EventPayload::MemorySuperseded`] behind because there was never an entry to supersede.
+pub fn any_link_redirected(events: &[Event]) -> bool {
+    let mut removed: BTreeSet<(MemoryId, RelationName, MemoryId)> = BTreeSet::new();
+    events.iter().any(|event| match &event.payload {
+        EventPayload::LinkRemoved { from, relation, to } => {
+            removed.insert((*from, relation.clone(), *to));
+            false
+        }
+        // Only an edge replacing one this run removed, and pointing somewhere new. An ordinary new
+        // link is not a correction, and restoring the identical edge — a visibility fiddle, a churny
+        // retry — corrects nothing, so the endpoint must actually have moved.
+        EventPayload::LinkCreated {
+            from, relation, to, ..
+        } => removed.iter().any(|(was_from, was_relation, was_to)| {
+            was_from == from && was_relation == relation && was_to != to
+        }),
+        _ => false,
+    })
+}
+
+/// Whether the run recorded a correction durably, by either route — superseding an entry or
+/// redirecting a link. The signal to assert when the scenario's corrected fact may legitimately be
+/// modeled either as entry text or as an edge, so insisting on [`any_superseded`] alone would score a
+/// clean link-level correction as no correction at all.
+pub fn any_correction_landed(events: &[Event]) -> bool {
+    any_superseded(events) || any_link_redirected(events)
 }
 
 /// The reconciling statements of every belief arbitration the run recorded.

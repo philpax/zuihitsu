@@ -4,6 +4,33 @@ use crate::{
     TEST_MAX_ENTRY_CHARS, Teller, TerminalCause, TurnId, common,
 };
 
+/// Register the symmetric `knows` relation and materialize it. The [`Harness`] skips genesis, so a
+/// test whose link instantiates a seed relation registers it first.
+async fn register_knows(h: &Harness) {
+    h.engine
+        .store
+        .lock()
+        .append(
+            h.clock.now(),
+            EventSource::Agent,
+            vec![EventPayload::LinkTypeRegistered {
+                name: RelationName::Knows,
+                inverse: RelationName::Knows,
+                from_card: Cardinality::Many,
+                to_card: Cardinality::Many,
+                symmetric: true,
+                reflexive: false,
+                description: String::new(),
+            }],
+        )
+        .unwrap();
+    h.engine
+        .graph
+        .lock()
+        .materialize_from(h.engine.store.lock().as_ref())
+        .unwrap();
+}
+
 #[tokio::test]
 async fn link_with_an_unregistered_relation_is_a_teachable_error() {
     let h = Harness::new();
@@ -30,29 +57,7 @@ async fn link_and_unlink_resolve_a_name_string_target() {
     // block links via a string *and* appends a confidence in one go; both must survive together. Unlink
     // shares the same resolution seam, so a name string clears the edge too.
     let h = Harness::new();
-    // The Harness skips genesis, so register the `knows` relation the link instantiates.
-    h.engine
-        .store
-        .lock()
-        .append(
-            h.clock.now(),
-            EventSource::Agent,
-            vec![EventPayload::LinkTypeRegistered {
-                name: RelationName::Knows,
-                inverse: RelationName::Knows,
-                from_card: Cardinality::Many,
-                to_card: Cardinality::Many,
-                symmetric: true,
-                reflexive: false,
-                description: String::new(),
-            }],
-        )
-        .unwrap();
-    h.engine
-        .graph
-        .lock()
-        .materialize_from(h.engine.store.lock().as_ref())
-        .unwrap();
+    register_knows(&h).await;
     h.run(r#"memory.create(PERSON_DAVE)"#).await;
     h.run(r#"memory.create(PERSON_ERIN)"#).await;
 
@@ -103,25 +108,143 @@ async fn link_and_unlink_resolve_a_name_string_target() {
 }
 
 #[tokio::test]
-async fn link_to_an_unknown_name_teaches_creation() {
-    // A name string that names no memory is a teachable miss — it says the name is unknown and points at
-    // creating it or checking the casing, rather than lecturing about handles, so the agent's fix is to
-    // create the memory (or correct a typo), not to reach for a handle it does not have.
+async fn link_to_a_free_name_mints_the_endpoint() {
+    // Naming the far end of a relationship before anything is known about it is an ordinary shape, so a
+    // name string that shadows no existing handle is created bare rather than failing the block — which
+    // would roll back whatever else the block wrote alongside it.
     let h = Harness::new();
+    register_knows(&h).await;
     h.run(r#"memory.create(PERSON_DAVE)"#).await;
     let outcome = h
-        .run(r#"links.create(memory.get(PERSON_DAVE), "knows", "person/nobody", { visibility = "public" })"#)
+        .run(r#"links.create(memory.get(PERSON_DAVE), "knows", PERSON_NOBODY, { visibility = "public" })"#)
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Committed { .. }),
+        "a free endpoint name should mint and commit, got {outcome:?}"
+    );
+    let BlockOutcome::Committed { result } = h
+        .run(r#"return memory.get(PERSON_DAVE):outgoing("knows")"#)
+        .await
+    else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        result.contains("nobody"),
+        "the minted endpoint should carry the edge, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn an_uninterpolated_endpoint_name_is_never_minted() {
+    // A plain quoted string does not interpolate, so `"person/{name}"` reaches here with its braces
+    // intact. Minting it would put the agent's own slip in the log permanently, under a handle nothing
+    // will ever resolve — the placeholder guard every other minting path runs must hold here too.
+    let h = Harness::new();
+    register_knows(&h).await;
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    let outcome = h
+        .run(r#"links.create(memory.get(PERSON_DAVE), "knows", "person/{name}", { visibility = "public" })"#)
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Terminated(TerminalCause::Error(_))),
+        "an uninterpolated endpoint must not commit, got {outcome:?}"
+    );
+    let BlockOutcome::Committed { result } = h.run(r#"return memory.list("person/")"#).await else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        !result.contains("{name}"),
+        "no memory should have been minted for the placeholder, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn unlinking_an_unknown_name_does_not_mint_it() {
+    // Minting is `links.create`'s convenience only. An unlink naming a memory that does not exist is a
+    // slip — creating the memory on the way to disconnecting from it is the opposite of the intent.
+    let h = Harness::new();
+    register_knows(&h).await;
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    let outcome = h
+        .run(r#"links.remove(memory.get(PERSON_DAVE), "knows", PERSON_NOBODY)"#)
+        .await;
+    assert!(
+        matches!(outcome, BlockOutcome::Terminated(TerminalCause::Error(_))),
+        "an unlink against an unknown name must not commit, got {outcome:?}"
+    );
+    let BlockOutcome::Committed { result } = h.run(r#"return memory.list("person/")"#).await else {
+        panic!("expected a committed read");
+    };
+    assert!(
+        !result.contains("nobody"),
+        "an unlink must not mint its target, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn a_free_form_endpoint_name_is_not_minted() {
+    // The near-match guard is scoped to a namespace, so it is blind to a name carrying no recognised
+    // prefix — nothing would catch `project/atlus` against an existing `project/atlas`. Minting is
+    // therefore limited to the namespaces the guard can see, and a free-form name keeps the old error.
+    let h = Harness::new();
+    register_knows(&h).await;
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    let outcome = h
+        .run(r#"links.create(memory.get(PERSON_DAVE), "knows", "project/atlas", { visibility = "public" })"#)
         .await;
     match outcome {
         BlockOutcome::Terminated(TerminalCause::Error(message)) => {
             assert!(
-                message.contains("no memory named \"person/nobody\"")
-                    && message.contains("create it first")
-                    && message.contains("casing"),
-                "the unknown name should teach creation/casing, got: {message}"
+                message.contains("no memory named \"project/atlas\""),
+                "a free-form endpoint should stay a teachable miss, got: {message}"
             );
         }
         other => panic!("expected a teachable unknown-name error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_machinery_owned_endpoint_name_is_not_minted() {
+    // A context/ memory is minted by the session machinery alongside a real room, and person/operator
+    // by the imprint. Creating either here names something that does not exist, or squats a handle a
+    // later imprint binds.
+    let h = Harness::new();
+    register_knows(&h).await;
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    for endpoint in [r#""context/chat:ghost-room""#, r#"PERSON_OPERATOR"#] {
+        let outcome = h
+            .run(&format!(
+                r#"links.create(memory.get(PERSON_DAVE), "knows", {endpoint}, {{ visibility = "public" }})"#
+            ))
+            .await;
+        assert!(
+            matches!(outcome, BlockOutcome::Terminated(TerminalCause::Error(_))),
+            "{endpoint} must not be minted, got {outcome:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn link_to_a_near_matching_name_teaches_the_neighbour() {
+    // The one case minting is refused: a name a hair off an existing handle would split that subject's
+    // facts across two memories, which no later read can see and no create can undo. The error lists the
+    // neighbours so the fix is to pick the handle meant, not to invent a distinguishing name.
+    let h = Harness::new();
+    register_knows(&h).await;
+    h.run(r#"memory.create(PERSON_DAVE)"#).await;
+    h.run(r#"memory.create(PERSON_ERIN)"#).await;
+    let outcome = h
+        .run(r#"links.create(memory.get(PERSON_DAVE), "knows", "person/erim", { visibility = "public" })"#)
+        .await;
+    match outcome {
+        BlockOutcome::Terminated(TerminalCause::Error(message)) => {
+            assert!(
+                message.contains("no memory named \"person/erim\"")
+                    && message.contains("person/erin"),
+                "a near-matching endpoint should name the neighbour, got: {message}"
+            );
+        }
+        other => panic!("expected a teachable near-match error, got {other:?}"),
     }
 }
 
@@ -266,7 +389,7 @@ async fn link_readers_traverse_the_merged_identity() {
         MemoryName::from(Namespace::Person.with_name("dave@chat")).as_str(),
         MemoryName::from(Namespace::Person.with_name("erin")).as_str(),
         MemoryName::from(Namespace::Person.with_name("frank")).as_str(),
-        "company/hooli",
+        "org/hooli",
     ] {
         h.run(&format!("memory.create({name:?})")).await;
     }
@@ -299,10 +422,8 @@ async fn link_readers_traverse_the_merged_identity() {
         .await;
     h.run(r#"links.create(memory.get(PERSON_FRANK), "mentor_of", memory.get(PERSON_DAVE_AT_CHAT), { visibility = "public" })"#)
         .await;
-    h.run(
-        r#"links.create(memory.get(PERSON_DAVE_AT_CHAT), "works_at", memory.get("company/hooli"))"#,
-    )
-    .await;
+    h.run(r#"links.create(memory.get(PERSON_DAVE_AT_CHAT), "works_at", memory.get("org/hooli"))"#)
+        .await;
 
     // outgoing: who Dave mentors — Erin, reached through the merged identity though queried via the
     // primary stub. A single edge, so the list renders as the one readable line.
@@ -356,7 +477,7 @@ async fn link_readers_traverse_the_merged_identity() {
         )),
         "{result}"
     );
-    assert!(result.contains("works_at → company/hooli"), "{result}");
+    assert!(result.contains("works_at → org/hooli"), "{result}");
     assert!(
         !result.contains("same_as"),
         "the same_as plumbing must not surface as a relationship: {result}"

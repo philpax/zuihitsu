@@ -292,9 +292,18 @@ impl MemoryBlock {
                 .iter()
                 .map(|attestation| (attestation.teller.clone(), attestation.posture.clone()))
                 .collect();
+            // The corroboration note quotes this text back to the agent, so a confidence the present
+            // audience may not see is stubbed here exactly as a read stubs it. Attesting one is still
+            // allowed — standing behind a fact needs no sight of its wording — but the endorsement must
+            // not be the way its words arrive.
+            let withheld = self.withheld_from_present(&memory, &view)?;
             return Ok(AttestTarget {
                 memory: memory.id,
-                text: view.text,
+                text: if withheld {
+                    crate::memory::memory_block::WITHHELD_STUB.to_owned()
+                } else {
+                    view.text
+                },
                 attestations,
             });
         }

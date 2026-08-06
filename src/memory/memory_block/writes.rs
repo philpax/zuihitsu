@@ -26,6 +26,27 @@ impl MemoryBlock {
         self.create_with_opts(name, content, None)
     }
 
+    /// Resolve a link endpoint named by string, minting a bare memory when the name is free. Linking
+    /// to a memory that does not exist yet is an ordinary shape — the cast of a relationship is often
+    /// named before anyone has said anything about it — and failing the whole block for it rolls back
+    /// the co-located writes, so the endpoint is created rather than refused.
+    ///
+    /// A name that near-matches an existing handle is the exception: minting it would split one
+    /// subject's facts across two memories, the harm a bare create cannot undo and the read path
+    /// cannot see. That case keeps the teachable error, now carrying the near-matches so the agent can
+    /// pick the handle it meant. A genuinely new name mints; a typo is caught.
+    pub fn link_endpoint(&mut self, name: &str) -> Result<MemoryId, MemoryError> {
+        if let Some((id, _)) = self.get(name)? {
+            return Ok(id);
+        }
+        let name = MemoryName::new(name);
+        let similar = self.similar_names(&name)?;
+        if !similar.is_empty() {
+            return Err(MemoryError::LinkEndpointNearMatch { name, similar });
+        }
+        self.create(name, None)
+    }
+
     /// Create a memory with optional first-entry overrides, mirroring `append`'s option table. This
     /// keeps `memory.create(name, content, opts)` from silently dropping `occurred_at`, a footgun that
     /// produced untimed reminders that never fired. The first entry is resolved before anything is
