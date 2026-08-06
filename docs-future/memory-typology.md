@@ -84,7 +84,9 @@ The self slot is an append-only sequence of versions, of which one is current. I
 
 The current system keeps the charter as immutable content entries on a `self` memory, which protects the wording and not the slot. Immutability stops an entry being rewritten; it does not stop the entry being retracted, selected into a synthesis by a consolidation pass, summarised into a regenerable description, or dropped from a surface by an audience evaluation. A thing that must appear in every prompt should not be reachable by the machinery whose entire purpose is deciding what to leave out.
 
-### Directives are a kind of their own
+### Directives are configuration of their own
+
+"Kind" means a kind of memory throughout this chapter, and a directive is not one. It is the second thing living outside the typology, beside the slot, and it is named separately here to keep the count at four.
 
 The slot holds what the agent is. **Directives** are instructions about how to behave, and they are neither memory nor charter: they are scoped configuration with their own authors and their own lifecycle.
 
