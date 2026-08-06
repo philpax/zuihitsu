@@ -95,7 +95,7 @@ Both are load-bearing behaviours moving from wording into structure, which is th
 
 ### Inherited, not solved
 
-**#123** (the present set conflates audience with participation, leaking confidences to silent channel members) is a warning this design must take seriously rather than a problem it fixes. [Transmission principles](privacy-and-provenance.md) are predicates over *who is present*, which makes the definition of "present" load-bearing for every audience decision in the model. If that set is wrong, richer conditions evaluated against it are wrong more expressively. Defining presence correctly, separating being in a channel from being in the conversation, is a prerequisite for the privacy chapter rather than a consequence of it.
+**#123** (the present set conflates audience with participation, leaking confidences to silent channel members) is a warning this design must take seriously rather than a problem it fixes. [Transmission principles](privacy-and-provenance.md) are predicates over *who is present*, which makes the definition of "present" load-bearing for every audience decision in the model. If that set is wrong, richer conditions evaluated against it are wrong more expressively. Defining presence correctly, separating being in a channel from being in the conversation, is a prerequisite for the privacy chapter rather than a consequence of it. The same definition decides the witness set on a gloss, which is the one field in the model that widens an audience rather than restricting it, so a wrong answer here is wrong in both directions at once.
 
 ### Not addressed
 

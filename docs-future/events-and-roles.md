@@ -24,6 +24,14 @@ The corpus study tested this directly and found the role set was **not** the bin
 
 When the right role is genuinely unclear, the writer says so rather than guessing, and the [gloss](two-traces.md) preserves the surface form. A hedged role is recoverable; a confidently wrong one is not.
 
+## A role may have several fillers
+
+Two people who did the thing are two `agent` edges. Not one edge naming a pair, and not a count.
+
+Each edge is its own [Statement](statements.md), which is what makes the multiplicity worth having: one participant may be publicly known to have been there while another's presence was told in confidence, and the Event renders differently to different audiences without any duplication. An edge naming a pair could not carry two audiences, and a count could not carry either participant's identity.
+
+A count in a role slot is reserved for participants nobody has individuated, "about thirty people showed up", and is superseded by edges as soon as one of them becomes salient. See [counting](statements.md).
+
 ## Events relate to other events
 
 Roles place participants inside an event. They say nothing about how one event stands to another, and real recorded content needs that constantly: one thing sparks another, follows another, or is a consequence of another.
@@ -51,7 +59,9 @@ The same property is what makes an event correctable. Learning that the instrume
 
 ## Resolving a re-mention
 
-When a write arrives describing a happening the store already holds, it resolves to the existing Event rather than creating a second one. The test is structural: same event type, same agent and theme, overlapping time. A match adds any new edges the arriving description carried and records the new teller against the existing Statements.
+When a write arrives describing a happening the store already holds, it resolves to the existing Event rather than creating a second one. The test is structural: same event type, overlapping time, and agreeing agent and theme sets. A match adds any new edges the arriving description carried and records the new teller against the existing Statements.
+
+Sets that overlap without agreeing are a candidate, not a match. A happening described on one occasion with two of its three participants and on another with all three is one happening; two happenings of the same type sharing one participant are not. The difference is not decidable from the sets alone, so it goes to the critic bank as a proposal.
 
 What this does **not** do is discard the occasion. The re-mention keeps its own gloss and its own turn reference, so the Event accumulates the occasions on which it was discussed while holding one copy of what happened. Deduplicating the claim and preserving the episode are different operations, and the boundary between them is stated in [the two traces](two-traces.md).
 

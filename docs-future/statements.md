@@ -85,7 +85,9 @@ This is instance-level cardinality: a fact about one thing at one time. It is di
 
 Measures with units, such as a word count or an elapsed duration, are the neighbouring case and use the same slot. [The corpus study](research/2026-08-03/modelling-study.md) found both written into prose with their units, uninterpretable to any query.
 
-Collective and distributive readings are not distinguished. "Five people lifted the piano" is recorded as a count of participants in one [Event](events-and-roles.md), and whether they lifted it together or separately lives in the gloss.
+A count over participants is for the **unindividuated** case only. Where the participants are known people they are role-edges on an [Event](events-and-roles.md), one per participant, each an independently addressable Statement with its own teller and its own audience. Collapsing known participants into a count discards exactly the property the Event node exists to provide. "About thirty people showed up" is a count; "Wren, Rowan, and Quill lifted the piano" is three `agent` edges. A count whose members later become salient individuates by the ordinary refinement above.
+
+Collective and distributive readings are not distinguished in either shape. Whether they lifted it together or separately lives in the gloss.
 
 This is a **declined** distinction, not an unknown one. Conceptual graphs mark it in the notation, separating a collective plural from a distributive one, and the lattice-theoretic treatment of plurals behind that notation is mature. We are choosing not to pay for it, and [`research/2026-08-03/counting-and-quantity.md`](research/2026-08-03/counting-and-quantity.md) records where to go if plurals ever become load-bearing.
 
@@ -149,6 +151,24 @@ s12 (person/wren, keeps_pet, animal/pepper)
 `told_by` names a teller. A Statement with several tellers is a fact a set of people stand behind, which is what an endorsement is: there is no separate attestation object, and each teller's endorsement carries its own transmission principle and its own retraction authority. The last teller's retraction ends the Statement's life; an earlier one's does not.
 
 The observed-against-recorded pair is a genuine axis, not bookkeeping. It is what lets a document authored years ago and ingested today record both truthfully, and it is what relieves the pressure to date a claim by the day it was heard. A claim whose utterance anchors no time leaves its validity open and still sorts correctly, because the occasion of learning is held by the [episode](memory-typology.md), not smuggled into the claim.
+
+### Who else heard it
+
+Provenance names the teller. Who else was present when the utterance was made is the **witness set**, and it belongs to the [gloss](two-traces.md) rather than to each Statement, because it is a property of the occasion. One sentence spoken in a room of four yields eight Statements and one witness set.
+
+```
+g1  utterance, turn:01J7…
+    told_by    person/wren
+    witnesses  [person/rowan, person/quill]
+```
+
+Two mechanisms read it, and neither is computable without it.
+
+A [transmission principle](privacy-and-provenance.md) is evaluated against the present audience *less* the witnesses. Something said in front of four people is not a confidence held from any of the four, and withholding it from someone who was standing there is not discretion; it is a conspicuous silence in front of a person who knows better.
+
+[Dependence between attestations](belief.md) is partly determined by it. Two tellers who were both present when a third said something are not two pieces of evidence, and in a shared channel that is the ordinary case rather than the exception.
+
+The set widens an audience, which no other field does, so it is built from demonstrated participation rather than from channel membership. See [privacy and provenance](privacy-and-provenance.md).
 
 ## Validity
 

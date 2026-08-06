@@ -27,6 +27,8 @@ A merge licenses two different things, and they are separable.
 
 **Disclosure** crosses a boundary in the world: saying something to this account that was told by that one. It is not undoable, and it does not ride the same credence. It requires either evidence past a far stricter bar or a completed challenge-response, and until then the agent may know the connection without acting on it.
 
+The check is against the audience, not against an account. A merge cleared for disclosure to one person is not cleared in a room that person shares with others, because the disclosure that matters is to whoever is present. This is the same fail-closed quantification the [transmission principle](privacy-and-provenance.md) evaluator applies, and for the same reason.
+
 Separating these is what lets identity resolution be aggressive where the cost of being wrong is a re-fold, and conservative where the cost is a confidence spoken to the wrong person.
 
 ## Evidence comes from structure, not overlap
@@ -56,7 +58,7 @@ The stamp stays minimal by design. Only revocable assumptions are stamped, never
 
 Identity resolution happens in the substrate, before the agent sees anything.
 
-The agent receives one resolved handle for the person it is talking to and writes to what it is given. It does not choose between `person/quill`, `person/quill@chat`, and `person/quill@forum`, because only one of those is ever visible to it. It does not test whether two handles denote the same person, because it never holds two.
+The agent receives one resolved handle per person present and writes to what it is given. It does not choose between `person/quill`, `person/quill@chat`, and `person/quill@forum`, because only one of those is ever visible to it. It does not test whether two handles denote the same person, because it never holds two.
 
 This is not a convenience. The current system's identity machinery leaks into behaviour: after a confirmed merge, the agent failed to relay a sibling stub's history back to its own teller in seven of ten runs. The visibility and retrieval machinery held; the agent's model of the merged identity is what faltered. Given a surface with one handle and unified reads, there is nothing left to falter at, because there is no second thing to reason about.
 
