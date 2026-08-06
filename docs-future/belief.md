@@ -38,7 +38,7 @@ Two tellers repeating each other are not two pieces of evidence.
 
 This is the same soundness problem that makes attribute overlap useless for [identity](identity.md), and it has the same answer: dependence is a **provenance determination**, not a judgement. If two attestations trace to a common source, or one teller was present when the other learned it, they are dependent, and dependent evidence adds nothing.
 
-Both conditions are read from the record rather than inferred. The derivation graph carries the first; the [witness set](statements.md) on the gloss carries the second.
+Both conditions are read from the record rather than inferred. The derivation graph carries the first; the gloss's **exposure set** carries the second, which is the wider of [the two witness sets](privacy-and-provenance.md) precisely because over-counting exposure only suppresses corroboration.
 
 A third path runs through the agent itself, and it needs the same treatment. The agent is a witness to everything told to it and never an independent teller of what it was told, so re-recording a claim in its own words adds an occasion rather than a source. And because the agent's own utterances are glosses whose witnesses are their recipients, a relay is visible: someone who learned a fact from the agent and later tells it back is a distinct teller whose evidence traces to the original. Dependence through the agent is the commonest kind in a store the agent is constantly reading back to people, and it is detectable only because the relay left a record.
 
@@ -69,3 +69,11 @@ rather than:
 > confidence 0.72
 
 The opinion lives in the substrate. What surfaces is a coarse ordinal with the evidence attached, because that is what supports a decision about whether to act on a claim or go and check it. A number the agent cannot interrogate invites exactly the false precision that verbalised confidence already suffers from.
+
+## The belief is absolute; the account of it is not
+
+A claim's credence is computed once, over every teller, and does not vary by room. What varies is the **evidence account** rendered beside it, which is filtered to the tellers the present audience may learn of.
+
+The alternative fails on both horns. Rendering the full count reveals that an undisclosable endorser exists, which is a confidence leaking in aggregate. Recomputing credence per room makes the store's belief room-dependent, so a derivation computed in one conversation rests on a different credence than the same derivation in another, and the read paths diverge in exactly the way computing visibility once in the substrate exists to prevent.
+
+Separating the two keeps both properties: one belief, many accounts of it. Where the only thing distinguishing one room's account from another's is the existence of an endorser who cannot be named, the ordinal surfaces alone with no account at all, which is the [zero-residue](privacy-and-provenance.md) standard applied here rather than a special case. The agent sounds vaguer than it strictly needs to on occasion, which is the correct direction to fail.

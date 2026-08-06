@@ -36,7 +36,13 @@ The witness set rides the [gloss](statements.md), because it is a property of th
 
 Channel membership is not presence. A silent member of a busy room did not necessarily see what was said, and treating the roster as the witness set would license repeating a confidence to someone who never heard it: the same leak the present-set definition already has to prevent, arriving through the opposite door. The witness set is therefore built from demonstrated participation in the span, never from the roster, and where a connector cannot vouch for that, it falls back to the teller alone. Widening requires evidence; narrowing does not.
 
-The asymmetry is worth keeping in view, and it is also the field's unresolved problem. As a licence to disclose, the set must be narrow, and only demonstrated participation earns a place in it. As evidence of **dependence** in [belief](belief.md), it wants to be wide, because over-counting witnesses only suppresses corroboration, which is a claim held less firmly rather than a confidence spoken to the wrong person. One field cannot be both, and the narrow construction wins by default, which leaves someone who read a claim without participating invisible: repeating it later reads as independent corroboration when it is an echo. Two sets, one for disclosure and one for exposure, is the candidate and is [not yet taken](confidence.md).
+One set cannot do both jobs, so there are two.
+
+The **disclosure set** is the narrow one described above: demonstrated participation, fail-closed, the only one the audience evaluator ever reads. The **exposure set** is a superset, everyone a connector can say the utterance was delivered to, and it is read only by [the dependence test](belief.md). Someone who read a claim without participating is invisible to the first and present in the second, which is what stops their later repetition of it reading as independent corroboration.
+
+The principle underneath generalises past this field and is worth stating once: **a field that only ever suppresses may be generous; a field that ever licenses must be demonstrated.** Over-including an exposure set suppresses corroboration, so a claim is held less firmly than the evidence warrants, which is a recoverable error. Over-including a disclosure set speaks a confidence to the wrong person, which is not.
+
+Both rest on the same underlying judgement about who was in the conversation, which is why [`evolution.md`](evolution.md) stage 0b defines them together rather than twice.
 
 ## Zero residue
 

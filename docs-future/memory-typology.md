@@ -55,11 +55,15 @@ A note has no transmission principle of its own, which is what makes promotion d
 
 So a note carries a **taint set**: the Statements consulted while it was written. Promotion intersects the promoted Statement's principle against them, which is the same arithmetic [a derivation](statements.md) already does over its premises, reaching one step further back.
 
+**Consulted is defined operationally**, and this is the part that decides whether the mechanism works at all. The set is the explicit reads performed by the block that wrote the note, plus the turn's ambient recall, which is already a recorded and foldable event. It is *not* everything the model had in front of it: the brief is several kilobytes of composed memory content entering context with no read event, so a semantic reading of "consulted" would taint every note with the whole brief on the first note and make promotion impossible immediately. Excluding the brief is sound rather than convenient, because the brief is itself audience-computed before it is composed.
+
 Two consequences the design should own rather than discover.
 
 **Taint is monotone, so it must be per note.** A taint set that accumulates across a whole deliberation converges on everything the agent read, and promotion becomes impossible: everything is tainted by the strictest thing in the session. Tainting each note with what *that note* consulted keeps the sets small enough to be useful. A note that genuinely draws on a confidence should be hard to promote publicly; a note written beside one should not.
 
-**It settles how the scratchpad is stored.** Keeping notes in the log preserves the commitment that the system is a pure function of its log, while a side table would keep transient churn out of replay. A taint set decides it: the set is state the fold must reproduce, so a side table is not available. What remains is a compactable channel whose net effect after reflection is a single promote-or-discard. This resolves an [open question](confidence.md) toward the option the research lane was least sure of, and it is the audience invariant rather than a storage argument that forces it.
+**It settles how the scratchpad is stored.** Keeping notes in the log preserves the commitment that the system is a pure function of its log, while a side table would keep transient churn out of replay. A taint set decides it: the set is state the fold must reproduce, so a side table is not available. What remains is a compactable channel whose net effect after reflection is a single promote-or-discard.
+
+The volume worry that motivated the side table does not survive contact with the numbers. A note is text of the same order as a saved routine, hundreds of bytes, and a note a model wrote is *preceded by the recorded model call that wrote it*, which is two orders of magnitude larger. Scratchpad volume is bounded above by a small fraction of a cost the log already pays, and the ratio is scale-invariant because both terms scale with turns. This resolves an [open question](confidence.md) toward the option the research lane was least sure of, for a reason the lane did not have.
 
 ## The self is not a memory
 
