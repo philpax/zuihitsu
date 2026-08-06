@@ -57,33 +57,41 @@ Both are load-bearing behaviours moving from wording into structure, which is th
 
 ### Directly addressed
 
-| Issue | Becomes |
-|---|---|
-| **#112** episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it |
-| **#74** search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate |
-| **#114** fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation |
-| **#113** undated events stamped with the assertion day | The episode holds "when I learned this", so [`valid`](time.md) can stay open without the claim falling out of the timeline |
-| **#115** date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change |
-| **#106** volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the "as of" rather than a guess |
-| **#44** long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent |
-| **#42** relation schemas cannot be edited | Deprecate-and-alias |
-| **#94** autonomous identity unification | Revocable graded merges, relational evidence, tiered reversibility |
-| **#104** merged identity fails to relay sibling history | The substrate wall, with unified reads across the class |
-| **#100** in-block neural calls | Record-at-call-time activities, exposed primarily as schema-constrained functions |
-| **#103** typed dates and durations | First-class typed values, extended to quantities |
-| **#58** procedural memories | The procedural kind, indexed by description, decayed by invocation |
-| **#59** persistent scratchpad | The working kind, outside the visibility model. Storage remains open |
-| **#90** eval corpus redundancy | The four-capability taxonomy with a required null arm |
-| **#125** agent-authored occurrence dates an entry to another referent's date | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case |
-| **#126** brief names a participant by their arrival stub | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed |
-| **#127** redaction decided per read path, so a new path leaks by omission | Visibility is computed once in the substrate before rendering, and zero residue is held as a [non-interference invariant](privacy-and-provenance.md) rather than as a rule each read path must remember |
-| **#124** agent refuses a fact its own brief surfaced | The same single resolution point: what was surfaced and what is sayable are computed from one predicate, so they cannot disagree |
+The stage is where the issue actually closes, from [`evolution.md`](evolution.md). Reading the table this way answers "what does the next stage buy me" from the issue side rather than the design side.
+
+| Issue | Becomes | Closes at |
+|---|---|---|
+| **#112** episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it | 4 |
+| **#74** search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate | 4 |
+| **#114** fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
+| **#113** undated events stamped with the assertion day | The episode holds "when I learned this", so [`valid`](time.md) can stay open without the claim falling out of the timeline | 3 |
+| **#115** date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change | 3 |
+| **#106** volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the "as of" rather than a guess | 3 |
+| **#44** long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent, through [the bulk path](memory-typology.md) | 4, costed at 0c |
+| **#42** relation schemas cannot be edited | Deprecate-and-alias | 2 |
+| **#94** autonomous identity unification | Revocable graded merges, relational evidence, tiered reversibility | 5 |
+| **#104** merged identity fails to relay sibling history | The substrate wall, with unified reads across the class | 5 |
+| **#100** in-block neural calls | Record-at-call-time activities, exposed primarily as schema-constrained functions | 2 |
+| **#103** typed dates and durations | First-class typed values, extended to quantities | 3 |
+| **#58** procedural memories | The procedural kind, indexed by description, decayed by invocation | 4 |
+| **#59** persistent scratchpad | The working kind, outside the visibility model, stored in a compactable channel because promotion carries a taint the fold must reproduce | 4 |
+| **#90** eval corpus redundancy | The four-capability taxonomy with a required null arm | 0a |
+| **#125** agent-authored occurrence dates an entry to another referent's date | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case | 2, gated at 1 |
+| **#126** brief names a participant by their arrival stub | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed | 5 |
+| **#127** redaction decided per read path, so a new path leaks by omission | Visibility is computed once in the substrate before rendering, and zero residue is held as a [non-interference invariant](privacy-and-provenance.md) rather than as a rule each read path must remember | 7 |
+| **#124** agent refuses a fact its own brief surfaced | The same single resolution point: what was surfaced and what is sayable are computed from one predicate, so they cannot disagree | 7 |
+
+Two things the table does not say on its own.
+
+**These close for a new instance, not for the one that is running.** The scope rule in [`evolution.md`](evolution.md) is a code path rather than a data path, so seven of the rows above are live bugs against the current agent that a built successor does not retroactively fix: #104, #113, #114, #124, #125, #126, and #127. Each stays open against the running deployment until it is either fixed there separately or the deployment is replaced. This is a reason not to over-invest in repairing them inside the old model, not a reason to treat them as handled.
+
+**Stage 0b is the one that pays before anything is built.** It needs no new substrate, it reduces a live leak in the current system, and both witness sets plus every audience decision in the design read the definition it produces. Nothing else on this list returns anything until stage 2 exists.
 
 ### Answered obliquely
 
 | Issue | Note |
 |---|---|
-| **#7** persistent-memory landscape | Discharged by the surveys in [`research/`](research/) |
+| **#7** persistent-memory landscape | Its data-model half is discharged by the surveys in [`research/`](research/). The issue stays open for the parts this tree does not touch: how such systems present themselves, how they integrate, and what they are like to use |
 | **#93** challenge-response for cross-platform merges | Retained as the gate on irreversible disclosure. The design makes it load-bearing rather than optional, since recall and disclosure are separated |
 | **#15** self-observations | The agent writes observations about itself as an ordinary fallible teller; the operator-fixed charter is a directive and outside the fact model |
 | **#20** autonomous activity | The exception queue and drift detection are its skeleton |
