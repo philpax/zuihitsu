@@ -81,10 +81,24 @@ The cost is real and worth naming. An agent that cannot revise its own charter c
 
 ## Ingesting a long document
 
-Bulk ingestion falls out of the typology rather than needing its own machinery.
+Bulk ingestion lands *in* the typology without needing new kinds, and it does need its own machinery. The earlier claim that it needs none was wrong, and the arithmetic says so plainly.
 
 A long source lands as **semantic Statement clusters**, with sections and claims becoming Events and Statements linked by composition and summarisation relations, giving the work a navigable structure rather than one undifferentiated blob. Alongside it, an **episodic source layer** retains each span as the gloss its Statements point at, so any extracted claim traces back to the text that produced it.
 
 The observed-against-recorded split is what makes this coherent: a document written years ago and ingested today records both truthfully.
 
 Not everything in a document warrants extraction. The gate is the same judgement the episode rate needs, and the same discipline applies: retaining raw experience cheaply and structuring selectively is what keeps the cost per fact falling as the store grows.
+
+### Why it needs a path of its own
+
+The [write surface](write-surface.md) structures one utterance per extraction call and writes the call and its response to the log. Against the numbers [`evolution.md`](evolution.md) stage 0c measures, a hundred-thousand-word source chunked into a few hundred spans is a few hundred calls, tens of megabytes of log, and tens of minutes of wall clock before its p90 tail is counted. A document is not a long conversation, and treating it as one violates the fourth commitment directly.
+
+Three properties are therefore owed by a bulk path, and none of them is expressible as a loop over `record`:
+
+- **Extraction batches many spans per call**, so cost scales with the document rather than with its chunk count.
+- **The gate runs before extraction, not as part of it.** A judgement about what warrants structuring that is itself a model call per span reduces writes without reducing calls, which is the wrong half.
+- **Failure is per span and never loses the source.** A span that will not structure stays a gloss under its source layer, exactly as an utterance does.
+
+Deferring the structuring to a later pass is not an option, for the reason [`write-surface.md`](write-surface.md) gives: structure recovered from committed prose is the tax this design exists to end, and an exception for documents is an exception for the largest inputs there are.
+
+This is a real gap. The path is named and its constraints are stated; the mechanism is not designed, and the cost model belongs beside stage 0c's numbers rather than in a paragraph here.

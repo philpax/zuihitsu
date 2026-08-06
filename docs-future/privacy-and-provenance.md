@@ -36,7 +36,7 @@ The witness set rides the [gloss](statements.md), because it is a property of th
 
 Channel membership is not presence. A silent member of a busy room did not necessarily see what was said, and treating the roster as the witness set would license repeating a confidence to someone who never heard it: the same leak the present-set definition already has to prevent, arriving through the opposite door. The witness set is therefore built from demonstrated participation in the span, never from the roster, and where a connector cannot vouch for that, it falls back to the teller alone. Widening requires evidence; narrowing does not.
 
-The asymmetry is worth keeping in view. As a licence to disclose, the witness set is only as good as the platform's account of who was there. As evidence of **dependence** in [belief](belief.md), it costs nothing to be generous with, because over-counting witnesses only suppresses corroboration, and suppressed corroboration is a claim held less firmly rather than a confidence spoken to the wrong person.
+The asymmetry is worth keeping in view, and it is also the field's unresolved problem. As a licence to disclose, the set must be narrow, and only demonstrated participation earns a place in it. As evidence of **dependence** in [belief](belief.md), it wants to be wide, because over-counting witnesses only suppresses corroboration, which is a claim held less firmly rather than a confidence spoken to the wrong person. One field cannot be both, and the narrow construction wins by default, which leaves someone who read a claim without participating invisible: repeating it later reads as independent corroboration when it is an echo. Two sets, one for disclosure and one for exposure, is the candidate and is [not yet taken](confidence.md).
 
 ## Zero residue
 
@@ -67,7 +67,13 @@ The current system records which model and template ran, which is enough to repr
 
 The assumption stamp lists only the **revocable** assumptions in force, which in practice is zero or one merge. Withdrawing an assumption voids everything stamped with it on the next fold. Stamping every premise would grow without bound; stamping only what can be withdrawn keeps the bookkeeping proportional to what can actually change.
 
-Support moves in the other direction too. New evidence for a premise voids nothing, but it does mean a conclusion was computed against less than the store now holds. Such a derivation is marked as **owing recomputation** rather than being recomputed eagerly, so the maintenance pass has a work list instead of re-deriving the world on every write. The mark is not a doubt about the conclusion. It records that the conclusion is older than its evidence, which is a different thing and a cheaper one to carry.
+Support moves in both of the other directions too, and both are marks rather than eager recomputation, so the maintenance pass has a work list instead of re-deriving the world on every write.
+
+**Owing recomputation**: new evidence for a premise voids nothing, but it does mean a conclusion was computed against less than the store now holds. The mark is not a doubt about the conclusion; it records that the conclusion is older than its evidence.
+
+**Support weakened**: a premise whose credence has fallen, because a teller was found unreliable or two attestations turned out to be [dependent](belief.md), leaves conclusions standing on evidence that no longer carries them. Nothing is voided, because a weakened premise is not a withdrawn one, but the conclusion is re-evaluated against what its criterion now finds. Without this mark a derivation can stand permanently on a premise the store has stopped believing, and "how do you know?" recites a criterion whose inputs have moved.
+
+Only revocable assumptions are stamped, so neither mark rides the stamp. Both are appended when the condition arises, against the derivations whose `derived_from` names the premise, which the record already makes findable.
 
 ## Retraction and forgetting
 

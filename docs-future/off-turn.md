@@ -27,9 +27,10 @@ The marks already exist, or are cheap consequences of things that do:
 | | |
 |---|---|
 | **owing recomputation** | a derivation whose premises gained support since it ran |
+| **support weakened** | a derivation whose premises lost credence, through unreliability or discovered dependence |
 | **voided** | a derivation stamped with a withdrawn merge, awaiting re-derivation |
 | **window closed** | a Statement whose validity interval ended, awaiting whatever succeeds it |
-| **gloss-only** | an utterance committed without structure after a structuring failure |
+| **gloss-only** | an utterance committed without structure after a structuring failure, retried once |
 | **contested** | a contradiction pair coexisting, awaiting evidence or a person |
 | **candidate** | a merge or a resolution below its threshold, awaiting corroboration |
 
