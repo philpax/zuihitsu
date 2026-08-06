@@ -39,6 +39,7 @@ The five corrections are folded into the chapters. They were: the identification
 | The frame is a simplification of Cyc's microtheories | Verified | Context-relative truth, with fictional content in its own context, is the established solution. The frame is closed, three-valued, and non-nestable where microtheories are none of those |
 | Collective against distributive plurals is declined, not unknown | Verified | Conceptual graphs mark the distinction natively. This is a cost decision, and the design should not imply otherwise |
 | Assertedness belongs in the equality key | Synthesis | Without it a quotation and a later flat assertion of the same proposition collapse into one object, which either launders a quotation into a belief or swallows a real assertion. Found by adversarial review, not by the corpus study |
+| The `principal` redirect, resolved against a seeded `presents` edge | Synthesis | Answers the referent misattribution the frame cannot reach, without a fourth layer, which would leave the wrong subject on the triple, or a second subject coordinate, which is the scope ambiguity the qualifier discipline forbids. Declared and never inferred, because a misfire files a claim about a bot onto a human; revocable through the existing severance stamp. Untested, and stage 1 is where it is falsified |
 | A gloss or turn reference in the object slot | Observed | Metalinguistic claims, rating or disputing a specific past utterance, recur in the live log. The alternatives are an unqueryable literal or a handle minted for a passing phrase |
 | The one-level nesting bound covers most of the attitude class | **Observed, partial** | A fraction of the observed attitudes are depth two, an attitude toward a position rather than toward a proposition, and flattening loses that the disagreement is with a stance somebody holds |
 | Dispositions and generics are declined | **Synthesis, newly admitted** | Named as unrepresentable in three chapters before it was ever registered. A habitual modality is the obvious extension and is not taken |
@@ -116,7 +117,7 @@ The five corrections are folded into the chapters. They were: the identification
 | Procedural memory indexed by description embedding, decayed by invocation | Verified | An established agent design |
 | Access-frequency and recency ranking is embedder-independent | Verified | The narrow claim is safe |
 | That the same ranking is replay-deterministic | Observed | Decided: an agent-visible read appends an event. The objection was arithmetic and the arithmetic does not hold. Read events are a memory-id list against a payload dominated by model calls two orders of magnitude larger, so bytes rise by a fraction of a percent and the event count by roughly a tenth, and the ratio is scale-invariant. The unit is the agent-visible read, never the substrate lanes, so a fused search stays one event |
-| Bulk ingestion needs a path of its own | **Open** | The "no new machinery" claim is withdrawn: per-utterance extraction over a long document is hundreds of calls, tens of megabytes, and tens of minutes. The constraints on a bulk path are stated in the chapter; the mechanism is undesigned and its cost model is owed beside stage 0c |
+| The bulk-ingestion path | Synthesis | Designed in the chapter: a durable model-free source layer first, a symbolic pre-filter before a single batched gate call, context-sized extraction batches, per-proposal critics with gloss-only fallback, and one transmission principle per document. Cost is now a function of document length over context window rather than of chunk count. The cost model is owed beside stage 0c, whose harness produces it |
 | That human recall activation transfers to agent salience | **Synthesis** | By analogy, not proof. Only the narrow claim above is relied on |
 | Directives are a category error inside the fact model | Observed | 22 of 198 entries, one repeated verbatim ten times |
 | An episodic narrative is composed under the intersection rule, never over a confidence | Observed | Closes a second read path with no audience computed on it, using the rule derivations already take rather than a boundary of its own. The measurement corrected an earlier public-only rule: attributed content is a fifth of the live corpus and is repeatable-with-attribution rather than withheld, so excluding it cost a fifth of the depth to protect a single entry. The residual risk, prose being a weaker attribution surface than a field, is met by a structural teller list beside the body |
@@ -193,21 +194,22 @@ Five of these block something. The rest are deferred with a named forcing condit
 2. **The constraint tax** on the target model, per behaviour (stage 2). Decides how many behaviours are schema-constrained.
 3. **Extraction convergence** (stage 0c). The design's central economic claim, that structural equality replaces similarity-threshold deduplication, rests on an extractor converging on the same triple from different prose. The live log supplies a labelled re-mention set for free: every consolidation and arbitration event names entries the running system itself judged to be one claim.
 4. **The present set, and with it both witness sets** (stage 0b). Defines who was in a conversation, which the audience evaluator and the dependence test both read.
-5. **The bulk-ingestion path.** Its shape is designed in [`memory-typology.md`](memory-typology.md); its cost model is owed beside stage 0c, whose harness it shares.
+5. **The bulk-ingestion path's cost model.** Its shape is designed in [`memory-typology.md`](memory-typology.md); the four numbers are owed beside stage 0c, whose harness produces them.
+6. **The console fold budget** (stage 0d). The design roughly doubles the log's dominant term, and the replica folds the whole log in browser memory. [`coverage.md`](coverage.md) already calls this a prerequisite; it now has a stage.
 
 **Deferred, with what would force it.**
 
-6. **Eager against lazy structuring.** The dial is already designed in [`write-surface.md`](write-surface.md). Forced by stage 2's constraint-tax measurement.
-7. **Whether the frame's three values are the right three.** Forced by stage 1, which is where the referent redirect is tested.
-8. **Crumble and accretion thresholds** for tentative merges. No data exists and none is manufacturable short of a long-running multi-platform instance, so stage 5 ships conservative defaults with an operator exception at the boundary.
-9. **The credence shape**, with fusion operators deliberately unused. Nothing to fuse while teller counts are zero or one; forced by the first claim to gather two independent tellers, which the harness can alarm on.
-10. **What deserves initiation.** [`off-turn.md`](off-turn.md) constrains it without settling it. Forced at stage 9, when an off-turn message is first composed.
-11. **Whether the structural questions are sufficient.** [`query-surface.md`](query-surface.md) names five, and whether they cover what the agent actually asks is untested. Answerable cheaply by classifying the live log's recorded blocks against them, and worth doing before stage 2 freezes the surface.
-12. **The dispositional fallback.** A habitual modality alongside the frame is the extension [`statements.md`](statements.md) declines. Forced if gloss-only writes on dispositional content become a material fraction of writes.
+7. **Eager against lazy structuring.** The dial is already designed in [`write-surface.md`](write-surface.md). Forced by stage 2's constraint-tax measurement.
+8. **Whether the frame's three values are the right three.** Forced by stage 1, which is where the referent redirect is tested.
+9. **Crumble and accretion thresholds** for tentative merges. No data exists and none is manufacturable short of a long-running multi-platform instance, so stage 5 ships conservative defaults with an operator exception at the boundary.
+10. **The credence shape**, with fusion operators deliberately unused. Nothing to fuse while teller counts are zero or one; forced by the first claim to gather two independent tellers, which the harness can alarm on.
+11. **What deserves initiation.** [`off-turn.md`](off-turn.md) constrains it without settling it. Forced at stage 9, when an off-turn message is first composed.
+12. **Whether the structural questions are sufficient.** [`query-surface.md`](query-surface.md) names five, and whether they cover what the agent actually asks is untested. Answerable cheaply by classifying the live log's recorded blocks against them, and worth doing before stage 2 freezes the surface.
+13. **The dispositional fallback.** A habitual modality alongside the frame is the extension [`statements.md`](statements.md) declines. Forced if gloss-only writes on dispositional content become a material fraction of writes.
 
 **Not measurable here.**
 
-13. **Relay-chain dependence.** The live corpus cannot contain the phenomenon: one multi-party conversation, three tellers, and no claim asserted by two of them, so a null would prove nothing. The stage 6 gate is the measurement rather than a prior experiment. Its prerequisite is that the agent's outbound turns are first-class glosses carrying witness sets, which is a stage 2 obligation.
+14. **Relay-chain dependence.** The live corpus cannot contain the phenomenon: one multi-party conversation, three tellers, and no claim asserted by two of them, so a null would prove nothing. The stage 6 gate is the measurement rather than a prior experiment. Its prerequisite is that the agent's outbound turns are first-class glosses carrying witness sets, which is a stage 2 obligation.
 
 ## Things deliberately not claimed
 

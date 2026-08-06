@@ -14,15 +14,15 @@ The existing instance keeps running on the current model for as long as it is us
 
 Three rules decide the sequence.
 
-**Cheap decisions before expensive commitments.** Two questions decide the cost of large parts of the design, and both can be answered before the substrate exists. They go first.
+**Cheap decisions before expensive commitments.** Several questions decide the cost of large parts of the design and can be answered before the substrate exists. They go first.
 
 **Containment before capability.** The episodic wall ships before anything that generates narrative. A guard added alongside the thing it guards is a guard that was optional during the window that mattered.
 
 **Prerequisites that are not ours.** One dependency comes from outside this design and gates the privacy work regardless of how it is built.
 
-## Stage 0: the two decisions
+## Stage 0: the decisions that come first
 
-Neither stage needs any new substrate, and both can run against the system that exists today.
+Four measurements, none of which needs new substrate. Three run against the system that exists today, and the fourth against a synthetic log.
 
 ### 0a. The encoding-against-retrieval ablation
 
@@ -65,6 +65,16 @@ Replay the existing instance's 198 content entries through a schema-constrained 
 *Gating:* none. This is measurement, not a gate, and its output is numbers that stages 2 and 4 are then judged against.
 *Risk:* the extractor used in the harness is not the one that ships, so the numbers are indicative rather than binding. They are still far better than the current position, which is no numbers at all.
 
+### 0d. The console fold budget
+
+[`coverage.md`](coverage.md) calls the console's whole-fold a prerequisite rather than a deferred concern, and it is right to: recorded model calls already dominate the log's payload, and putting a structuring call on every write block roughly doubles the dominant term. A replica that folds the whole log in browser memory is the surface that pays for that.
+
+Measure against a synthetic log at realistic sizes: bytes added per turn under the new write path, fold time and peak memory in the browser, and where the curve stops being usable.
+
+*Unblocks:* knowing whether the replica needs windowing or snapshots before stage 2 rather than after stage 4.
+*Gating:* none. This is measurement, and its output is the threshold the later stages are judged against.
+*Risk:* a synthetic log is not a real one, and the shape of real traffic decides the answer as much as its volume.
+
 ## Stage 1: the modelling spike
 
 Model the [Statement](statements.md), the [Event](events-and-roles.md), the [frame](statements.md), and the first hard critics: type, domain and range, frame consistency, and duplicate resolution. Replay them over recorded logs with no live model, in the style of the existing rejudge mode.
@@ -72,12 +82,14 @@ Model the [Statement](statements.md), the [Event](events-and-roles.md), the [fra
 *Unblocks:* confidence that the shape holds real utterances before the seam is committed to.
 *Gating:* the two same-happening entries of the recorded four-entry case resolve to one Event with correct roles, while the distinct causal claim stays distinct; the duplicate critic flags the re-filing.
 
-For the frame, the criterion is deliberately stricter than "the layers separate", because both readings of what a `source` claim's subject is would satisfy that. The operator's-cat case must resolve to the **right subject**: a claim about a persona's principal must land on the principal, not on the persona under any frame value. If it cannot, the frame needs a fourth layer or an explicit referent pointer, and that is a finding this stage exists to produce.
+For the frame, the criterion is deliberately stricter than "the layers separate", because both readings of what a `source` claim's subject is would satisfy that. The operator's-cat case must resolve to the **right subject**: a claim about a persona's principal must land on the principal, not on the persona under any frame value. The mechanism under test is [the `principal` redirect](statements.md), resolved against a seeded `presents` edge by a critic at write time, so this stage has a concrete design to falsify rather than a gap to report. If the redirect fails here, the alternative is a referent pointer carried on the Statement, at a cost the redirect avoids.
 *Risk:* the frame's three values prove wrong on a corpus other than the one that motivated them. This is why it is checked here rather than after the substrate is built.
 
 ## Stage 2: the Statement substrate and the seam
 
 Build the Statement as the atomic write unit, the typed seam, the hard and soft critic banks, and forced-choice elicitation for the load-bearing writes.
+
+One obligation is easy to miss and belongs here rather than later: **the agent's own outbound turns become first-class glosses carrying witness sets.** Today they are recorded as turns and nothing more. Without them, a claim the agent relayed and was later told back is indistinguishable from independent corroboration, so [the dependence rule](belief.md) that stage 6 gates on cannot be evaluated at all. The datum has to exist from the moment Statements do.
 
 *Unblocks:* everything downstream. Every later stage writes Statements.
 *Gating:* extraction fidelity against gold-structure scenarios, scored on precision and recall; a faithfulness oracle asserting every structural write is entailed by some utterance in the transcript; and a paraphrase-spread probe showing near-zero spread on **field-content correctness**, not on capture presence, which a required field pins by construction.

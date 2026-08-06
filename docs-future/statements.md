@@ -118,7 +118,27 @@ The frame is load-bearing in three places. A read defaults to `actual` and must 
 
 The frame is not a hedge and not a credence. A `persona` claim can be perfectly certain; it is simply certain about a character.
 
-What the frame does **not** fix is a wrong subject. It marks which layer a claim is made in, on a subject already chosen, so a claim about the person *behind* a persona that was filed onto the persona itself is not repaired by any of the three values: the claim is not about the character, and `source` points at the material the character draws on rather than at the principal presenting it. The corpus contains that case, a detail about the operator's household recorded against the persona agent. The frame addresses layer mixing; referent misattribution is a neighbouring failure needing a referent pointer, which is costed in [`evolution.md`](evolution.md) stage 1 rather than assumed here.
+What the frame does **not** fix is a wrong subject. It marks which layer a claim is made in, on a subject already chosen, so a claim about the person *behind* a persona that was filed onto the persona itself is not repaired by any of the three values: the claim is not about the character, and `source` points at the material the character draws on rather than at the principal presenting it. The corpus contains that case, a detail about the operator's household recorded against the persona agent, publicly.
+
+### Redirection to a principal
+
+The fix is not a fourth layer. A value meaning "in the principal's layer" leaves the persona as the triple's subject and asks every reader to re-target, so a question about whose cat it is still has to know to traverse. A second subject coordinate is worse: two subjects is the scope ambiguity the one-level qualifier discipline exists to prevent.
+
+Instead the doctrine already running elsewhere applies: **the frame says which layer, the substrate says which handle.**
+
+`presents` is a seed [relation](relations.md) from a principal to a persona. `principal` joins the frame's closed set as a **redirect marker rather than a layer**: it means re-target this claim at the subject's principal. A hard critic resolves it at write time, reading the `presents` edge, rewriting the subject, and storing the frame as `actual`. What lands is an ordinary claim about the person, with a provenance qualifier recording that it arrived by way of the persona. Nothing downstream ever sees the marker, so the stored frame stays three-valued and every read defaults as before.
+
+Four properties make it safe.
+
+**It is declared, never inferred.** An extractor may not propose redirection, because a misfire files a claim about a bot onto a human, and that failure direction is severe. Only a writer who understood the conversation sets it.
+
+**An unknown principal is a teachable error, not a guess.** If no `presents` edge resolves, the write is refused with the question that would fix it, and a persistent failure reaches a person like any other schema gap.
+
+**It is revocable.** The redirect records as a derivation whose assumption stamp names the `presents` edge, so withdrawing that edge voids the redirected claims on the next fold. This is [the severance fold-filter](identity.md), reused rather than reinvented.
+
+**It makes the subject guard bind the right person.** That is the live failure exactly: a household detail about a real person sat publicly on a bot's memory, where no guard about that person applied to it. Under redirection the claim is about the person, so the guard that protects them is the one that runs.
+
+The agent-facing cost is one more value in a small enum, and it is the easiest of them to answer, because it maps onto a question a participant in the conversation always knows: is this about the character, or about the human behind it? With it, the closed set covers the persona relationship completely: `persona` for the character, `principal` for the person presenting it, `source` for the material the character draws on.
 
 It is also not new. Cyc solved this generally with microtheories, asserting in a fiction context that a character is a fourth-grader while asserting in the real-world context that the same character is a cartoon. The frame is a deliberate simplification of that idea: closed where microtheories are open, three-valued where they are a lattice, and checkable by a critic where a general context logic is not. See [`lineage.md`](lineage.md).
 
