@@ -2,7 +2,7 @@
 //! the binary and the agent or eval binary can serve it at its own root with no separate step.
 //!
 //! This crate owns the full pipeline, run unconditionally whenever the crate is compiled (it has no
-//! features — including it means you want the console):
+//! features: including it means you want the console):
 //!   1. ts-rs type export (shells out to `zuihitsu-frontend-types`'s `export-types` binary)
 //!   2. settings metadata (generated inside the export-types binary via the `SettingsMetadata`
 //!      proc-macro derive, which extracts `///` doc comments at compile time)
@@ -12,14 +12,14 @@
 //!   6. npm ci (when `console/node_modules` is missing or stale and no dev server is running)
 //!   7. npm run build (with `VITE_EMBEDDED=true` and `VITE_EMBEDDED_OUT` pointing at `dist-embedded`)
 //!
-//! Every step propagates failure — the build panics on any error. No placeholder fallback: the final
+//! Every step propagates failure. The build panics on any error. No placeholder fallback: the final
 //! assertion (panic if `index.html` is missing) guarantees `dist-embedded` is fully populated
-//! before the lib compiles, so `RustEmbed` always finds a real folder. A build that should not run
-//! the pipe-line (the workspace's rust CI job, which has no frontend toolchain) must exclude this
-//! crate (`--exclude zuihitsu-console`), exactly as it excludes `zuihitsu-eval`.
+//! before the lib compiles, so `RustEmbed` always finds a real folder. Builds without the frontend
+//! toolchain must exclude this crate (`--exclude zuihitsu-console`), exactly as they exclude
+//! `zuihitsu-eval`.
 //!
-//! Generated artifacts (ts-rs types, wasm bundle) are written to `console/packages/wire/` — a
-//! local npm package the console depends on as `@zuihitsu/wire`. This keeps them outside
+//! Generated artifacts (ts-rs types, wasm bundle) are written to `console/packages/wire/`. This is
+//! a local npm package the console depends on as `@zuihitsu/wire`. It keeps them outside
 //! `console/src/` so the `rerun-if-changed=console/src` watch does not see its own outputs and
 //! trigger a rebuild loop.
 
@@ -38,8 +38,8 @@ fn main() {
 
     // The build script's own home (this crate) and the workspace root both feed the pipeline: its
     // own inputs are manifest-relative, the pipeline's inputs are root-relative. Rebuild when any
-    // of them changes. The whole `console/src` tree is watched — generated outputs live in
-    // `console/packages/wire/` (a separate package), so they do not trigger a rebuild loop.
+    // of them changes. The whole `console/src` tree is watched (generated outputs live in
+    // `console/packages/wire/`, a separate package, so they do not trigger a rebuild loop).
     println!(
         "cargo:rerun-if-changed={}",
         manifest.join("Cargo.toml").display()
@@ -78,7 +78,7 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
     let console_build_target = root.join("target/console-build");
     let wire_dir = console_dir.join("packages/wire");
 
-    // 1. ts-rs type export — shell out to the frontend-types binary in a separate target dir to
+    // 1. ts-rs type export: shell out to the frontend-types binary in a separate target dir to
     //    avoid lock contention with the main build. The binary takes the output directory as its
     //    sole argument. Pass the target dir as an absolute path so the working directory of this
     //    build script (wherever cargo runs it from) cannot re-anchor it.
@@ -105,9 +105,9 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
         "ts-rs type export",
     );
 
-    // 2. Settings metadata — generated inside the export-types binary (see the module docs).
+    // 2. Settings metadata: generated inside the export-types binary (see the module docs).
 
-    // 3. Wasm materialiser build — shell out to cargo build for the wasm32 target in a separate
+    // 3. Wasm materialiser build: shell out to cargo build for the wasm32 target in a separate
     //    target dir to avoid lock contention.
     run(
         Command::new("cargo").args([
@@ -126,7 +126,7 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
 
     let wasm_input = console_build_target.join("wasm32-unknown-unknown/release/console_wasm.wasm");
 
-    // 4. wasm-bindgen glue — in-process via the library (no shell-out to the CLI).
+    // 4. wasm-bindgen glue: in-process via the library (no shell-out to the CLI).
     let wasm_out = wire_dir.join("wasm");
     std::fs::create_dir_all(&wasm_out).unwrap_or_else(|error| {
         panic!("build.rs: could not create {}: {error}", wasm_out.display())
@@ -141,7 +141,7 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
             panic!("build.rs: wasm-bindgen failed: {error}");
         });
 
-    // 5. wasm-opt — in-process via the Rust crate (builds Binaryen from C++ source on first use).
+    // 5. wasm-opt: in-process via the Rust crate (builds Binaryen from C++ source on first use).
     let wasm_bg = wasm_out.join("console_wasm_bg.wasm");
     let wasm_opt_temp = wasm_out.join("console_wasm_bg.wasm.opt");
     wasm_opt::OptimizationOptions::new_optimize_for_size_aggressively()
@@ -152,13 +152,14 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
     std::fs::rename(&wasm_opt_temp, &wasm_bg)
         .unwrap_or_else(|error| panic!("build.rs: could not replace the wasm-opt output: {error}"));
 
-    // 6. npm dependencies — install only when the tree is missing or stale, and never under a live
-    //    dev server (npm ci deletes the tree, which would tear down the server's HMR session).
-    //    Freshness by `node_modules`' directory mtime vs `package.json`/`package-lock.json`.
+    // 6. npm dependencies: install only when the tree is missing or stale, and never under a live
+    //    dev server (npm ci deletes the tree, which tears down the server's HMR session).
+    //    Freshness compares `node_modules`' directory mtime with `package.json` and
+    //    `package-lock.json`.
     ensure_dependencies(console_dir);
 
-    // 7. npm run build with VITE_EMBEDDED=true — the Vite production build into dist-embedded. The
-    //    output dir is passed in as an absolute path (VITE_EMBEDDED_OUT) so the npm working
+    // 7. npm run build with VITE_EMBEDDED=true: the Vite production build into dist-embedded. The
+    //    output dir is passed as an absolute path (VITE_EMBEDDED_OUT) so the npm working
     //    directory cannot re-anchor it.
     run(
         Command::new("npm")
@@ -182,8 +183,8 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
     }
 }
 
-/// Make sure `console/node_modules` is present and fresh relative to the npm manifest and lockfile
-/// — `npm ci` when stale or missing, a warning instead when a live dev server would be clobbered.
+/// `npm ci` when `node_modules` is missing or stale, a warning instead when a live dev server
+/// holds the tree (`npm ci` deletes `node_modules`).
 fn ensure_dependencies(console_dir: &Path) {
     let node_modules = console_dir.join("node_modules");
     let tree_mtime = std::fs::metadata(&node_modules)

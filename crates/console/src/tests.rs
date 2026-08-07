@@ -1,7 +1,7 @@
 //! Unit tests for the console crate: the npm-install decision logic (compiled from the build
-//! script's `install.rs`, the single source of truth, via `#[path]` — build scripts cannot import
-//! their own crate) and the shared asset-serving layer. The `#[path]` attribute is relative to this
-//! file's directory, so `../build/install.rs` reaches the build script.
+//! script's `install.rs`, the single source of truth, via `#[path]`, because build scripts cannot
+//! import their own crate) and the shared asset-serving layer. The `#[path]` attribute is relative
+//! to this file's directory, so `../build/install.rs` reaches the build script.
 
 use std::borrow::Cow;
 

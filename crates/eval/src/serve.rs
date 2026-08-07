@@ -44,10 +44,10 @@ pub async fn serve(addr: SocketAddr, sink: Arc<EvalSink>) -> Result<(), EvalErro
     axum::serve(listener, app).await.map_err(EvalError::Serve)
 }
 
-/// Serve the web console, the same shared bundle the agent embeds (built once by
-/// `zuihitsu-console`'s build script into `crates/console/dist-embedded`), in `eval` mode so opening
-/// the serve address lands on the live eval viewer. Any path without a matching asset falls back to
-/// `index.html` for the single-page app to route. `async` required for axum 0.8's `Handler` bound.
+/// Serve the web console, the shared bundle the agent also embeds (built by `zuihitsu-console`'s
+/// build script into `crates/console/dist-embedded`), in `eval` mode so opening the serve address
+/// lands on the live eval viewer. Any path without a matching asset falls back to `index.html` for
+/// the single-page app to route. `async` required for axum 0.8's `Handler` bound.
 async fn console(uri: Uri) -> Response {
     zuihitsu_console::serve_embedded(&uri, "eval")
 }

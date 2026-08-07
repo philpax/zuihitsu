@@ -47,19 +47,19 @@ async fn console_serves_the_root_and_client_routes() {
     }
 }
 
-/// The two CI jobs cover the two builds: the rust job (no frontend toolchain,
-/// `--no-default-features`) exercises the placeholder path — the served body is exactly the
-/// root-owned placeholder page, which carries no mode token; the console job's
-/// `cargo test -p zuihitsu http_server::tests::console` step exercises the real embedded bundle —
-/// the `__ZUIHITSU_APP_MODE__` token replaced by `agent`.
+/// The two CI jobs cover the two builds. The rust job (no frontend toolchain,
+/// `--no-default-features`) exercises the placeholder path: the served body is exactly the
+/// root-owned placeholder page, which carries no mode token. The console job's
+/// `cargo test -p zuihitsu http_server::tests::console` step exercises the real embedded bundle,
+/// with the `__ZUIHITSU_APP_MODE__` token replaced by `agent`.
 #[tokio::test]
 async fn console_serves_the_placeholder_or_the_agent_mode_shell() {
     let (_status, content_type, body) = get("/").await;
     assert!(content_type.starts_with("text/html"), "{content_type}");
     if body == PLACEHOLDER_BODY {
-        // The placeholder build: the root's own page, served byte-for-byte.
+        // The placeholder build serves the root's own page byte-for-byte.
     } else {
-        // The real embedded bundle: the mode token must have been replaced by the agent's mode.
+        // The real embedded bundle replaces the mode token with the agent mode.
         assert!(
             !body.contains("__ZUIHITSU_APP_MODE__"),
             "the served shell must have the mode token replaced"

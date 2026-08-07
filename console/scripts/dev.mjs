@@ -1,11 +1,11 @@
-//! The wrapped `npm run dev`: record this wrapper's pid in a pidfile inside `node_modules` (targeting
-//! a directory the build pipeline already reads), spawn the local Vite binary in its place, and clear
-//! the pidfile when the dev server stops.
+//! The wrapped `npm run dev`: write this wrapper's pid to a pidfile inside `node_modules`, spawn
+//! the local Vite binary in its place, and clear the pidfile when the dev server stops. The
+//! pidfile lives in `node_modules` because the build pipeline already reads that directory.
 //!
 //! `zuihitsu-console`'s build script reads the pidfile to decide whether `npm ci` is safe: `npm ci`
-//! deletes `node_modules`, which would tear down a live HMR session under a running Vite server. The
-//! recorded pid is the wrapper's, not Vite's, and the wrapper stays alive for as long as Vite runs, so
-//! pid liveness is dev-server liveness.
+//! deletes `node_modules`, which tears down a live HMR session under a running Vite server. The
+//! recorded pid is the wrapper's, not Vite's, and the wrapper stays alive for as long as Vite
+//! runs, so pid liveness is dev-server liveness.
 
 import { spawn } from "node:child_process";
 import { rmSync, writeFileSync } from "node:fs";
@@ -28,7 +28,7 @@ const cleanup = () => {
   try {
     rmSync(pidfile, { force: true });
   } catch {
-    // The pidfile may already be gone; nothing to do.
+    // The pidfile may already be gone.
   }
 };
 

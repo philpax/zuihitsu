@@ -61,8 +61,8 @@ jobs:
       - name: Install
         working-directory: console
         run: npm ci
-      # The full build.rs pipeline — ts-rs types, settings metadata, wasm build, wasm-bindgen,
-      # wasm-opt, and the npm build — now driven from `zuihitsu-console`'s build script, which
+      # The full build.rs pipeline (ts-rs types, settings metadata, wasm build, wasm-bindgen,
+      # wasm-opt, and the npm build) is driven from `zuihitsu-console`'s build script, which
       # `cargo build` runs through the root crate's optional `console` feature.
       - name: Build server binary (exercises the full console pipeline)
         env:
@@ -77,8 +77,8 @@ jobs:
       # cached `zuihitsu-console` build script only if a watched input changed.
       - name: Test the embedded-console fallback route
         run: cargo test -p zuihitsu http_server::tests::console
-      # The new crate is excluded from the rust job (its build script always runs the pipeline), so
-      # its unit tests and clippy run here, with Node present.
+      # `zuihitsu-console` is excluded from the rust job (its build script always runs the
+      # pipeline), so its unit tests and clippy run here, with Node present.
       - name: Clippy the console crate
         run: cargo clippy -p zuihitsu-console --all-targets -- -D warnings
       - name: Test the console crate

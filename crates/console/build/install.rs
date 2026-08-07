@@ -6,19 +6,19 @@
 //! exists and its mtime is not older than `package-lock.json` and `package.json`. Coarse
 //! filesystems could theoretically produce equal mtimes (treated as fresh); the conservative
 //! direction is a skipped install with a clear failure if a module is genuinely missing, and git
-//! checkouts set fresh mtimes on the lockfile anyway.
+//! checkouts set fresh mtimes on the lockfile.
 
 use std::{fs, path::Path, time::SystemTime};
 
 /// What the pipeline should do about `node_modules`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// The tree exists and is at least as new as the lockfile and manifest — build with it as-is.
+    /// The tree exists and is at least as new as the lockfile and manifest: build with it as-is.
     Fresh,
-    /// The tree is missing or stale — run `npm ci` (respects the lockfile, never writes it).
+    /// The tree is missing or stale: run `npm ci` (respects the lockfile, never writes it).
     InstallNpmCi,
-    /// The tree is missing or stale but a Vite dev server is running — do not touch it. `npm ci`
-    /// deletes the tree, which would tear down a live HMR session under the dev server.
+    /// The tree is missing or stale but a Vite dev server is running: do not touch it. `npm ci`
+    /// deletes the tree, which tears down a live HMR session under the dev server.
     SkipDevServerActive,
 }
 
@@ -57,8 +57,7 @@ pub fn dev_server_active(pidfile: &Path) -> bool {
 
 #[cfg(unix)]
 fn process_alive(pid: u32) -> bool {
-    // Signal 0 probes for existence without delivering a signal. EPERM (a zombie reparented to
-    // init, say) still means the process exists.
+    // Signal 0 probes for existence without delivering a signal. EPERM means the process exists.
     unsafe {
         libc::kill(pid as libc::pid_t, 0) == 0
             || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
@@ -71,9 +70,8 @@ fn process_alive(pid: u32) -> bool {
         Foundation::CloseHandle,
         System::Threading::{OpenProcess, SYNCHRONIZE},
     };
-    // `OpenProcess` with `SYNCHRONIZE` fails when the process does not exist; the handle itself is
-    // then enough to prove liveness. `CloseHandle` is unnecessary for a nonexistent process, so
-    // only close a handle we actually got.
+    // `OpenProcess` with `SYNCHRONIZE` fails when the process does not exist; the handle itself
+    // proves liveness. `CloseHandle` runs only on a handle that was actually obtained.
     let handle = unsafe { OpenProcess(SYNCHRONIZE, false, pid) };
     if handle.is_null() {
         return false;

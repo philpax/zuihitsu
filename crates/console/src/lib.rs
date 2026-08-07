@@ -1,14 +1,14 @@
 //! The console build pipeline and shared embedding API.
 //!
 //! This crate owns the entire frontend build pipeline (ts-rs type export, settings metadata, wasm
-//! build, wasm-bindgen, wasm-opt, npm ci, and the Vite production build) — `build.rs` runs it
+//! build, wasm-bindgen, wasm-opt, npm ci, and the Vite production build). `build.rs` runs it
 //! unconditionally whenever the crate is compiled. The crate has no Cargo features: depending on it
 //! means you want the console embedded.
 //!
 //! The Vite build (with `VITE_EMBEDDED=true`) writes into this crate's `dist-embedded/` directory
 //! (gitignored), which [`Console`] embeds at compile time. The embedded `index.html` ships with a
 //! `__ZUIHITSU_APP_MODE__` template token that [`serve`] replaces at serve time, so the one shared
-//! bundle boots into whichever host serves it — `agent` mode from the agent binary, `eval` mode
+//! bundle boots into whichever host serves it: `agent` mode from the agent binary, `eval` mode
 //! from the eval binary. Consumers resolve a path via [`asset_or_index`] and serve it via [`serve`]
 //! (see `zuihitsu`'s `src/http_server/console.rs` and `zuihitsu-eval`'s `src/serve.rs`).
 
@@ -19,7 +19,7 @@ use axum::{
 
 /// The web console, built into the binary at compile time (see `build.rs`). The embedded build
 /// lands in this crate's own `dist-embedded` dir, so a plain `npm run build` for the dev checks
-/// never swaps in the standalone (non-embedded) bytes under us.
+/// never swaps in the standalone (non-embedded) bytes.
 #[derive(rust_embed::RustEmbed)]
 #[folder = "dist-embedded"]
 pub struct Console;
@@ -45,8 +45,8 @@ pub fn serve(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
 
 /// Resolve a request URI to an asset and serve it in the given mode: the asset itself, or
 /// `index.html` for a client-side route (and for the bare root path), or `404` when the fallback
-/// itself is absent (a console-less build of this crate cannot happen — `build.rs` panics — so a
-/// missing `index.html` means the embed folder was tampered with after the build).
+/// itself is absent. A missing `index.html` means the embed folder was altered after the build;
+/// `build.rs` panics if `index.html` is not produced, so the fallback exists in every built crate.
 pub fn serve_embedded(uri: &Uri, mode: &str) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };

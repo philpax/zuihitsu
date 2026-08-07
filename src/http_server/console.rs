@@ -17,15 +17,15 @@ use tokio::sync::watch;
 use crate::http_server::serve_error::ServeError;
 
 /// Serve the embedded console in `agent` mode: its assets by path, and any client-side route (no
-/// matching asset) as `index.html` so the single-page app can route it. `async` is required — axum
+/// matching asset) as `index.html` so the single-page app can route it. `async` is required: axum
 /// 0.8's `Handler` is implemented for async functions, and this is the router's fallback.
 #[cfg(feature = "console")]
 pub(crate) async fn console(uri: Uri) -> Response {
     zuihitsu_console::serve_embedded(&uri, "agent")
 }
 
-/// Serve the placeholder page this build ships in place of the console `--no-default-features`
-/// skips the `zuihitsu-console` dependency (whose build script would run the whole frontend
+/// Serve the placeholder page this build ships in place of the console. A `--no-default-features`
+/// build skips the `zuihitsu-console` dependency (whose build script would run the whole frontend
 /// pipeline), so everything here is root-owned: the page tells the operator how to get the real
 /// console. `async` for the same axum 0.8 `Handler` bound as the feature-on sibling.
 #[cfg(not(feature = "console"))]
