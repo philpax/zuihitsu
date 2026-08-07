@@ -1,0 +1,1 @@
+occurred_at is not assignable on a {{kind}}: a fact's date is set when you record it, not by writing the field. Append the dated entry with occurred_at in its opts (mem:append(text, { occurred_at = calendar.date("YYYY-MM-DD") })), or revise the dated entry (mem:revise(entry, text, { occurred_at = ... }))

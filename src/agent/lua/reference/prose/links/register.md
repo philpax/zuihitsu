@@ -1,0 +1,1 @@
+Register a link relation, usable thereafter under either label by links.create — this declares the relation that edges instantiate. Re-registering a name updates it.

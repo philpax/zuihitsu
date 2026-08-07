@@ -1,0 +1,1 @@
+retract's entry must be an entry object (from <memory>:entries or <memory>:history) or an entry-id string, got {{type_name}}

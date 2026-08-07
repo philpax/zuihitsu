@@ -1,0 +1,1 @@
+A new date shifted by this many weeks — "the Friday after next" is calendar.next("friday"):add_weeks(1).

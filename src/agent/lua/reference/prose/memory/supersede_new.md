@@ -1,0 +1,1 @@
+the entry that replaces it — its object (from <memory>:append), or its id or a unique id prefix as a string

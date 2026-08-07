@@ -1,0 +1,1 @@
+attribute the attestation to a specific teller other than the current speaker — a person handle or their name as a string

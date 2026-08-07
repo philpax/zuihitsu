@@ -1,7 +1,10 @@
 //! Context and conversation API reference entries: `context.current` and `convo.turn`.
 
 use crate::{
-    agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT},
+    agent::{
+        api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT},
+        body_of, render_placeholders,
+    },
     ids::Namespace,
 };
 
@@ -9,9 +12,9 @@ use crate::{
 pub(super) fn entries() -> Vec<ApiEntry> {
     let context = Namespace::Context.prefix();
     let context_current = AE::new("context.current")
-        .description(format!(
-            "The {context}* memory for the current conversation. Check its #confidential tag to \
-                 know whether the room is confidential."
+        .description(render_placeholders(
+            body_of(include_str!("prose/context/current.md")),
+            &[("context", context)],
         ))
         .returns(AT::Handle.optional());
 
@@ -21,16 +24,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
 /// The `convo.turn` entry, gated on the `transcripts` feature.
 pub(super) fn convo_entries() -> Vec<ApiEntry> {
     let convo_turn = AE::new("convo.turn")
-        .description(
-            "Resolve a reference to an earlier moment — a [turn:<id>] token, pass the id here — to \
-             that turn and the exchange around it. The result is a table { id, ref, text, speaker, \
-             role, at, window }: ref is the canonical [turn:<id>] to cite it by (copy it into your \
-             reply), window the surrounding turns (the linked one flagged focused), printing as a \
-             transcript excerpt with the moment marked. A moment resolves only when everyone present \
-             here was in its audience; otherwise it is an error naming the audience problem — recall \
-             through memory instead of replaying the transcript. A malformed or unknown id is \
-             likewise an error.",
-        )
+        .description(body_of(include_str!("prose/context/turn.md")))
         .required(
             "id",
             AT::String,

@@ -1,0 +1,1 @@
+record the link as a confidence additionally withheld whenever any named party is present — a list of person handles or names to keep it from, on top of the private posture. Mutually exclusive with visibility

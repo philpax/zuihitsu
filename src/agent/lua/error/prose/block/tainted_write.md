@@ -1,0 +1,1 @@
+a search in this block for {{query}} surfaced {{name}} without naming it — a hit is a candidate, not a match, and this block was written before the results were visible. Finish this block by returning what you found, then decide in your next block: memory.get("{{name}}") if it is really them, or memory.create("{{create_handle}}") if they are new

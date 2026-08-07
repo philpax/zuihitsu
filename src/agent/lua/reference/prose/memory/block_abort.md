@@ -1,0 +1,1 @@
+Discard everything this block buffered and end it, recording the reason.

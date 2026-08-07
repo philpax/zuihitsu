@@ -1,0 +1,1 @@
+Apply a tag to this memory. The tag must already exist in the vocabulary — create it first with tags.create. Tagging is what it's about; the namespace is what it is.

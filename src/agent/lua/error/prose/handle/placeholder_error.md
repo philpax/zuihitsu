@@ -1,0 +1,1 @@
+the {{what}} contains "{{placeholder}}" as literal characters — a plain quoted string does not interpolate. To insert a value, use a backtick string, which does: `Full text: {content}` renders the variable content in place. If the braces are meant literally, rephrase so the braces do not wrap a bare identifier

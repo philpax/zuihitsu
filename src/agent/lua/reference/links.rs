@@ -1,47 +1,34 @@
 //! Link-related API reference entries: the `<memory>:outgoing`/`:incoming`/`:links` readers, and
 //! the `links.*` module (`create`, `remove`, `register`, `list`, `get`).
 
-use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object};
+use crate::agent::{
+    api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, enum_of, object},
+    body_of,
+};
 
 /// The link reader handle methods (`:outgoing`/`:incoming`/`:links`), gated on the `linking`
 /// feature. The link *writers* are `links.*` module functions (see [`module_entries`]).
 pub(super) fn handle_methods() -> Vec<ApiEntry> {
     let outgoing = AE::new("<memory>:outgoing")
-        .description(
-            "The memories this one links to under a relation, across its whole merged identity, \
-             forward — <memory>:outgoing(\"knows\") is who it knows. Each result is a table \
-             { relation, memory, name, direction, source, told_by, occurred_at } printing as \
-             \"relation → name\" (a dated occurrence appended); reach the linked memory through \
-             result.memory, result.told_by is who asserted the relationship, result.occurred_at the \
-             far memory's date when dated. Use <memory>:incoming for the reverse (who knows it). For \
-             a symmetric relation, both return the same neighbours. A stored edge's direction \
-             reflects how the fact was told, so for a who-is-connected question, prefer \
-             <memory>:links or <memory>:details, which read both directions — betting on one \
-             direction can miss edges told the other way. Private links are filtered out when an \
-             audience is present, mirroring content entry reads.",
+        .description(body_of(include_str!("prose/links/outgoing.md")))
+        .required(
+            "relation",
+            AT::String,
+            "the relation from the registry, e.g. \"knows\"",
         )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
 
     let incoming = AE::new("<memory>:incoming")
-        .description(
-            "The memories that link to this one under a relation, across its whole merged identity — \
-             <memory>:incoming(\"knows\") is who knows it. The reverse of <memory>:outgoing; the \
-             result shape is the same.",
+        .description(body_of(include_str!("prose/links/incoming.md")))
+        .required(
+            "relation",
+            AT::String,
+            "the relation from the registry, e.g. \"knows\"",
         )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"knows\"")
         .returns(AT::Object(Vec::new()).list());
 
     let links = AE::new("<memory>:links")
-        .description(
-            "Every link from this memory's merged identity out to other memories, in every relation \
-             and both directions — the relationship overview. Each result is a table { relation, \
-             memory, name, direction, source, occurred_at } printing as \"relation → name\" (or \
-             \"← name\" incoming), a dated occurrence appended; reach a linked memory through \
-             result.memory, and each result renders as its own text for interpolation into a reply. \
-             Call it with a colon — <memory>:links() — since <memory>.links is the method itself. \
-             Private links are filtered out when an audience is present, mirroring content entry reads.",
-        )
+        .description(body_of(include_str!("prose/links/links.md")))
         .returns(AT::Object(Vec::new()).list());
 
     vec![outgoing, incoming, links]
@@ -51,39 +38,21 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
 /// and the `register`/`list`/`get` registry.
 pub(super) fn module_entries() -> Vec<ApiEntry> {
     let links_create = AE::new("links.create")
-        .description(
-            "Record a relationship between two memories under a registered relation. When two \
-             memories relate — two people who know each other, an event that belongs to a topic — \
-             capture it with links.create rather than only describing it in prose, so the connection \
-             is queryable and traversable (pick the fitting relation from the registry). The \
-             arguments read as a sentence: links.create(person, \"participates_in\", event) records \
-             that the person participates in the event — give the subject first, then the relation, \
-             then the object, and the edge is stored subject → object. The registry's inverse label \
-             names the same edge read the other way, so the readers surface it from the object's side \
-             too (that event's incoming participants). For a symmetric relation (shown in the \
-             registry), create it once — the reverse direction is implied. A relationship you record \
-             about someone — a belief, a judgment — defaults private to the teller when a participant \
-             asserts it, so an aside about B stays hidden from B; a relayed fact (the teller is \
-             neither endpoint) surfaces to anyone carrying provenance. Force the posture with \
-             opts.visibility when the default does not fit. An endpoint named by a string that names \
-             no memory yet is created bare, so naming the cast of a relationship does not need a \
-             create first. Three names are refused rather than created: one near-matching an existing \
-             handle (the neighbours are listed — minting it would split one subject's facts in two), \
-             a handle the system mints for itself, and a name in no recognized namespace. Only \
-             links.create does this; links.remove never creates its target.",
-        )
+        .description(body_of(include_str!("prose/links/create.md")))
         .required(
             "subject",
             AT::Handle,
-            "the memory the relation runs from — a handle (e.g. context.current()) or its name as a \
-             string, which is looked up and created if it names nothing yet",
+            body_of(include_str!("prose/links/create_subject.md")),
         )
-        .required("relation", AT::String, "the relation from the registry, e.g. \"part_of\"")
+        .required(
+            "relation",
+            AT::String,
+            "the relation from the registry, e.g. \"part_of\"",
+        )
         .required(
             "object",
             AT::Handle,
-            "the memory the relation runs to — a handle or its name as a string, which is looked up \
-             and created if it names nothing yet",
+            body_of(include_str!("prose/links/create_object.md")),
         )
         .optional(
             "opts",
@@ -91,26 +60,18 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
                 .optional(
                     "visibility",
                     enum_of(["public", "attributed", "private"]),
-                    "force the link's visibility instead of the write-time default — same postures as \
-                     content: public, attributed (secondhand), or private (teller-gated, \
-                     subject-guarded at the target)",
+                    body_of(include_str!("prose/links/create_opts_visibility.md")),
                 )
                 .optional(
                     "exclude",
                     AT::Handle.list(),
-                    "record the link as a confidence additionally withheld whenever any named party \
-                     is present — a list of person handles or names to keep it from, on top of the \
-                     private posture. Mutually exclusive with visibility",
+                    body_of(include_str!("prose/links/create_opts_exclude.md")),
                 ),
-            "overrides for the link — visibility or exclude forces the posture instead of the \
-             write-time default",
+            body_of(include_str!("prose/links/create_opts.md")),
         );
 
     let links_remove = AE::new("links.remove")
-        .description(
-            "Remove a link made with links.create when the relationship no longer holds; name the \
-             same subject, relation, and object.",
-        )
+        .description(body_of(include_str!("prose/links/remove.md")))
         .required(
             "subject",
             AT::Handle,
@@ -124,10 +85,7 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
         );
 
     let links_register = AE::new("links.register")
-        .description(
-            "Register a link relation, usable thereafter under either label by links.create — this \
-             declares the relation that edges instantiate. Re-registering a name updates it.",
-        )
+        .description(body_of(include_str!("prose/links/register.md")))
         .required(
             "spec",
             object()
@@ -162,15 +120,11 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
         );
 
     let links_list = AE::new("links.list")
-        .description(
-            "The whole relation registry, each a table { name, inverse, from_card, to_card, \
-             symmetric, reflexive, description } that prints as a readable line — the relations \
-             links.create accepts.",
-        )
+        .description(body_of(include_str!("prose/links/list.md")))
         .returns(AT::Object(Vec::new()).list());
 
     let links_get = AE::new("links.get")
-        .description("One registered relation by either label, or nil if it is not registered.")
+        .description(body_of(include_str!("prose/links/get.md")))
         .required("name", AT::String, "the relation or its inverse label")
         .returns(AT::Object(Vec::new()).optional());
 

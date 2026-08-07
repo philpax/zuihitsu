@@ -1,0 +1,1 @@
+{{field}} is not assignable: a {{kind}} is a read-only view, so writing its field does nothing. To change what is stored, use the memory methods (mem:append, mem:revise, mem:supersede, mem:rename, …) — a field assignment does not persist

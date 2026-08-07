@@ -1,54 +1,41 @@
 //! Calendar API reference entries: `calendar.upcoming`, `overdue`, `on`, `recurring`, date
 //! construction, and `<date>:*` methods.
 
-use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, object};
+use crate::agent::{
+    api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT, object},
+    body_of,
+};
 
 /// The calendar entries, gated on the `calendar` feature.
 pub(super) fn entries() -> Vec<ApiEntry> {
     let upcoming = AE::new("calendar.upcoming")
-        .description(
-            "Memories with something happening soon (including the next instance of a recurring one), \
-             soonest first. Each is a memory handle — read m.name and m.description, or call its \
-             methods (m:entries() …) for detail.",
-        )
+        .description(body_of(include_str!("prose/calendar/upcoming.md")))
         .optional(
             "opts",
             object().optional(
                 "within",
                 AT::String,
-                "how far ahead to look — a duration string (\"7 days\", \"2 weeks\"), passable directly \
-                 in place of the table; defaults to 7 days",
+                body_of(include_str!("prose/calendar/upcoming_within.md")),
             ),
             "options",
         )
         .returns(AT::Handle.list());
 
     let overdue = AE::new("calendar.overdue")
-        .description(
-            "Memories whose dated occurrence has already passed — what slipped by, soonest first. \
-             Reach for this alongside calendar.on(today) and calendar.upcoming when someone asks what \
-             they should be on top of: those look at today and ahead, so a reminder whose day passed \
-             is invisible without it. Recurring occurrences are excluded (their next instance is \
-             always ahead). Each is a memory handle.",
-        )
+        .description(body_of(include_str!("prose/calendar/overdue.md")))
         .optional(
             "opts",
             object().optional(
                 "within",
                 AT::String,
-                "how far back to look — a duration string (\"14 days\", \"1 week\"), passable directly \
-                 in place of the table; defaults to 14 days",
+                body_of(include_str!("prose/calendar/overdue_within.md")),
             ),
             "options",
         )
         .returns(AT::Handle.list());
 
     let on = AE::new("calendar.on")
-        .description(
-            "Memories with something happening on a given day. Pass a date object (calendar.today(), \
-             calendar.next(\"friday\"), …) or a \"YYYY-MM-DD\" string — the calendar's own return \
-             values feed straight back in.",
-        )
+        .description(body_of(include_str!("prose/calendar/on.md")))
         .required(
             "date",
             AT::String,
@@ -61,21 +48,11 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .returns(AT::Handle.list());
 
     let cal_today = AE::new("calendar.today")
-        .description(
-            "Today's date as a date object — pass it straight to append as occurred_at, or do \
-             arithmetic on it (:add_days, :add_weeks, :add_months, :weekday). A date object prints \
-             and concatenates as its \"YYYY-MM-DD\" day (so `Reminder for {calendar.today()}` works), \
-             and :to_string() returns that day. Compute dates this way rather than working one out \
-             yourself.",
-        )
+        .description(body_of(include_str!("prose/calendar/today.md")))
         .returns(AT::Handle);
 
     let cal_next = AE::new("calendar.next")
-        .description(
-            "The next date on or after today falling on a weekday, as a date object — \
-             calendar.next(\"friday\") is this Friday (today if today is Friday). Use this for \"this \
-             Friday\" instead of computing the date.",
-        )
+        .description(body_of(include_str!("prose/calendar/next.md")))
         .required("weekday", AT::String, "a weekday name, e.g. \"friday\"")
         .returns(AT::Handle);
 
@@ -100,18 +77,12 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .returns(AT::Handle);
 
     let date_add_weeks = AE::new("<date>:add_weeks")
-        .description(
-            "A new date shifted by this many weeks — \"the Friday after next\" is \
-             calendar.next(\"friday\"):add_weeks(1).",
-        )
+        .description(body_of(include_str!("prose/calendar/add_weeks.md")))
         .required("weeks", AT::Number, "how many weeks to shift")
         .returns(AT::Handle);
 
     let date_add_months = AE::new("<date>:add_months")
-        .description(
-            "A new date shifted by this many months, keeping the day-of-month where it exists and \
-             clamping where it does not (31 Jan + 1 month is 28/29 Feb).",
-        )
+        .description(body_of(include_str!("prose/calendar/add_months.md")))
         .required("months", AT::Number, "how many months to shift")
         .returns(AT::Handle);
 
@@ -120,10 +91,7 @@ pub(super) fn entries() -> Vec<ApiEntry> {
         .returns(AT::String);
 
     let date_to_string = AE::new("<date>:to_string")
-        .description(
-            "The date as its \"YYYY-MM-DD\" string. A date also prints and concatenates as this text, \
-             so you rarely need to call it explicitly.",
-        )
+        .description(body_of(include_str!("prose/calendar/to_string.md")))
         .returns(AT::String);
 
     vec![

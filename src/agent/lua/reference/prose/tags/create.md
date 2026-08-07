@@ -1,0 +1,1 @@
+Add a tag to the vocabulary with a one-line purpose. Creation is distinct from application: creating forces a purpose, while <memory>:tag never mutates it.

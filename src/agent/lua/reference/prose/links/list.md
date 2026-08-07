@@ -1,0 +1,1 @@
+The whole relation registry, each a table { name, inverse, from_card, to_card, symmetric, reflexive, description } that prints as a readable line — the relations links.create accepts.

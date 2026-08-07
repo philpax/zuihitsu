@@ -1,0 +1,1 @@
+Append a content entry. By default it is attributed to the current speaker, and an aside about someone else defaults private to that speaker. An entry you record as your own observation (a synthesis or a flush) has no default — set its visibility yourself, public or private.

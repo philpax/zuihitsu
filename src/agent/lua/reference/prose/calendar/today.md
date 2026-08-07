@@ -1,0 +1,1 @@
+Today's date as a date object — pass it straight to append as occurred_at, or do arithmetic on it (:add_days, :add_weeks, :add_months, :weekday). A date object prints and concatenates as its "YYYY-MM-DD" day (so `Reminder for {calendar.today()}` works), and :to_string() returns that day. Compute dates this way rather than working one out yourself.

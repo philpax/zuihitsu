@@ -1,0 +1,1 @@
+when a near-duplicate check would otherwise fold this write into an existing entry as a corroboration, name that entry — its object, id, or a unique id prefix — to record this as a genuinely separate fact instead; the scan skips exactly that entry. Reach for it only when you mean a different fact the check mistook for the same one

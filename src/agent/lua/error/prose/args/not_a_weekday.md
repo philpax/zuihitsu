@@ -1,0 +1,1 @@
+{{input}} is not a weekday; use a full name like "monday" or "friday"

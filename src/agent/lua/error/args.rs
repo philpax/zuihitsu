@@ -5,6 +5,8 @@
 
 use mlua::Error as LuaError;
 
+use crate::agent::{body_of, render_placeholders};
+
 /// A wrongly-shaped argument to a Lua API function — a table where a string was wanted, or the
 /// reverse — caught at the argument boundary and reworded from mlua's raw "error converting Lua table
 /// to String" (which names neither the function nor the fix) into a teachable message. It names the
@@ -40,7 +42,15 @@ impl std::fmt::Display for ArgError {
         } else {
             format!("a {got}")
         };
-        write!(f, "{function}: expected {expected}, got {arrived} — {hint}")
+        f.write_str(&render_placeholders(
+            body_of(include_str!("prose/args/arg_error.md")),
+            &[
+                ("function", function),
+                ("expected", expected),
+                ("arrived", &arrived),
+                ("hint", hint),
+            ],
+        ))
     }
 }
 
@@ -72,24 +82,26 @@ pub(in crate::agent::lua) enum CalendarError {
 impl std::fmt::Display for CalendarError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CalendarError::NotAWeekday { input } => write!(
-                f,
-                "{input:?} is not a weekday; use a full name like \"monday\" or \"friday\""
-            ),
-            CalendarError::DateOutOfRange { days } => write!(
-                f,
-                "the date {days} days from today is out of range; use a smaller offset"
-            ),
-            CalendarError::InvalidDate { input } => write!(
-                f,
-                "{input:?} is not a valid date; use YYYY-MM-DD, e.g. \"2026-06-03\""
-            ),
-            CalendarError::InvalidDay { input } => write!(f, "{input:?} is not a valid day"),
-            CalendarError::NotAWindow { type_name } => write!(
-                f,
-                "the window is a duration — pass it directly (\"31 days\", \"2 weeks\") or as \
-                 {{ within = \"…\" }}, or omit it for the default; got {type_name}"
-            ),
+            CalendarError::NotAWeekday { input } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/not_a_weekday.md")),
+                &[("input", &format!("{input:?}"))],
+            )),
+            CalendarError::DateOutOfRange { days } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/date_out_of_range.md")),
+                &[("days", &days.to_string())],
+            )),
+            CalendarError::InvalidDate { input } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/invalid_date.md")),
+                &[("input", &format!("{input:?}"))],
+            )),
+            CalendarError::InvalidDay { input } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/invalid_day.md")),
+                &[("input", &format!("{input:?}"))],
+            )),
+            CalendarError::NotAWindow { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/not_a_window.md")),
+                &[("type_name", type_name)],
+            )),
         }
     }
 }
@@ -122,24 +134,18 @@ pub(in crate::agent::lua) enum TemporalArgError {
 impl std::fmt::Display for TemporalArgError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TemporalArgError::NotADate { type_name } => write!(
-                f,
-                "expected a date object (from calendar.today(), calendar.next(...), …) or a \
-                 \"YYYY-MM-DD\" string, got {type_name}"
-            ),
-            TemporalArgError::InvalidDay { input } => write!(
-                f,
-                "{input:?} is not a valid date; use YYYY-MM-DD, e.g. \"2026-06-03\""
-            ),
-            TemporalArgError::UnknownOccurrence { got } => write!(
-                f,
-                "occurred_at does not name an occurrence ({got}). Pass a bare \"YYYY-MM-DD\" string \
-                 or a date object (calendar.today(), calendar.date(\"…\")) for a single day, or a \
-                 tagged table for a richer occurrence: {{ day = \"YYYY-MM-DD\" }}, \
-                 {{ instant = <epoch ms> }}, {{ range = {{ start = …, [\"end\"] = … }} }}, \
-                 {{ approx = {{ center = …, fuzz_days = N }} }}, {{ recurring = \"FREQ=WEEKLY\" }}, \
-                 or {{ before_after = {{ dir = \"before\" | \"after\", anchor = \"<memory name>\" }} }}"
-            ),
+            TemporalArgError::NotADate { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/not_a_date.md")),
+                &[("type_name", type_name)],
+            )),
+            TemporalArgError::InvalidDay { input } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/invalid_date.md")),
+                &[("input", &format!("{input:?}"))],
+            )),
+            TemporalArgError::UnknownOccurrence { got } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/args/unknown_occurrence.md")),
+                &[("got", got)],
+            )),
         }
     }
 }

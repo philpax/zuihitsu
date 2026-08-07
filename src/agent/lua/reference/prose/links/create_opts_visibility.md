@@ -1,0 +1,1 @@
+force the link's visibility instead of the write-time default — same postures as content: public, attributed (secondhand), or private (teller-gated, subject-guarded at the target)

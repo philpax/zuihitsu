@@ -1,0 +1,1 @@
+The memory's entries including superseded ones, oldest first — the full record, where <memory>:entries shows only the live ones. Each is an entry object (entry.text for its text, and its id at the front of the printed line to address it by).

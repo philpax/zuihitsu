@@ -1,0 +1,1 @@
+the entry being withdrawn — its object (from <memory>:entries or <memory>:history, or from <memory>:find_entry("…") for a phrase you know), or its id or a unique id prefix as a string, as shown at the front of the entry's printed line

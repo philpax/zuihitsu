@@ -5,7 +5,10 @@
 use mlua::Error as LuaError;
 use ulid::DecodeError as UlidError;
 
-use crate::ids::{EntryId, MemoryName, NamespacedMemoryName};
+use crate::{
+    agent::{body_of, render_placeholders},
+    ids::{EntryId, MemoryName, NamespacedMemoryName},
+};
 
 /// A bad handle or link target passed to a memory operation.
 #[derive(Debug)]
@@ -55,75 +58,57 @@ impl std::fmt::Display for HandleError {
             HandleError::InvalidEntryHandle { id, source } => {
                 write!(f, "invalid entry handle id {id:?}: {source}")
             }
-            HandleError::WrongEntryType { type_name } => write!(
-                f,
-                "retract's entry must be an entry object (from <memory>:entries or \
-                 <memory>:history) or an entry-id string, got {type_name}"
-            ),
+            HandleError::WrongEntryType { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/wrong_entry_type.md")),
+                &[("type_name", type_name)],
+            )),
             HandleError::UnknownLinkTarget { name } => {
                 // The operator anchor is minted by the imprint, never by the agent, so the generic
                 // "create it first" advice would steer a write at a reserved handle. Teach the real
                 // shape instead: operator facts and links belong on the operator's actual profile.
                 if name == MemoryName::from(NamespacedMemoryName::operator()).as_str() {
-                    write!(
-                        f,
-                        "person/operator does not exist yet — it is a provisional anchor minted \
-                         when an operator imprints, never created directly. Link to the operator's \
-                         real person/<name> profile instead; if you do not know who the operator \
-                         is, there is nothing to link"
-                    )
+                    f.write_str(&body_of(include_str!(
+                        "prose/handle/unknown_link_target_operator.md"
+                    )))
                 } else {
-                    write!(
-                        f,
-                        "no memory named \"{name}\" — create it first, or check the casing"
-                    )
+                    f.write_str(&render_placeholders(
+                        body_of(include_str!("prose/handle/unknown_link_target.md")),
+                        &[("name", name)],
+                    ))
                 }
             }
-            HandleError::WrongLinkTargetType { type_name } => write!(
-                f,
-                "a link's subject and object must each be a memory handle (from memory.get/create) \
-                 or a memory name, got {type_name}"
-            ),
-            HandleError::UnknownTeller { name } => write!(
-                f,
-                "no memory named \"{name}\" to attribute this entry to — told_by names the \
-                 participant who told you the fact (a person handle, or their memory name). When \
-                 you yourself are the source, omit told_by and pass by_agent = true instead. For a \
-                 real teller, create their memory first, or check the casing"
-            ),
-            HandleError::WrongTellerType { type_name } => write!(
-                f,
-                "told_by must be a person handle (from memory.get/create) or a memory name, \
-                 got {type_name}"
-            ),
-            HandleError::UnknownExcludee { name } => write!(
-                f,
-                "no memory named \"{name}\" to exclude — exclude names the parties to withhold this \
-                 from (each a person handle from memory.get/create, or their memory name). Create \
-                 their memory first — a bare memory.create(\"person/<name>\") stub suffices — or \
-                 check the casing"
-            ),
-            HandleError::WrongExcludeeType { type_name } => write!(
-                f,
-                "exclude takes a list of person handles (from memory.get/create) or memory names, \
-                 e.g. exclude = {{ \"person/dave\" }}; one entry was {type_name}"
-            ),
-            HandleError::UnknownMemoryHandle { id } => write!(
-                f,
-                "this memory handle (id {id:?}) resolves to no memory — it may name one that no \
-                 longer exists"
-            ),
-            HandleError::WrongGetArgType { type_name } => write!(
-                f,
-                "memory.get takes a memory name or an existing memory handle (from memory.list, \
-                 memory.create, or a prior memory.get), got {type_name}"
-            ),
-            HandleError::MethodCalledWithDot { type_name } => write!(
-                f,
-                "this is a method — call it with a colon (handle:method(...)), not a dot \
-                 (handle.method(...)); the colon passes the handle as self, but the dot bound \
-                 {type_name} there instead"
-            ),
+            HandleError::WrongLinkTargetType { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/wrong_link_target_type.md")),
+                &[("type_name", type_name)],
+            )),
+            HandleError::UnknownTeller { name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/unknown_teller.md")),
+                &[("name", name)],
+            )),
+            HandleError::WrongTellerType { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/wrong_teller_type.md")),
+                &[("type_name", type_name)],
+            )),
+            HandleError::UnknownExcludee { name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/unknown_excludee.md")),
+                &[("name", name)],
+            )),
+            HandleError::WrongExcludeeType { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/wrong_excludee_type.md")),
+                &[("type_name", type_name)],
+            )),
+            HandleError::UnknownMemoryHandle { id } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/unknown_memory_handle.md")),
+                &[("id", &format!("{id:?}"))],
+            )),
+            HandleError::WrongGetArgType { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/wrong_get_arg_type.md")),
+                &[("type_name", type_name)],
+            )),
+            HandleError::MethodCalledWithDot { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/method_called_with_dot.md")),
+                &[("type_name", type_name)],
+            )),
         }
     }
 }
@@ -161,18 +146,14 @@ pub(in crate::agent::lua) enum FindEntryError {
 impl std::fmt::Display for FindEntryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FindEntryError::EmptyNeedle => write!(
-                f,
-                "find_entry needs some text to match on — an empty needle would match every entry. \
-                 Pass a distinctive phrase from the entry you mean, e.g. \
-                 mem:find_entry(\"leads the volcano project\")"
-            ),
+            FindEntryError::EmptyNeedle => {
+                f.write_str(&body_of(include_str!("prose/handle/find_entry_empty.md")))
+            }
             FindEntryError::Ambiguous { needle, candidates } => {
-                write!(
-                    f,
-                    "the text {needle:?} matches more than one entry on this memory; use a longer \
-                     phrase, or address one by its id:"
-                )?;
+                f.write_str(&render_placeholders(
+                    body_of(include_str!("prose/handle/find_entry_ambiguous.md")),
+                    &[("needle", &format!("{needle:?}"))],
+                ))?;
                 for (id, snippet) in candidates {
                     write!(f, "\n  {} — {}", id.0, find_entry_snippet(snippet))?;
                 }
@@ -237,21 +218,14 @@ impl HandleKind {
 impl std::fmt::Display for HandleAssignmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HandleAssignmentError::OccurredAt { kind } => write!(
-                f,
-                "occurred_at is not assignable on a {}: a fact's date is set when you record it, not \
-                 by writing the field. Append the dated entry with occurred_at in its opts \
-                 (mem:append(text, {{ occurred_at = calendar.date(\"YYYY-MM-DD\") }})), or revise the \
-                 dated entry (mem:revise(entry, text, {{ occurred_at = ... }}))",
-                kind.label()
-            ),
-            HandleAssignmentError::Other { kind, field } => write!(
-                f,
-                "{field} is not assignable: a {} is a read-only view, so writing its field does \
-                 nothing. To change what is stored, use the memory methods (mem:append, mem:revise, \
-                 mem:supersede, mem:rename, …) — a field assignment does not persist",
-                kind.label()
-            ),
+            HandleAssignmentError::OccurredAt { kind } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/assign_occurred_at.md")),
+                &[("kind", kind.label())],
+            )),
+            HandleAssignmentError::Other { kind, field } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/handle/assign_other.md")),
+                &[("field", field), ("kind", kind.label())],
+            )),
         }
     }
 }
@@ -283,13 +257,10 @@ pub(in crate::agent::lua) struct PlaceholderError {
 impl std::fmt::Display for PlaceholderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let PlaceholderError { what, placeholder } = self;
-        write!(
-            f,
-            "the {what} contains \"{placeholder}\" as literal characters — a plain quoted string does \
-             not interpolate. To insert a value, use a backtick string, which does: \
-             `Full text: {{content}}` renders the variable content in place. If the braces are meant \
-             literally, rephrase so the braces do not wrap a bare identifier"
-        )
+        f.write_str(&render_placeholders(
+            body_of(include_str!("prose/handle/placeholder_error.md")),
+            &[("what", what), ("placeholder", placeholder)],
+        ))
     }
 }
 

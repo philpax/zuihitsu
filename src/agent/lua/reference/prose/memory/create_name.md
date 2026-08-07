@@ -1,0 +1,1 @@
+the namespaced handle, e.g. "{{person}}<name>" or "{{topic}}<subject>". Match is exact (case-sensitive), so prefer lowercase — "{{person}}dave", not "{{person}}Dave" — or one subject splits across casings

@@ -1,0 +1,1 @@
+The memories that link to this one under a relation, across its whole merged identity — <memory>:incoming("knows") is who knows it. The reverse of <memory>:outgoing; the result shape is the same.

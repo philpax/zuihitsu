@@ -1,0 +1,1 @@
+The {{context}}* memory for the current conversation. Check its #confidential tag to know whether the room is confidential.

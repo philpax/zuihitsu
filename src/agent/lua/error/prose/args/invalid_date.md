@@ -1,0 +1,1 @@
+{{input}} is not a valid date; use YYYY-MM-DD, e.g. "2026-06-03"

@@ -1,0 +1,1 @@
+a link's subject and object must each be a memory handle (from memory.get/create) or a memory name, got {{type_name}}

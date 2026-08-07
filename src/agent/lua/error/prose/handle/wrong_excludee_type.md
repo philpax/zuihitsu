@@ -1,0 +1,1 @@
+exclude takes a list of person handles (from memory.get/create) or memory names, e.g. exclude = { "person/dave" }; one entry was {{type_name}}

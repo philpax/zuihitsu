@@ -1,0 +1,1 @@
+find_entry needs some text to match on — an empty needle would match every entry. Pass a distinctive phrase from the entry you mean, e.g. mem:find_entry("leads the volcano project")
