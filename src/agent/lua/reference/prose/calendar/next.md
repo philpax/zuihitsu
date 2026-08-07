@@ -1,0 +1,1 @@
+The next date on or after today falling on a weekday, as a date object — calendar.next("friday") is this Friday (today if today is Friday). Use this for "this Friday" instead of computing the date.

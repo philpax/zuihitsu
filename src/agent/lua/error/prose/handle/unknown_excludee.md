@@ -1,0 +1,1 @@
+no memory named "{{name}}" to exclude — exclude names the parties to withhold this from (each a person handle from memory.get/create, or their memory name). Create their memory first — a bare memory.create("person/<name>") stub suffices — or check the casing

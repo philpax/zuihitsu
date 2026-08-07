@@ -1,0 +1,1 @@
+Memories with something happening on a given day. Pass a date object (calendar.today(), calendar.next("friday"), …) or a "YYYY-MM-DD" string — the calendar's own return values feed straight back in.

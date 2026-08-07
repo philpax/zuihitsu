@@ -1,0 +1,1 @@
+told_by must be a person handle (from memory.get/create) or a memory name, got {{type_name}}

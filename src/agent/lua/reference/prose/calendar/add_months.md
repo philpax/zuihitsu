@@ -1,0 +1,1 @@
+A new date shifted by this many months, keeping the day-of-month where it exists and clamping where it does not (31 Jan + 1 month is 28/29 Feb).

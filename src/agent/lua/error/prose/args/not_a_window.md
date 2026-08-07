@@ -1,0 +1,1 @@
+the window is a duration — pass it directly ("31 days", "2 weeks") or as { within = "…" }, or omit it for the default; got {{type_name}}

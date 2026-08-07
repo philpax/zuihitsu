@@ -4,6 +4,8 @@
 
 use mlua::Error as LuaError;
 
+use crate::agent::{body_of, render_placeholders};
+
 /// A bad argument to `table.concat`, reworded from Luau's opaque native error. Stock Luau `table.concat`
 /// joins only strings and numbers, so a reader's handle list — `mem:entries()`, `hub:links()` — fails
 /// it with the unhelpful "invalid value (table) at index … in table for 'concat'". The thin wrapper in
@@ -24,21 +26,13 @@ pub(in crate::agent::lua) enum ConcatError {
 impl std::fmt::Display for ConcatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConcatError::NotAList { type_name } => write!(
-                f,
-                "table.concat joins a list, but its first argument is {type_name}, not a table. If \
-                 you meant a memory reader like hub:links() or mem:entries(), call it with a colon \
-                 and parentheses — hub.links is the method itself, hub:links() is the list it returns"
-            ),
-            ConcatError::NonJoinable => write!(
-                f,
-                "table.concat joins only strings and numbers, but this list holds values it cannot — \
-                 a handle list like mem:entries() or hub:links(), most likely. To see the list, \
-                 print(list) already renders each handle on its own line — no join needed. To compose \
-                 text from handles, interpolate one into a backtick string — `latest: {{es[1]}}` \
-                 renders it as its text — or, since a handle concatenates directly (\"- \" .. e \
-                 renders one), build the string with .. in a loop."
-            ),
+            ConcatError::NotAList { type_name } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/block/not_a_list.md")),
+                &[("type_name", type_name)],
+            )),
+            ConcatError::NonJoinable => {
+                f.write_str(&body_of(include_str!("prose/block/non_joinable.md")))
+            }
         }
     }
 }
@@ -62,16 +56,12 @@ impl From<ConcatError> for LuaError {
 /// confidently wrong explanation is worse than Luau's bare one. The reword is additive: the original
 /// message, position and all, is kept ahead of the lesson.
 pub(in crate::agent::lua) fn with_lesson(message: String) -> String {
-    const CONCAT_LESSON: &str = "a table has no text of its own, only its elements do. If this is a \
-                                 handle list from mem:entries() or hub:links(), index one out and \
-                                 interpolate it into a backtick string (`latest: {es[1]}`), or \
-                                 concatenate it alone (\"- \" .. es[1]); print(list) renders the \
-                                 whole list, one handle per line.";
+    let lesson = body_of(include_str!("prose/block/concat_lesson.md"));
     if message.contains("attempt to concatenate")
         && message.contains("table")
-        && !message.contains(CONCAT_LESSON)
+        && !message.contains(&lesson)
     {
-        return format!("{message}\n{CONCAT_LESSON}");
+        return format!("{message}\n{lesson}");
     }
     message
 }
@@ -90,12 +80,10 @@ pub(in crate::agent::lua) struct MissingReturnError {
 
 impl std::fmt::Display for MissingReturnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "syntax error: {}. A block does not echo a trailing expression the way a REPL does — \
-             yield its value with an explicit return (e.g. `return results` on the last line).",
-            self.message
-        )
+        f.write_str(&render_placeholders(
+            body_of(include_str!("prose/block/missing_return.md")),
+            &[("message", &self.message)],
+        ))
     }
 }
 
@@ -136,14 +124,15 @@ impl std::fmt::Display for SearchWriteError {
             list_arg,
             create_handle,
         } = self;
-        write!(
-            f,
-            "this handle came from a search for {query:?} but names {name} — a search hit is a \
-             candidate, not a match, so writing to it here would record against the wrong memory. \
-             Confirm who you mean first: memory.get(\"{name}\") if this really is them, \
-             memory.list(\"{list_arg}\") to see who else shares the stem, or \
-             memory.create(\"{create_handle}\") if they are new"
-        )
+        f.write_str(&render_placeholders(
+            body_of(include_str!("prose/block/search_write.md")),
+            &[
+                ("query", &format!("{query:?}")),
+                ("name", name),
+                ("list_arg", list_arg),
+                ("create_handle", create_handle),
+            ],
+        ))
     }
 }
 
@@ -180,14 +169,14 @@ impl std::fmt::Display for TaintedWriteError {
             name,
             create_handle,
         } = self;
-        write!(
-            f,
-            "a search in this block for {query:?} surfaced {name} without naming it — a hit is a \
-             candidate, not a match, and this block was written before the results were visible. \
-             Finish this block by returning what you found, then decide in your next block: \
-             memory.get(\"{name}\") if it is really them, or memory.create(\"{create_handle}\") if \
-             they are new"
-        )
+        f.write_str(&render_placeholders(
+            body_of(include_str!("prose/block/tainted_write.md")),
+            &[
+                ("query", &format!("{query:?}")),
+                ("name", name),
+                ("create_handle", create_handle),
+            ],
+        ))
     }
 }
 

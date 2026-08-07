@@ -1,8 +1,13 @@
 //! The inference prompt renderer — assembles the memory, its numbered statements, existing links,
-//! registered relations, and candidate targets into the model's prompt.
+//! registered relations, and candidate targets into the model's prompt. The constant framing lives
+//! in `prompt.md`; the per-item lines are runtime data, generated here and substituted into the
+//! frame's markers.
 
 use crate::{
-    agent::turn::link_inference::{CANDIDATE_CAP, relations::ExistingLink},
+    agent::{
+        body_of, render_placeholders,
+        turn::link_inference::{CANDIDATE_CAP, relations::ExistingLink},
+    },
     graph::{EntryView, MemoryView, RelationView},
     time::{self, Timestamp},
 };
@@ -17,20 +22,22 @@ pub(super) fn render_prompt(
     candidates: &[MemoryView],
     now: Timestamp,
 ) -> String {
-    let mut prompt = format!(
-        "Memory: {}\nCurrent time: {}\n\nStatements:\n",
-        memory.name.as_str(),
-        time::format_datetime(now),
-    );
+    // The frame's `{{statements}}`/`{{links}}`/`{{relations}}`/`{{candidates}}` markers hold the
+    // generated per-item lines. Each block keeps its trailing newline (so the frame's own newline
+    // after the marker supplies the blank line the original pushed before the next header), and the
+    // final instruction paragraph gains its own trailing newline after substitution, exactly as the
+    // pre-migration output did.
+    let mut statements = String::new();
     for (index, entry) in entries.iter().enumerate() {
-        prompt.push_str(&format!("{}. {}\n", index + 1, entry.text));
+        statements.push_str(&format!("{}. {}\n", index + 1, entry.text));
     }
-    prompt.push_str("\nExisting links:\n");
+
+    let mut links = String::new();
     if existing_links.is_empty() {
-        prompt.push_str("  (none)\n");
+        links.push_str("  (none)\n");
     } else {
         for link in existing_links {
-            prompt.push_str(&format!(
+            links.push_str(&format!(
                 "- {} —{}→ {}\n",
                 link.from.as_str(),
                 link.relation.as_str(),
@@ -38,37 +45,48 @@ pub(super) fn render_prompt(
             ));
         }
     }
-    prompt.push_str("\nRegistered relations:\n");
+
+    let mut relations_lines = String::new();
     if relations.is_empty() {
-        prompt.push_str("  (none)\n");
+        relations_lines.push_str("  (none)\n");
     } else {
         for relation in relations {
-            prompt.push_str(&format!(
-                "- {name}/{inverse} — a link \"A {name} B\" restates as \"B {inverse} A\" \
-                 (from: {from}, to: {to}, symmetric: {symmetric}, reflexive: {reflexive}): {desc}\n",
-                name = relation.name.as_str(),
-                inverse = relation.inverse.as_str(),
-                from = relation.from_card.as_str(),
-                to = relation.to_card.as_str(),
-                symmetric = relation.symmetric,
-                reflexive = relation.reflexive,
-                desc = relation.description,
+            relations_lines.push_str(&render_placeholders(
+                body_of(include_str!("relations_line.md")),
+                &[
+                    ("name", relation.name.as_str()),
+                    ("inverse", relation.inverse.as_str()),
+                    ("from", relation.from_card.as_str()),
+                    ("to", relation.to_card.as_str()),
+                    ("symmetric", &relation.symmetric.to_string()),
+                    ("reflexive", &relation.reflexive.to_string()),
+                    ("desc", &relation.description),
+                ],
             ));
+            relations_lines.push('\n');
         }
     }
-    prompt.push_str("\nCandidate memories (resolve relationships to these handles):\n");
+
+    let mut candidates_lines = String::new();
     for candidate in candidates.iter().take(CANDIDATE_CAP) {
-        prompt.push_str(&format!(
+        candidates_lines.push_str(&format!(
             "- {} — {}\n",
             candidate.name.as_str(),
             candidate.description
         ));
     }
-    prompt.push_str(
-        "\nIdentify relationships in the statements that link this memory to one of the \
-         candidates. Write each link as a sentence — subject, relation, object: \"A mentors B\" \
-         means A is the mentor, so subject A, relation mentors, object B. One of subject and \
-         object must be this memory's handle; the other must be a candidate's handle.\n",
+
+    let mut prompt = render_placeholders(
+        body_of(include_str!("prompt.md")),
+        &[
+            ("memory", memory.name.as_str()),
+            ("now", &time::format_datetime(now)),
+            ("statements", &statements),
+            ("links", &links),
+            ("relations", &relations_lines),
+            ("candidates", &candidates_lines),
+        ],
     );
+    prompt.push('\n');
     prompt
 }

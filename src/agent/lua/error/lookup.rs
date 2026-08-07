@@ -5,7 +5,12 @@
 use mlua::Error as LuaError;
 use ulid::DecodeError as UlidError;
 
-use crate::{memory::search::SearchError, model::ModelError, store::StoreError};
+use crate::{
+    agent::{body_of, render_placeholders},
+    memory::search::SearchError,
+    model::ModelError,
+    store::StoreError,
+};
 
 /// A failure running `memory.search` — the embedder/vector backends, or the absence of retrieval on
 /// the instance. The delegating variants nest their inner error's own `model:`/`search (…):` prefix.
@@ -26,13 +31,9 @@ pub(in crate::agent::lua) enum MemorySearchError {
 impl std::fmt::Display for MemorySearchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MemorySearchError::EmptyQuery => write!(
-                f,
-                "memory.search needs a query to match on — an empty search cannot list a namespace. \
-                 Search for what you are actually after in natural language, narrowing with the \
-                 namespace option if you want to stay within one prefix, e.g. \
-                 memory.search(\"deploy schedule\", {{ namespace = \"topic/\" }})."
-            ),
+            MemorySearchError::EmptyQuery => {
+                f.write_str(&body_of(include_str!("prose/lookup/search_empty.md")))
+            }
             MemorySearchError::NoRetrieval => write!(
                 f,
                 "semantic search is unavailable on this instance (no embedding endpoint configured)"
@@ -83,19 +84,14 @@ impl std::fmt::Display for TurnResolveError {
             TurnResolveError::InvalidTurnId { id, source } => {
                 write!(f, "invalid turn id {id:?}: {source}")
             }
-            TurnResolveError::AudienceMismatch { id } => write!(
-                f,
-                "turn {id:?} is a real moment, but its audience did not include everyone present \
-                 here — so it cannot be replayed to this room. If its substance is worth relaying, \
-                 recall it through memory — reconstruct it from every memory the moment plausibly \
-                 touched, not the first hit — and honor each entry's own audience as you speak — \
-                 the visibility rule governs what you say, not just what you look up."
-            ),
-            TurnResolveError::NotFound { id } => write!(
-                f,
-                "no turn {id:?} exists — the id must be one you were given (the value inside a \
-                 [turn:<id>] token)"
-            ),
+            TurnResolveError::AudienceMismatch { id } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/lookup/audience_mismatch.md")),
+                &[("id", &format!("{id:?}"))],
+            )),
+            TurnResolveError::NotFound { id } => f.write_str(&render_placeholders(
+                body_of(include_str!("prose/lookup/not_found.md")),
+                &[("id", &format!("{id:?}"))],
+            )),
             TurnResolveError::Store(error) => {
                 write!(f, "could not read the conversation transcript: {error}")
             }
@@ -123,11 +119,9 @@ pub(in crate::agent::lua) enum ListError {
 impl std::fmt::Display for ListError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ListError::EmptyPrefix => write!(
-                f,
-                "list finds handles by stem — pass a name prefix like \"person/\" or \"person/dav\"; \
-                 to recall by meaning, memory.search"
-            ),
+            ListError::EmptyPrefix => {
+                f.write_str(&body_of(include_str!("prose/lookup/empty_prefix.md")))
+            }
         }
     }
 }

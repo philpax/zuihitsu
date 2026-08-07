@@ -1,0 +1,1 @@
+syntax error: {{message}}. A block does not echo a trailing expression the way a REPL does — yield its value with an explicit return (e.g. `return results` on the last line).

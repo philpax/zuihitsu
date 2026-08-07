@@ -164,6 +164,10 @@ The relations seeded at genesis (`seed_relations()` in `src/agent/genesis/seed/m
 
 The scaffold teaches load-bearing practices as principles, stated once. API options and mechanics live in the reference, stated once — the scaffold does not restate them. Teachable errors are the syllabus for rare mistakes: a slip the agent makes seldom is caught and reworded at its point of failure rather than pre-taught in the prompt. Changing a template body bumps its `(name, version)` pair (`TemplateDef`, `src/agent/genesis/mod.rs`), so an older `produced_by` still names the body it was generated under and the genesis manifest hash moves.
 
+### Markdown-shaped prose lives in files
+
+Agent-facing and model-facing prose that is Markdown-shaped — more than a line or two a model or agent reads — lives in a `.md` file loaded with `include_str!`, never as an escaped multi-line Rust string literal. The genesis templates under `src/agent/genesis/seed/templates/` set the pattern: `body_of(include_str!(...))` trims the trailing newline, and `{{placeholder}}` substitution (via the shared `prose` helpers `body_of` and `render_placeholders`) carries runtime values. Short fragments (a single sentence or a heading) may stay inline; a paragraph of teaching prose may not. Versioned template bodies (those baked into the event log via `TemplateDef`) bump their template version on body edits; unversioned bodies (the API reference, teachable errors, judge prompts, prompt frames) are read fresh from the binary and need no version bump. Interpolated runtime values use `{{placeholder}}` substitution; keep generated per-item lists in Rust loops rather than in the file.
+
 ## Testing 
 
 ### Testing tools

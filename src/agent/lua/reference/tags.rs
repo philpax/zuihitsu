@@ -1,15 +1,15 @@
 //! Tag-related API reference entries: `<memory>:tag`, `:untag`, and the `tags.*` module
 //! (`create`, `describe`, `list`).
 
-use crate::agent::api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT};
+use crate::agent::{
+    api_doc::{ApiEntry, ApiEntry as AE, ApiType as AT},
+    body_of,
+};
 
 /// The tag handle methods, gated on the `tagging` feature.
 pub(super) fn handle_methods() -> Vec<ApiEntry> {
     let tag = AE::new("<memory>:tag")
-        .description(
-            "Apply a tag to this memory. The tag must already exist in the vocabulary — create it \
-             first with tags.create. Tagging is what it's about; the namespace is what it is.",
-        )
+        .description(body_of(include_str!("prose/tags/tag.md")))
         .required(
             "name",
             AT::String,
@@ -26,10 +26,7 @@ pub(super) fn handle_methods() -> Vec<ApiEntry> {
 /// The `tags.*` module entries, gated on the `tagging` feature.
 pub(super) fn module_entries() -> Vec<ApiEntry> {
     let tags_create = AE::new("tags.create")
-        .description(
-            "Add a tag to the vocabulary with a one-line purpose. Creation is distinct from \
-             application: creating forces a purpose, while <memory>:tag never mutates it.",
-        )
+        .description(body_of(include_str!("prose/tags/create.md")))
         .required("name", AT::String, "the tag name, e.g. \"hobbies\"")
         .required("description", AT::String, "its one-line purpose");
 
@@ -41,10 +38,7 @@ pub(super) fn module_entries() -> Vec<ApiEntry> {
         .required("description", AT::String, "the new purpose");
 
     let tags_list = AE::new("tags.list")
-        .description(
-            "The whole tag vocabulary, each a table { name, description, count } that prints as a \
-             readable line — what you can apply with <memory>:tag.",
-        )
+        .description(body_of(include_str!("prose/tags/list.md")))
         .returns(AT::Object(Vec::new()).list());
 
     vec![tags_create, tags_describe, tags_list]

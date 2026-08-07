@@ -1,0 +1,1 @@
+the entry to stand behind — its object (from <memory>:entries or <memory>:find_entry), or its id or a unique id prefix as a string

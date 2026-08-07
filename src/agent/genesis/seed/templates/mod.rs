@@ -8,7 +8,7 @@
 
 use crate::{
     InstanceFeatures,
-    agent::genesis::TemplateDef,
+    agent::{body_of, genesis::TemplateDef},
     event::PromptTemplateName,
     ids::{MemoryName, Namespace},
 };
@@ -185,9 +185,8 @@ fn recall_point(features: &InstanceFeatures) -> String {
     include_str!("turn/scaffold/recall.md").replace("{{recall_hub}}", &hub)
 }
 
-/// Substitute the namespace-prefix placeholders from [`Namespace`], the one place the agent is taught
-/// the prefixes, so the scaffold cannot drift from the handles the code mints and reads (the prefixes
-/// carry their trailing slash).
+/// The scaffold's `render` keeps its own namespace-substitution chain, which has a distinct fixed key
+/// set with a dedicated test asserting no `{{` survives; the underlying `body_of` is shared.
 fn render(raw: &str) -> String {
     body_of(raw)
         .replace("{{person}}", Namespace::Person.prefix())
@@ -197,10 +196,4 @@ fn render(raw: &str) -> String {
         .replace("{{topic}}", Namespace::Topic.prefix())
         .replace("{{context}}", Namespace::Context.prefix())
         .replace("{{self}}", MemoryName::SELF)
-}
-
-/// Strip the trailing newline `include_str!` carries, so an embedded body matches the original
-/// literal, which ended at its last character.
-fn body_of(raw: &str) -> String {
-    raw.trim_end_matches('\n').to_owned()
 }

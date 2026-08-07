@@ -1,0 +1,1 @@
+End the turn silently, committing this block's writes. Unlike block.abort (which discards), turn.skip keeps what you wrote — use it when you gathered information and decided the message does not need a response. No further model step runs.

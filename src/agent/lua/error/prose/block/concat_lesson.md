@@ -1,0 +1,1 @@
+a table has no text of its own, only its elements do. If this is a handle list from mem:entries() or hub:links(), index one out and interpolate it into a backtick string (`latest: {es[1]}`), or concatenate it alone ("- " .. es[1]); print(list) renders the whole list, one handle per line.

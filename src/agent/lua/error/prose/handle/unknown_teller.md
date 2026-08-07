@@ -1,0 +1,1 @@
+no memory named "{{name}}" to attribute this entry to — told_by names the participant who told you the fact (a person handle, or their memory name). When you yourself are the source, omit told_by and pass by_agent = true instead. For a real teller, create their memory first, or check the casing

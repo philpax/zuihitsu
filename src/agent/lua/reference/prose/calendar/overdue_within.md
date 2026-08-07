@@ -1,0 +1,1 @@
+how far back to look — a duration string ("14 days", "1 week"), passable directly in place of the table; defaults to 14 days

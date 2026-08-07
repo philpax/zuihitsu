@@ -1,0 +1,1 @@
+The whole tag vocabulary, each a table { name, description, count } that prints as a readable line — what you can apply with <memory>:tag.

@@ -1,0 +1,1 @@
+a distinctive phrase from the entry's text — matched as a substring, ignoring case and accents

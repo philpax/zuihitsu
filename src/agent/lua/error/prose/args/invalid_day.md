@@ -1,0 +1,1 @@
+{{input}} is not a valid day

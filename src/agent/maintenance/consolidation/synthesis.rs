@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     InstanceError,
-    agent::{TurnError, turn::Recording},
+    agent::{TurnError, body_of, render_placeholders, turn::Recording},
     engine::Engine,
     event::{ModelPhase, Visibility},
     graph::{ClassLinkView, EntryView},
@@ -81,15 +81,18 @@ pub(super) async fn synthesize_cluster(
             })
             .collect()
     };
-    let user_prompt = format!(
-        "Memory: {}\n\nEntries in this cluster:\n{}\n\nExisting links on this identity:\n{}",
-        memory_id.0,
-        entry_lines.join("\n"),
-        if link_lines.is_empty() {
-            "(none)".to_owned()
-        } else {
-            link_lines.join("\n")
-        }
+    let links = if link_lines.is_empty() {
+        "(none)".to_owned()
+    } else {
+        link_lines.join("\n")
+    };
+    let user_prompt = render_placeholders(
+        body_of(include_str!("prompt.md")),
+        &[
+            ("memory", &memory_id.0.to_string()),
+            ("entries", &entry_lines.join("\n")),
+            ("links", &links),
+        ],
     );
 
     let request = GenerateRequest::structured::<ConsolidationSynthesis>(

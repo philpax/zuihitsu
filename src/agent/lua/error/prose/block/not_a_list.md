@@ -1,0 +1,1 @@
+table.concat joins a list, but its first argument is {{type_name}}, not a table. If you meant a memory reader like hub:links() or mem:entries(), call it with a colon and parentheses — hub.links is the method itself, hub:links() is the list it returns

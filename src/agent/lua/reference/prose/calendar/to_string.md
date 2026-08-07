@@ -1,0 +1,1 @@
+The date as its "YYYY-MM-DD" string. A date also prints and concatenates as this text, so you rarely need to call it explicitly.

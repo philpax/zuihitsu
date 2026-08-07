@@ -1,0 +1,1 @@
+One registered relation by either label, or nil if it is not registered.

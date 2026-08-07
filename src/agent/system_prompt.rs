@@ -18,6 +18,7 @@
 use std::fmt::Write as _;
 
 use crate::{
+    agent::{body_of, render_placeholders},
     graph::{EntryView, RelationView, TagVocabularyEntry},
     ids::Namespace,
     prompt::{AssembledPrompt, PromptSectionKind},
@@ -30,12 +31,11 @@ use crate::{
 /// handle). Prepended to the API description.
 fn method_notation_legend() -> String {
     let person = Namespace::Person.prefix();
-    format!(
-        "Methods are written `<memory>:method(...)`, where `<memory>` \
-         stands for a memory handle you hold — the result of `memory.create` or `memory.get`. Call the \
-         method directly on that handle: e.g. with `local m = memory.get(\"{person}...\")`, write \
-         `m:append(\"...\")` (not `m:<memory>:append(...)`). The `memory.*`, `tags.*`, `links.*`, \
-         `calendar.*`, `context.*`, and `block.*` calls are module functions, called with a dot."
+    render_placeholders(
+        body_of(include_str!(
+            "system_prompt/prose/method_notation_legend.md"
+        )),
+        &[("person", person)],
     )
 }
 

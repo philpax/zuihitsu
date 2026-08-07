@@ -1,0 +1,1 @@
+the memory the relation runs from — a handle (e.g. context.current()) or its name as a string, which is looked up and created if it names nothing yet

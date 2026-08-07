@@ -60,3 +60,52 @@ pub fn api_reference(features: &InstanceFeatures) -> Vec<ApiEntry> {
 pub fn render_api_reference(features: &InstanceFeatures) -> String {
     render(&api_reference(features))
 }
+
+#[cfg(test)]
+mod byte_exact_tests {
+    //! Thin guards over the rendered reference that embed no prose body: a `{{`-leak sweep and
+    //! namespace-interpolation fragment checks.
+    use crate::{InstanceFeatures, agent::lua::reference::render_api_reference, ids::Namespace};
+
+    #[test]
+    fn no_placeholder_reaches_the_rendered_reference() {
+        for features in [
+            InstanceFeatures::default(),
+            InstanceFeatures {
+                linking: false,
+                merging: false,
+                tagging: false,
+                calendar: false,
+                transcripts: false,
+                browsing: false,
+                ..Default::default()
+            },
+        ] {
+            let rendered = render_api_reference(&features);
+            assert!(
+                !rendered.contains("{{"),
+                "an unsubstituted placeholder reached the rendered reference: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_namespace_placeholders_interpolate() {
+        let rendered = render_api_reference(&InstanceFeatures::default());
+        let person = Namespace::Person.prefix();
+        let context = Namespace::Context.prefix();
+
+        // Short fragments only: the person prefix appears in propose_merge and the context prefix in
+        // context.current, and neither surface may leak a literal `{{person}}`/`{{context}}`.
+        assert!(
+            rendered.contains(&format!("{person} stub and another are the same human")),
+            "propose_merge should carry the person prefix: {rendered}"
+        );
+        assert!(
+            rendered.contains(&format!(
+                "The {context}* memory for the current conversation."
+            )),
+            "context.current should carry the context prefix: {rendered}"
+        );
+    }
+}

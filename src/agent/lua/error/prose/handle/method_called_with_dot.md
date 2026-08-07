@@ -1,0 +1,1 @@
+this is a method — call it with a colon (handle:method(...)), not a dot (handle.method(...)); the colon passes the handle as self, but the dot bound {{type_name}} there instead

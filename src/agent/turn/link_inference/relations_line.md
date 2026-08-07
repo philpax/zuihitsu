@@ -1,0 +1,1 @@
+- {{name}}/{{inverse}} — a link "A {{name}} B" restates as "B {{inverse}} A" (from: {{from}}, to: {{to}}, symmetric: {{symmetric}}, reflexive: {{reflexive}}): {{desc}}
