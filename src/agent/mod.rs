@@ -15,6 +15,8 @@ pub mod lua;
 pub mod maintenance;
 mod mcp_api;
 pub use mcp_api::McpCatalogue;
+mod prose;
+pub use prose::{body_of, render_placeholders};
 pub mod system_prompt;
 pub mod templates;
 pub mod turn;
