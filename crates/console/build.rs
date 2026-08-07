@@ -9,13 +9,13 @@
 //!   3. wasm materialiser build (shells out to `cargo build -p console-wasm --target wasm32`)
 //!   4. wasm-bindgen glue (in-process via `wasm-bindgen-cli-support`)
 //!   5. wasm-opt (in-process via the `wasm-opt` crate)
-//!   6. npm install (if `console/node_modules` is absent)
-//!   7. npm run build (with `VITE_EMBEDDED=true`)
+//!   6. npm ci (when `console/node_modules` is missing or stale and no dev server is running)
+//!   7. npm run build (with `VITE_EMBEDDED=true` and `VITE_EMBEDDED_OUT` pointing at `dist-embedded`)
 //!
 //! Every step propagates failure — the build panics on any error. No placeholder fallback: the final
 //! assertion (panic if `index.html` is missing) guarantees `dist-embedded` is fully populated
 //! before the lib compiles, so `RustEmbed` always finds a real folder. A build that should not run
-//! the pipeline (the workspace's rust CI job, which has no frontend toolchain) must exclude this
+//! the pipe-line (the workspace's rust CI job, which has no frontend toolchain) must exclude this
 //! crate (`--exclude zuihitsu-console`), exactly as it excludes `zuihitsu-eval`.
 //!
 //! Generated artifacts (ts-rs types, wasm bundle) are written to `console/packages/wire/` — a
@@ -23,7 +23,10 @@
 //! `console/src/` so the `rerun-if-changed=console/src` watch does not see its own outputs and
 //! trigger a rebuild loop.
 
-use std::path::Path;
+use std::{path::Path, time::SystemTime};
+
+#[path = "build/install.rs"]
+mod install;
 
 fn main() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -149,14 +152,10 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
     std::fs::rename(&wasm_opt_temp, &wasm_bg)
         .unwrap_or_else(|error| panic!("build.rs: could not replace the wasm-opt output: {error}"));
 
-    // 6. npm install — only if node_modules is absent (a fresh checkout).
-    if !console_dir.join("node_modules").exists() {
-        run(
-            Command::new("npm")
-                .args(["--prefix", console_dir.to_string_lossy().as_ref(), "install"]),
-            "npm install",
-        );
-    }
+    // 6. npm dependencies — install only when the tree is missing or stale, and never under a live
+    //    dev server (npm ci deletes the tree, which would tear down the server's HMR session).
+    //    Freshness by `node_modules`' directory mtime vs `package.json`/`package-lock.json`.
+    ensure_dependencies(console_dir);
 
     // 7. npm run build with VITE_EMBEDDED=true — the Vite production build into dist-embedded. The
     //    output dir is passed in as an absolute path (VITE_EMBEDDED_OUT) so the npm working
@@ -183,6 +182,52 @@ fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
     }
 }
 
+/// Make sure `console/node_modules` is present and fresh relative to the npm manifest and lockfile
+/// — `npm ci` when stale or missing, a warning instead when a live dev server would be clobbered.
+fn ensure_dependencies(console_dir: &Path) {
+    let node_modules = console_dir.join("node_modules");
+    let tree_mtime = std::fs::metadata(&node_modules)
+        .and_then(|m| m.modified())
+        .ok();
+    let lock = console_dir.join("package-lock.json");
+    let manifest = console_dir.join("package.json");
+    let Some(lock_mtime) = mtime(&lock) else {
+        panic!(
+            "build.rs: {} is missing; the console's npm manifest has no lockfile. Run `npm install` in console/ and commit the lockfile, or build without the console feature.",
+            lock.display()
+        );
+    };
+    let manifest_mtime =
+        mtime(&manifest).unwrap_or_else(|| panic!("build.rs: {} is missing", manifest.display()));
+    let pidfile = node_modules.join(".zuihitsu-vite.pid");
+    let dev_server = install::dev_server_active(&pidfile);
+    match install::decide(tree_mtime, lock_mtime, manifest_mtime, dev_server) {
+        install::Mode::Fresh => {}
+        install::Mode::InstallNpmCi => {
+            run(
+                std::process::Command::new("npm").args([
+                    "--prefix",
+                    console_dir.to_string_lossy().as_ref(),
+                    "ci",
+                    "--no-audit",
+                    "--no-fund",
+                ]),
+                "npm ci",
+            );
+        }
+        install::Mode::SkipDevServerActive => {
+            println!(
+                "cargo:warning=the console dev server is running ({}); leaving console/node_modules untouched. Stop `npm run dev` to let the build reinstall stale dependencies.",
+                pidfile.display()
+            );
+        }
+    }
+}
+
+fn mtime(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
 /// Run a command, panicking with a clear context message on failure.
 fn run(command: &mut std::process::Command, label: &str) {
     let status = command.status().unwrap_or_else(|error| {
@@ -190,7 +235,7 @@ fn run(command: &mut std::process::Command, label: &str) {
     });
     if !status.success() {
         panic!(
-            "build.rs: {label} failed with exit code {:?}",
+            "build.rs: {label} failed with exit code {:?}. If console/package.json changed without console/package-lock.json, run `npm install` in console/ and commit the updated lockfile, or build without the console feature.",
             status.code()
         );
     }

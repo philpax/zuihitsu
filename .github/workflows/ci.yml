@@ -55,8 +55,9 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: console/package-lock.json
-      # Install dependencies first so `build.rs`'s conditional `npm install` is a no-op and the
-      # subsequent checks run against the same `node_modules` as the embedded build.
+      # Install dependencies first so `build.rs`'s freshness check (node_modules vs the lockfile)
+      # is a no-op and the subsequent checks run against the same `node_modules` as the embedded
+      # build.
       - name: Install
         working-directory: console
         run: npm ci

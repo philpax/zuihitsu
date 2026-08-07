@@ -14,7 +14,9 @@ const agentProxy = {
   "/platform": "http://127.0.0.1:7777",
 };
 
-// The embedded build (VITE_EMBEDDED, set by the agent's build.rs) writes to its own dir, so a plain
+// The embedded build (VITE_EMBEDDED, set by zuihitsu-console's build.rs) writes to that crate's
+// `dist-embedded` dir — passed as an absolute path in `VITE_EMBEDDED_OUT` by the build script, with
+// the crate-relative default covering a manual `VITE_EMBEDDED=true npm run build` — so a plain
 // `npm run build` for the dev checks cannot clobber the bytes the binary embeds, and vice versa.
 // `process` is declared locally rather than pulling in @types/node just for this config.
 declare const process: { env: Record<string, string | undefined> };
@@ -22,7 +24,11 @@ const embedded = process.env.VITE_EMBEDDED === "true";
 
 export default defineConfig({
   plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
-  build: { outDir: embedded ? "dist-embedded" : "dist" },
+  build: {
+    outDir: embedded
+      ? (process.env.VITE_EMBEDDED_OUT ?? "../crates/console/dist-embedded")
+      : "dist",
+  },
   server: { proxy: agentProxy },
   preview: { proxy: agentProxy },
 });

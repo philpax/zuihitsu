@@ -1,4 +1,7 @@
-//! Unit tests for the console crate's shared asset-serving layer.
+//! Unit tests for the console crate: the npm-install decision logic (compiled from the build
+//! script's `install.rs`, the single source of truth, via `#[path]` — build scripts cannot import
+//! their own crate) and the shared asset-serving layer. The `#[path]` attribute is relative to this
+//! file's directory, so `../build/install.rs` reaches the build script.
 
 use std::borrow::Cow;
 
@@ -8,6 +11,10 @@ use axum::{
 };
 
 use crate::{asset_or_index, serve, serve_embedded};
+
+/// The npm-install decision logic, tested as compiled into this module.
+#[path = "../build/install.rs"]
+mod install;
 
 /// A synthetic embedded file, so the asset-layer tests need no real built bundle (nor Node):
 /// `EmbeddedFile` and `Metadata` are fully public in `rust-embed-utils`.

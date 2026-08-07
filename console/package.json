@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The zuihitsu console.",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
