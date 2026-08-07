@@ -18,9 +18,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     InstanceError,
     agent::{
-        TurnError,
+        TurnError, body_of,
         maintenance::{SweepOutcome, dedupe_by_class},
-        templates,
+        render_placeholders, templates,
         turn::{Recording, collect_written_memories},
     },
     engine::Engine,
@@ -205,15 +205,18 @@ async fn identify_redundant(
             })
             .collect()
     };
-    let user_prompt = format!(
-        "Memory: {}\n\nEntries:\n{}\n\nExisting links:\n{}",
-        memory_id.0,
-        entry_lines.join("\n"),
-        if link_lines.is_empty() {
-            "(none)".to_owned()
-        } else {
-            link_lines.join("\n")
-        }
+    let links = if link_lines.is_empty() {
+        "(none)".to_owned()
+    } else {
+        link_lines.join("\n")
+    };
+    let user_prompt = render_placeholders(
+        body_of(include_str!("link_cleanup_prompt.md")),
+        &[
+            ("memory", &memory_id.0.to_string()),
+            ("entries", &entry_lines.join("\n")),
+            ("links", &links),
+        ],
     );
 
     let request = GenerateRequest::structured::<RedundantEntries>(

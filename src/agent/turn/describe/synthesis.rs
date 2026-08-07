@@ -4,7 +4,10 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    agent::turn::describe::{SynthesisCall, SynthesizeArgs, extract::synthesize_argument},
+    agent::{
+        body_of, render_placeholders,
+        turn::describe::{SynthesisCall, SynthesizeArgs, extract::synthesize_argument},
+    },
     event::{ModelPhase, Teller, Visibility},
     graph::{EntryView, MemoryView},
     ids::MemoryId,
@@ -48,18 +51,15 @@ pub(super) async fn synthesize(
 /// attribution, assertion date, and — when it has one — its recorded occurrence, so the arbitration
 /// rules (which turn on who holds which account, and when) and the temporal extraction (which anchors
 /// a back-pointing phrase like "this date" against a sibling's stated occurrence) have the facts they judge by; the
-/// bracketed metadata is for the model's judgment, never content to restate.
+/// the bracketed metadata is for the model's judgment, never content to restate. The static framing
+/// lives in `statements.md`; the numbered statement lines are generated here.
 pub(super) fn statements_prompt(
     memory: &MemoryView,
     entries: &[EntryView],
     teller_names: &BTreeMap<MemoryId, String>,
     now: Timestamp,
 ) -> String {
-    let mut prompt = format!(
-        "Memory: {}\nCurrent time: {}\n\nStatements:\n",
-        memory.name.as_str(),
-        time::format_datetime(now),
-    );
+    let mut statements = String::new();
     for (index, entry) in entries.iter().enumerate() {
         let teller = match entry.told_by {
             Teller::Participant(id) => teller_names
@@ -76,17 +76,25 @@ pub(super) fn statements_prompt(
             None => String::new(),
         };
         let attested = attested_note(entry, teller_names);
-        prompt.push_str(&format!(
+        statements.push_str(&format!(
             "{}. [from {teller} · {}{occurred}{attested}] {}\n",
             index + 1,
             time::format_day(entry.asserted_at),
             entry.text
         ));
     }
-    prompt.push_str(
-        "\nThe bracketed attribution on each statement is metadata for your judgment, not content \
-         to restate.\n",
+    let mut prompt = render_placeholders(
+        body_of(include_str!("statements.md")),
+        &[
+            ("memory", memory.name.as_str()),
+            ("now", &time::format_datetime(now)),
+            // The statements block keeps its trailing newline (each numbered line ends `\n`), so the
+            // file's single newline after `{{statements}}` reads as the blank line the original
+            // pushed before the bracketed note — identical for any entry count, including zero.
+            ("statements", &statements),
+        ],
     );
+    prompt.push('\n');
     prompt
 }
 
