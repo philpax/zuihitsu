@@ -1,6 +1,6 @@
 //! The `export-types` binary: writes the TypeScript wire-contract types into a directory.
 //!
-//! Invoked by the main crate's `build.rs` as:
+//! Invoked by `zuihitsu-console`'s `build.rs` (the console pipeline) as:
 //! `cargo run -p zuihitsu-frontend-types --features ts -- export-types <dir>`
 
 #[cfg(feature = "ts")]

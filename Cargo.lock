@@ -5921,6 +5921,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zuihitsu-console"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "rust-embed",
+ "tokio",
+ "wasm-bindgen-cli-support",
+ "wasm-opt",
+]
+
+[[package]]
 name = "zuihitsu-platform-connector-api"
 version = "0.1.0"
 dependencies = [

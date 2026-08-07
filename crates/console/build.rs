@@ -1,19 +1,22 @@
-//! Build the web console into `console/dist-embedded` so `rust_embed` can bake it into the binary
-//! and the agent can serve it at its own root with no separate step.
+//! Build the web console into `dist-embedded` so [`crate::Console`] (rust-embed) can bake it into
+//! the binary and the agent or eval binary can serve it at its own root with no separate step.
 //!
-//! When the `console` feature is on (default), `build.rs` runs the full pipeline:
+//! This crate owns the full pipeline, run unconditionally whenever the crate is compiled (it has no
+//! features — including it means you want the console):
 //!   1. ts-rs type export (shells out to `zuihitsu-frontend-types`'s `export-types` binary)
-//!   2. settings metadata (the dependency-free Node script over the ts-rs-generated `.ts` files)
+//!   2. settings metadata (generated inside the export-types binary via the `SettingsMetadata`
+//!      proc-macro derive, which extracts `///` doc comments at compile time)
 //!   3. wasm materialiser build (shells out to `cargo build -p console-wasm --target wasm32`)
 //!   4. wasm-bindgen glue (in-process via `wasm-bindgen-cli-support`)
 //!   5. wasm-opt (in-process via the `wasm-opt` crate)
 //!   6. npm install (if `console/node_modules` is absent)
 //!   7. npm run build (with `VITE_EMBEDDED=true`)
 //!
-//! Every step propagates failure — the build panics on any error. No placeholder fallback, no
-//! silent degradation. If the console feature is off (`--no-default-features`), the pipeline is
-//! skipped entirely, and a minimal placeholder `index.html` is written so the `RustEmbed` macro
-//! always finds the folder.
+//! Every step propagates failure — the build panics on any error. No placeholder fallback: the final
+//! assertion (panic if `index.html` is missing) guarantees `dist-embedded` is fully populated
+//! before the lib compiles, so `RustEmbed` always finds a real folder. A build that should not run
+//! the pipeline (the workspace's rust CI job, which has no frontend toolchain) must exclude this
+//! crate (`--exclude zuihitsu-console`), exactly as it excludes `zuihitsu-eval`.
 //!
 //! Generated artifacts (ts-rs types, wasm bundle) are written to `console/packages/wire/` — a
 //! local npm package the console depends on as `@zuihitsu/wire`. This keeps them outside
@@ -23,9 +26,25 @@
 use std::path::Path;
 
 fn main() {
-    // Rebuild when any pipeline input changes. The whole `console/src` tree is watched — generated
-    // outputs live in `console/packages/wire/` (a separate package), so they do not trigger a
-    // rebuild loop.
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("crates/console must live two levels below the workspace root");
+    let console_dir = root.join("console");
+
+    // The build script's own home (this crate) and the workspace root both feed the pipeline: its
+    // own inputs are manifest-relative, the pipeline's inputs are root-relative. Rebuild when any
+    // of them changes. The whole `console/src` tree is watched — generated outputs live in
+    // `console/packages/wire/` (a separate package), so they do not trigger a rebuild loop.
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("Cargo.toml").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("build.rs").display()
+    );
     for path in [
         "crates/frontend-types/src",
         "crates/core/src",
@@ -37,37 +56,29 @@ fn main() {
         "console/vite.config.ts",
         "console/tsconfig.json",
         "console/tsconfig.app.json",
-        "build.rs",
         "Cargo.toml",
         "crates/frontend-types/Cargo.toml",
         "crates/console-wasm/Cargo.toml",
     ] {
-        println!("cargo:rerun-if-changed={path}");
+        println!("cargo:rerun-if-changed={}", root.join(path).display());
     }
 
-    let dist = Path::new("console/dist-embedded");
+    // Do not watch `node_modules` (its mtimes change on install and must not trigger rebuilds) or
+    // the crate's own `dist-embedded` output.
 
-    #[cfg(feature = "console")]
-    {
-        build_console(dist);
-    }
-
-    // Whether or not the console feature is on, ensure the dist-embedded folder exists so the
-    // RustEmbed macro always finds it. When the feature is on, the real Vite build already wrote
-    // the files; when off, a placeholder is written.
-    ensure_placeholder(dist);
+    build_console(root, &console_dir, &manifest.join("dist-embedded"));
 }
 
-#[cfg(feature = "console")]
-fn build_console(dist: &Path) {
+fn build_console(root: &Path, console_dir: &Path, dist: &Path) {
     use std::process::Command;
 
-    let console_build_target = "target/console-build";
-    let wire_dir = Path::new("console/packages/wire");
+    let console_build_target = root.join("target/console-build");
+    let wire_dir = console_dir.join("packages/wire");
 
     // 1. ts-rs type export — shell out to the frontend-types binary in a separate target dir to
     //    avoid lock contention with the main build. The binary takes the output directory as its
-    //    sole argument.
+    //    sole argument. Pass the target dir as an absolute path so the working directory of this
+    //    build script (wherever cargo runs it from) cannot re-anchor it.
     let types_dir = wire_dir.join("types");
     std::fs::create_dir_all(&types_dir).unwrap_or_else(|error| {
         panic!(
@@ -84,15 +95,14 @@ fn build_console(dist: &Path) {
             "--features",
             "ts",
             "--target-dir",
-            console_build_target,
+            &console_build_target.to_string_lossy(),
             "--",
             &types_dir.to_string_lossy(),
         ]),
         "ts-rs type export",
     );
 
-    // 2. Settings metadata — generated inside the export-types binary via the `SettingsMetadata`
-    //    proc-macro derive, which extracts `///` doc comments at compile time. No separate step.
+    // 2. Settings metadata — generated inside the export-types binary (see the module docs).
 
     // 3. Wasm materialiser build — shell out to cargo build for the wasm32 target in a separate
     //    target dir to avoid lock contention.
@@ -106,13 +116,12 @@ fn build_console(dist: &Path) {
             "wasm32-unknown-unknown",
             "--release",
             "--target-dir",
-            console_build_target,
+            &console_build_target.to_string_lossy(),
         ]),
         "wasm materialiser build",
     );
 
-    let wasm_input =
-        Path::new(console_build_target).join("wasm32-unknown-unknown/release/console_wasm.wasm");
+    let wasm_input = console_build_target.join("wasm32-unknown-unknown/release/console_wasm.wasm");
 
     // 4. wasm-bindgen glue — in-process via the library (no shell-out to the CLI).
     let wasm_out = wire_dir.join("wasm");
@@ -141,18 +150,27 @@ fn build_console(dist: &Path) {
         .unwrap_or_else(|error| panic!("build.rs: could not replace the wasm-opt output: {error}"));
 
     // 6. npm install — only if node_modules is absent (a fresh checkout).
-    if !Path::new("console/node_modules").exists() {
+    if !console_dir.join("node_modules").exists() {
         run(
-            Command::new("npm").args(["--prefix", "console", "install"]),
+            Command::new("npm")
+                .args(["--prefix", console_dir.to_string_lossy().as_ref(), "install"]),
             "npm install",
         );
     }
 
-    // 7. npm run build with VITE_EMBEDDED=true — the Vite production build into dist-embedded.
+    // 7. npm run build with VITE_EMBEDDED=true — the Vite production build into dist-embedded. The
+    //    output dir is passed in as an absolute path (VITE_EMBEDDED_OUT) so the npm working
+    //    directory cannot re-anchor it.
     run(
         Command::new("npm")
-            .args(["--prefix", "console", "run", "build"])
-            .env("VITE_EMBEDDED", "true"),
+            .args([
+                "--prefix",
+                console_dir.to_string_lossy().as_ref(),
+                "run",
+                "build",
+            ])
+            .env("VITE_EMBEDDED", "true")
+            .env("VITE_EMBEDDED_OUT", dist),
         "npm run build (vite)",
     );
 
@@ -166,7 +184,6 @@ fn build_console(dist: &Path) {
 }
 
 /// Run a command, panicking with a clear context message on failure.
-#[cfg(feature = "console")]
 fn run(command: &mut std::process::Command, label: &str) {
     let status = command.status().unwrap_or_else(|error| {
         panic!("build.rs: could not spawn the {label} command: {error}");
@@ -178,34 +195,3 @@ fn run(command: &mut std::process::Command, label: &str) {
         );
     }
 }
-
-/// Guarantee `console/dist-embedded/index.html` exists so `rust_embed` always has a folder to
-/// embed. A real build already on disk is kept; otherwise a minimal placeholder page is written.
-fn ensure_placeholder(dist: &Path) {
-    if dist.join("index.html").exists() {
-        return;
-    }
-    std::fs::create_dir_all(dist).expect("build.rs: create console/dist-embedded");
-    std::fs::write(dist.join("index.html"), PLACEHOLDER)
-        .expect("build.rs: write placeholder index.html");
-}
-
-const PLACEHOLDER: &str = r#"<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>zuihitsu</title>
-    <style>
-      body { font-family: ui-sans-serif, system-ui, sans-serif; color: #2b2a26; background: #f3f1ea;
-             max-width: 36rem; margin: 18vh auto 0; padding: 0 1.5rem; line-height: 1.6; }
-      h1 { font-weight: 500; } code { background: #e7e4da; padding: 0.1em 0.35em; border-radius: 3px; }
-    </style>
-  </head>
-  <body>
-    <h1>zuihitsu console not embedded</h1>
-    <p>This build did not bundle the web console. Build with the <code>console</code> feature
-       (the default) to embed it, or use the console's dev server against this agent.</p>
-  </body>
-</html>
-"#;
