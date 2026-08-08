@@ -1,6 +1,8 @@
 # Ontology redesign research, 2026-07-24
 
-A dated research snapshot, not as-built documentation and not a committed plan: the deliverables of the July 2026 design-research program on zuihitsu's ontology, preserved as fodder for a future redesign. The intent is to gather more live-instance data before any redesign is actually designed — a later program would produce its own sibling snapshot beside this one rather than editing this in place. The failure survey that grounds it lives at [`../../ontology-failures/2026-07-23.md`](../../ontology-failures/2026-07-23.md).
+A dated research snapshot, not as-built documentation and not a committed plan: the deliverables of the July 2026 design-research program on zuihitsu's ontology, preserved as fodder for a future redesign. The intent is to gather more live-instance data before any redesign is actually designed — a later program would produce its own sibling snapshot beside this one rather than editing this in place. The failure survey that grounds it lives at [`../../../docs/ontology-failures/2026-07-23.md`](../../../docs/ontology-failures/2026-07-23.md).
+
+> **Relocated 2026-08-03.** This snapshot moved from `docs/ontology-research/` to `docs-future/research/` when the redesign it argues for was taken up as a design. It is preserved at the date it was conducted; the design it fed is in [`../../`](../../), and the reading guide over this and the later evidence is at [`../README.md`](../README.md).
 
 ## Intervening work (as of 2026-07-26)
 
