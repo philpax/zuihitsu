@@ -9,9 +9,10 @@
 
 use std::path::Path;
 
-use axum::{http::Uri, response::Response};
-#[cfg(not(feature = "console"))]
-use axum::{http::header, response::IntoResponse};
+use axum::{
+    http::{Uri, header},
+    response::{IntoResponse, Response},
+};
 use tokio::sync::watch;
 
 use crate::http_server::serve_error::ServeError;
@@ -21,7 +22,20 @@ use crate::http_server::serve_error::ServeError;
 /// 0.8's `Handler` is implemented for async functions, and this is the router's fallback.
 #[cfg(feature = "console")]
 pub(crate) async fn console(uri: Uri) -> Response {
-    zuihitsu_console::serve_embedded(&uri, "agent")
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+    match zuihitsu_console::asset_or_index(path) {
+        Some(file) => {
+            let (mime, bytes) =
+                zuihitsu_console::render_embedded(file, zuihitsu_frontend_types::AppMode::Agent);
+            ([(header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            "the web console is not built into this binary\n",
+        )
+            .into_response(),
+    }
 }
 
 /// Serve the placeholder page this build ships in place of the console. A `--no-default-features`

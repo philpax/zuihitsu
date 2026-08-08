@@ -11,6 +11,7 @@ pub mod agent;
 pub mod api;
 pub mod executor;
 pub mod live;
+pub mod mode;
 pub mod package;
 pub mod prompts;
 pub mod step;
@@ -24,6 +25,7 @@ pub use agent::{BackendHealth, CircuitState};
 pub use api::{ApiEntry, ApiGate, ApiParam, ApiType, ObjectBuilder, enum_of, object};
 pub use executor::StepRecord;
 pub use live::LiveEvent;
+pub use mode::AppMode;
 pub use package::{
     Aggregate, Bar, Category, EvalPackage, PackageSummary, ResumeProvenance, RunMeta, RunMetrics,
     RunRecord, RunSummary, ScenarioMeta, ScenarioReport, ScenarioSummary, Stat, TokenStat, Verdict,

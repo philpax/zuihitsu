@@ -5861,13 +5861,13 @@ dependencies = [
 name = "zuihitsu-console"
 version = "0.1.0"
 dependencies = [
- "axum",
  "libc",
  "rust-embed",
  "tokio",
  "wasm-bindgen-cli-support",
  "wasm-opt",
  "windows-sys 0.59.0",
+ "zuihitsu-frontend-types",
 ]
 
 [[package]]

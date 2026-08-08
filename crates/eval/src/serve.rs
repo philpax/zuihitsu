@@ -49,7 +49,20 @@ pub async fn serve(addr: SocketAddr, sink: Arc<EvalSink>) -> Result<(), EvalErro
 /// lands on the live eval viewer. Any path without a matching asset falls back to `index.html` for
 /// the single-page app to route. `async` required for axum 0.8's `Handler` bound.
 async fn console(uri: Uri) -> Response {
-    zuihitsu_console::serve_embedded(&uri, "eval")
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+    match zuihitsu_console::asset_or_index(path) {
+        Some(file) => {
+            let (mime, bytes) =
+                zuihitsu_console::render_embedded(file, zuihitsu_frontend_types::AppMode::Eval);
+            ([(header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            "the web console is not built into this binary\n",
+        )
+            .into_response(),
+    }
 }
 
 /// One viewer's stream: the current package as a `snapshot` event, then every later delta as a `live`

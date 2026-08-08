@@ -11,8 +11,8 @@ publish = false
 build = "build.rs"
 
 [dependencies]
-axum = { workspace = true }
 rust-embed = { workspace = true }
+zuihitsu-frontend-types = { workspace = true }
 
 [build-dependencies]
 wasm-bindgen-cli-support = { workspace = true }
