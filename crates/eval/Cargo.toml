@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 jiff = { workspace = true }
 zuihitsu = { workspace = true }
+zuihitsu-console = { workspace = true }
 zuihitsu-frontend-types = { workspace = true, features = ["ts"] }
 anstream = { workspace = true }
 anstyle = { workspace = true }
@@ -19,7 +20,6 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
 parking_lot = { workspace = true }
-rust-embed = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

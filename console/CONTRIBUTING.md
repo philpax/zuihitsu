@@ -56,13 +56,20 @@ generated from the Rust structs), and the remaining core-view-type results are c
 nowhere else. Every view consumes that typed surface, never the raw boundary. The wrapper's Rust
 half lives in `crates/console-wasm` over `zuihitsu-core`'s materialiser.
 
-**Generated artefacts, never hand-edited.** Three trees are generated from Rust and gitignored: the
-TypeScript bindings in `packages/wire/types/`, the settings metadata in
-`packages/wire/types/settings-metadata.ts`, and the wasm bundle in `packages/wire/wasm/`.
-`cargo build -p zuihitsu` regenerates all three automatically via the `console` Cargo feature (on by
-default) — run it whenever a wire type, the materialiser's logic, the graph queries, or a settings
-doc comment changes, or the console runs against a stale materialiser. CI's `console` job runs
-`cargo build -p zuihitsu` before it checks, so a PR is validated against current Rust.
+Generated artefacts: three trees are generated from Rust and gitignored. The
+TypeScript bindings live in `packages/wire/types/`, the settings metadata in
+`packages/wire/types/settings-metadata.ts`, and the wasm bundle in `packages/wire/wasm/`. Never
+hand-edit them and never commit them. `zuihitsu-console`'s `build.rs` regenerates them (the full
+pipeline: ts-rs type export,
+settings metadata, wasm build, wasm-bindgen, wasm-opt, `npm ci` when `node_modules` is stale, and
+the Vite build). `cargo build -p zuihitsu` runs it through the optional `console` feature, and
+`cargo build -p zuihitsu-eval` through its direct dependency. Run it whenever a wire type, the
+materialiser's logic, the graph queries, or a settings doc comment changes, or the console runs
+against a stale materialiser. The embedded build writes into `crates/console/dist-embedded`
+(gitignored), where the crate's `rust_embed` picks it up; the build script passes the absolute
+path via `VITE_EMBEDDED_OUT` (a manual `VITE_EMBEDDED=true npm run build` defaults to the same
+directory). CI's `console` job runs `cargo build -p zuihitsu` before it checks, so a PR is
+validated against current Rust.
 
 ## The motifs and disciplines
 
@@ -93,3 +100,9 @@ doc comment changes, or the console runs against a stale materialiser. CI's `con
 Run `npm run typecheck`, `npm run lint`, `npm run format:check`, and `npm run build` from `console/`;
 all four must pass and CI enforces them. The root `CONTRIBUTING.md` → **Frontend (the console)** has
 the details and the file-organisation rules.
+
+
+The build script's `npm ci` never touches a live dev server's tree: `npm run dev` runs through
+`scripts/dev.mjs`, which records its pid in `node_modules/.zuihitsu-vite.pid`, and the build script
+skips the install (with a `cargo:warning`) while that pid is alive. Launch the dev server with
+`npm run dev` (not a bare `npx vite`) so the guard is armed.

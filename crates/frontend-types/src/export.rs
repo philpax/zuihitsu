@@ -19,6 +19,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
         agent::{BackendHealth, CircuitState},
         api::ApiEntry,
         live::LiveEvent,
+        mode::AppMode,
         package::{EvalPackage, PackageSummary},
         prompts::TemplateStatus,
     };
@@ -39,6 +40,7 @@ pub fn export_types(dir: &Path) -> Result<()> {
     use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
 
     EvalPackage::export_all_to(dir).context("exporting EvalPackage")?;
+    AppMode::export_all_to(dir).context("exporting AppMode")?;
     PackageSummary::export_all_to(dir).context("exporting PackageSummary")?;
     LiveEvent::export_all_to(dir).context("exporting LiveEvent")?;
     Namespace::export_all_to(dir).context("exporting Namespace")?;

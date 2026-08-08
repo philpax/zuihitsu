@@ -1,6 +1,6 @@
 # The console's WASM bridge: a wasm-bindgen API over zuihitsu-core's materializer, so the frontend
 # folds an event log into queryable graph state with the agent's own projection code (see
-# console/CONTRIBUTING.md). Built by the main crate's `build.rs` via `wasm-bindgen-cli-support`
+# console/CONTRIBUTING.md). Built by `zuihitsu-console`'s `build.rs` via `wasm-bindgen-cli-support`
 # (in-process, no shell-out) and `wasm-opt` (the Rust crate); the generated package lives in
 # `console/packages/wire/wasm/` (gitignored, built fresh by CI).
 [package]

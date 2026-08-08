@@ -19,7 +19,6 @@ use axum::{
     },
     routing::get,
 };
-use rust_embed::RustEmbed;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::{error::EvalError, live::EvalSink};
@@ -45,37 +44,24 @@ pub async fn serve(addr: SocketAddr, sink: Arc<EvalSink>) -> Result<(), EvalErro
     axum::serve(listener, app).await.map_err(EvalError::Serve)
 }
 
-/// The web console, the same bundle the agent embeds (built once into `console/dist-embedded`),
-/// served here in `eval` mode so opening the serve address lands on the live eval viewer. Any path
-/// without a matching asset falls back to `index.html` for the single-page app to route.
-#[derive(RustEmbed)]
-#[folder = "../../console/dist-embedded"]
-struct Console;
-
-/// Serve a console asset by path, falling back to `index.html` for client-side routes (a deep link or
-/// a refresh), with the app mode injected into the HTML shell.
+/// Serve the web console, the shared bundle the agent also embeds (built by `zuihitsu-console`'s
+/// build script into `crates/console/dist-embedded`), in `eval` mode so opening the serve address
+/// lands on the live eval viewer. Any path without a matching asset falls back to `index.html` for
+/// the single-page app to route. `async` required for axum 0.8's `Handler` bound.
 async fn console(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
-    match Console::get(path).or_else(|| Console::get("index.html")) {
-        Some(file) => console_asset(file, "eval"),
+    match zuihitsu_console::asset_or_index(path) {
+        Some(file) => {
+            let (mime, bytes) =
+                zuihitsu_console::render_embedded(file, zuihitsu_frontend_types::AppMode::Eval);
+            ([(header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             "the web console is not built into this binary\n",
         )
             .into_response(),
-    }
-}
-
-/// Inject the app mode into the HTML shell (replacing the `__ZUIHITSU_APP_MODE__` placeholder
-/// `index.html` ships with) so the shared bundle boots into the eval viewer; serve other assets as-is.
-fn console_asset(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
-    let mime = file.metadata.mimetype().to_owned();
-    if mime.starts_with("text/html") {
-        let html = String::from_utf8_lossy(&file.data).replace("__ZUIHITSU_APP_MODE__", mode);
-        ([(header::CONTENT_TYPE, mime)], html).into_response()
-    } else {
-        ([(header::CONTENT_TYPE, mime)], file.data).into_response()
     }
 }
 

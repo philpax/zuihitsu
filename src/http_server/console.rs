@@ -1,5 +1,11 @@
-//! The embedded web console: asset resolution and the process's single Ctrl-C shutdown signal, fanned
-//! out to every path that must stop on interrupt.
+//! The agent's console fallback and the process's single Ctrl-C shutdown signal, fanned out to
+//! every path that must stop on interrupt.
+//!
+//! The embedded web console itself lives in `zuihitsu-console` (its build script runs the full
+//! frontend pipeline; its `serve_embedded` serves the bundle with the app mode injected). This
+//! module holds only the thin fallback that calls into it when the `console` feature is on, or
+//! serves the root-owned placeholder page (`placeholder.html`) when the optional dependency is not
+//! compiled in.
 
 use std::path::Path;
 
@@ -7,27 +13,23 @@ use axum::{
     http::{Uri, header},
     response::{IntoResponse, Response},
 };
-use rust_embed::RustEmbed;
 use tokio::sync::watch;
 
 use crate::http_server::serve_error::ServeError;
 
-/// The web console, built into the binary at compile time (see `build.rs` and `rust_embed`). The
-/// embedded build lands in its own `dist-embedded` dir, so a plain `npm run build` for the dev checks
-/// never swaps in the standalone (non-embedded) bytes under us.
-#[derive(RustEmbed)]
-#[folder = "console/dist-embedded"]
-pub(crate) struct Console;
-
-/// Serve a console asset by path, falling back to `index.html` for client-side routes so a deep link
-/// or a refresh lands in the app rather than on a 404. The HTML shell is served in `agent` mode, so
-/// the one shared bundle boots into the agent's live view; the same bundle supports other host modes
-/// selected at serve time (see `console`'s `App`).
+/// Serve the embedded console in `agent` mode: its assets by path, and any client-side route (no
+/// matching asset) as `index.html` so the single-page app can route it. `async` is required: axum
+/// 0.8's `Handler` is implemented for async functions, and this is the router's fallback.
+#[cfg(feature = "console")]
 pub(crate) async fn console(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
-    match Console::get(path).or_else(|| Console::get("index.html")) {
-        Some(file) => console_asset(file, "agent"),
+    match zuihitsu_console::asset_or_index(path) {
+        Some(file) => {
+            let (mime, bytes) =
+                zuihitsu_console::render_embedded(file, zuihitsu_frontend_types::AppMode::Agent);
+            ([(header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
         None => (
             axum::http::StatusCode::NOT_FOUND,
             "the web console is not built into this binary\n",
@@ -36,17 +38,17 @@ pub(crate) async fn console(uri: Uri) -> Response {
     }
 }
 
-/// Serve an embedded console asset, injecting the app mode into the HTML shell (replacing the
-/// `__ZUIHITSU_APP_MODE__` placeholder `index.html` ships with) so the single shared bundle knows
-/// which view to boot. Non-HTML assets are served byte-for-byte.
-fn console_asset(file: rust_embed::EmbeddedFile, mode: &str) -> Response {
-    let mime = file.metadata.mimetype().to_owned();
-    if mime.starts_with("text/html") {
-        let html = String::from_utf8_lossy(&file.data).replace("__ZUIHITSU_APP_MODE__", mode);
-        ([(header::CONTENT_TYPE, mime)], html).into_response()
-    } else {
-        ([(header::CONTENT_TYPE, mime)], file.data).into_response()
-    }
+/// Serve the placeholder page this build ships in place of the console. A `--no-default-features`
+/// build skips the `zuihitsu-console` dependency (whose build script would run the whole frontend
+/// pipeline), so everything here is root-owned: the page tells the operator how to get the real
+/// console. `async` for the same axum 0.8 `Handler` bound as the feature-on sibling.
+#[cfg(not(feature = "console"))]
+pub(crate) async fn console(_uri: Uri) -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/html")],
+        include_str!("placeholder.html"),
+    )
+        .into_response()
 }
 
 /// The process's single shutdown source, fanned out to every path that must stop on Ctrl-C — the HTTP

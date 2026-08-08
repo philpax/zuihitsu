@@ -59,6 +59,10 @@ zuihitsu-platform-connector-api = { path = "crates/platform-connector-api" }
 zuihitsu-platform-connector-types = { path = "crates/platform-connector-types" }
 zuihitsu-frontend-types = { path = "crates/frontend-types" }
 zuihitsu = { path = ".", features = ["console"] }
+# The console pipeline and embedding crate. The root crate's `console` feature depends on it
+# optionally; the eval crate depends on it directly. Its build script always runs the full
+# frontend pipeline, so builds that must not (the workspace's rust CI job) exclude it.
+zuihitsu-console = { path = "crates/console" }
 settings-metadata-derive = { path = "crates/settings-metadata-derive" }
 
 [package]
@@ -74,13 +78,14 @@ path = "src/lib.rs"
 name = "zuihitsu"
 path = "src/main.rs"
 
-# The `console` feature (on by default) runs the full build pipeline — ts-rs type export, settings
-# metadata, wasm build, wasm-bindgen, wasm-opt, and the npm build — so `cargo build` embeds the web
-# console into the binary. Disabling it (`--no-default-features`) skips all console steps for a fast,
-# dependency-light build that links against a placeholder console.
+# The `console` feature (on by default) embeds the web console built by the `zuihitsu-console`
+# crate's own build script. The full pipeline (ts-rs type export, settings metadata, wasm build,
+# wasm-bindgen, wasm-opt, npm ci, and the npm build) runs when that crate is compiled. Disabling it
+# (`--no-default-features`) drops the dependency entirely, so the build never runs the frontend
+# pipeline and serves the placeholder page from `src/http_server/placeholder.html`.
 [features]
 default = ["console"]
-console = ["dep:wasm-bindgen-cli-support", "dep:wasm-opt"]
+console = ["dep:zuihitsu-console"]
 
 [dependencies]
 anstream = { workspace = true }
@@ -115,7 +120,6 @@ reqwest = { workspace = true, features = [
 ] }
 rmcp = { workspace = true }
 rusqlite = { workspace = true }
-rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -142,10 +146,10 @@ whatlang = "0.18"
 zuihitsu-core = { workspace = true }
 zuihitsu-platform-connector-types = { workspace = true }
 zuihitsu-frontend-types = { workspace = true }
-
-[build-dependencies]
-wasm-bindgen-cli-support = { workspace = true, optional = true }
-wasm-opt = { workspace = true, optional = true }
+# The console embedding crate, optional behind the `console` feature: with it, the agent serves the
+# real built console (and the crate's build script runs the whole frontend pipeline); without it, a
+# placeholder page is served from `src/http_server/placeholder.html`.
+zuihitsu-console = { workspace = true, optional = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }

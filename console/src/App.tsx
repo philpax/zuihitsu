@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { RouterProvider } from "./lib/nav/history.tsx";
 import { AppStoreProvider } from "./lib/nav/AppStoreProvider.tsx";
 import { ConsoleApp, EmbeddedApp } from "./screens.tsx";
+import type { AppMode } from "@zuihitsu/wire/types/AppMode.ts";
 
 // The serving binary announces its mode at runtime via `window.__APP_MODE__` (the template token in
 // index.html is replaced at serve time), so one built bundle serves every host. The agent serves its
@@ -13,7 +14,6 @@ declare global {
     __APP_MODE__?: string;
   }
 }
-type AppMode = "agent" | "eval" | "console";
 const MODE: AppMode =
   window.__APP_MODE__ === "agent" || window.__APP_MODE__ === "eval"
     ? window.__APP_MODE__

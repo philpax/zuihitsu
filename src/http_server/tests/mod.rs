@@ -14,6 +14,7 @@ use zuihitsu::{
 
 mod api;
 mod auth;
+mod console;
 mod health;
 mod metrics;
 

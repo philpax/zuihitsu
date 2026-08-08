@@ -1,0 +1,37 @@
+# The console build pipeline and embedding crate. Building this crate always runs the full
+# frontend pipeline (ts-rs export, settings metadata, wasm build, wasm-bindgen, wasm-opt, npm ci,
+# npm build) from `build.rs`, so the crate has deliberately no `[features]` section: including it
+# means you want the console. The root crate depends on it optionally behind the `console` feature;
+# the eval crate depends on it directly.
+[package]
+name = "zuihitsu-console"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[dependencies]
+rust-embed = { workspace = true }
+zuihitsu-frontend-types = { workspace = true }
+
+[build-dependencies]
+wasm-bindgen-cli-support = { workspace = true }
+wasm-opt = { workspace = true }
+
+# The dev-server liveness helpers (`install.rs`) need platform process primitives in both the build
+# script and the lib (the `#[path]`-included unit tests compile them into the test module). Cargo
+# unifies a crate listed in both sections, so these appear twice on purpose.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.build-dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.build-dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

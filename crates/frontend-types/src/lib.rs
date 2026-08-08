@@ -1,7 +1,7 @@
 //! The TypeScript wire-contract types shared between the main crate, the eval crate, and the
 //! console. Owns every type that `ts-rs` exports to `console/packages/wire/types/`, so the build
 //! pipeline has a single source of truth that depends only on `zuihitsu-core` — no build cycle
-//! with the main crate's `build.rs`.
+//! with `zuihitsu-console`'s `build.rs`.
 //!
 //! The `ts` feature gates the `ts_rs::TS` derives. The `export-types` binary enables it to emit
 //! the TypeScript bindings; consumers (the main crate, the eval crate) depend on this crate
@@ -11,6 +11,7 @@ pub mod agent;
 pub mod api;
 pub mod executor;
 pub mod live;
+pub mod mode;
 pub mod package;
 pub mod prompts;
 pub mod step;
@@ -24,6 +25,7 @@ pub use agent::{BackendHealth, CircuitState};
 pub use api::{ApiEntry, ApiGate, ApiParam, ApiType, ObjectBuilder, enum_of, object};
 pub use executor::StepRecord;
 pub use live::LiveEvent;
+pub use mode::AppMode;
 pub use package::{
     Aggregate, Bar, Category, EvalPackage, PackageSummary, ResumeProvenance, RunMeta, RunMetrics,
     RunRecord, RunSummary, ScenarioMeta, ScenarioReport, ScenarioSummary, Stat, TokenStat, Verdict,

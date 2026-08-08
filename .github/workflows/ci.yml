@@ -28,12 +28,14 @@ jobs:
       - name: Format
         run: cargo +nightly fmt --all -- --check
       # The eval crate enables the `console` feature on the main crate (for serve.rs embedding),
-      # and Cargo feature unification would turn it on for the whole workspace. Exclude it so the
-      # rust job does not need Node, a C++ compiler, or the wasm toolchain.
+      # and Cargo feature unification would turn it on for the whole workspace. And
+      # `zuihitsu-console`'s build script always runs the full frontend pipeline (npm, wasm, C++)
+      # whenever it is built. Exclude both so the rust job does not need Node, a C++ compiler, or
+      # the wasm toolchain. The console job covers the excluded crates' clippy and tests.
       - name: Clippy
-        run: cargo clippy --no-default-features --workspace --exclude zuihitsu-eval --all-targets -- -D warnings
+        run: cargo clippy --no-default-features --workspace --exclude zuihitsu-eval --exclude zuihitsu-console --all-targets -- -D warnings
       - name: Test
-        run: cargo test --no-default-features --workspace --exclude zuihitsu-eval
+        run: cargo test --no-default-features --workspace --exclude zuihitsu-eval --exclude zuihitsu-console
 
   console:
     name: Console
@@ -53,13 +55,15 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: console/package-lock.json
-      # Install dependencies first so `build.rs`'s conditional `npm install` is a no-op and the
-      # subsequent checks run against the same `node_modules` as the embedded build.
+      # Install dependencies first so `build.rs`'s freshness check (node_modules vs the lockfile)
+      # is a no-op and the subsequent checks run against the same `node_modules` as the embedded
+      # build.
       - name: Install
         working-directory: console
         run: npm ci
-      # The full build.rs pipeline: ts-rs types, settings metadata, wasm build, wasm-bindgen,
-      # wasm-opt, and the npm build — all driven by `cargo build` with the console feature on.
+      # The full build.rs pipeline (ts-rs types, settings metadata, wasm build, wasm-bindgen,
+      # wasm-opt, and the npm build) is driven from `zuihitsu-console`'s build script, which
+      # `cargo build` runs through the root crate's optional `console` feature.
       - name: Build server binary (exercises the full console pipeline)
         env:
           CC_wasm32_unknown_unknown: clang
@@ -68,6 +72,17 @@ jobs:
         env:
           CC_wasm32_unknown_unknown: clang
         run: cargo build -p zuihitsu-eval
+      # The router-fallback integration test against the real embedded bundle (which carries the
+      # `__ZUIHITSU_APP_MODE__` token): `cargo build` already ran the pipeline, so this re-runs the
+      # cached `zuihitsu-console` build script only if a watched input changed.
+      - name: Test the embedded-console fallback route
+        run: cargo test -p zuihitsu http_server::tests::console
+      # `zuihitsu-console` is excluded from the rust job (its build script always runs the
+      # pipeline), so its unit tests and clippy run here, with Node present.
+      - name: Clippy the console crate
+        run: cargo clippy -p zuihitsu-console --all-targets -- -D warnings
+      - name: Test the console crate
+        run: cargo test -p zuihitsu-console
       - name: Typecheck
         working-directory: console
         run: npm run typecheck
