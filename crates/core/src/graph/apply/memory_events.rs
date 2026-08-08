@@ -84,13 +84,13 @@ impl Graph {
                     .map_err(backend)?;
                 // A deleted context memory takes its conversation with it: the room is the
                 // conversation's identity, so a conversation whose room is gone is dropped from the
-                // projection, along with its sessions and their participants (there are no foreign
-                // keys, so the cascade is explicit — and it must be complete, or the idle sweep's
-                // `open_sessions` would surface an orphaned open session and flush a turn into a room
-                // that no longer exists). Ordered inner-to-outer so each delete's subquery still
-                // resolves the conversation. The `ConversationStarted`/`SessionStarted` events stay in
-                // the log (this is the materialized graph, rebuilt from it), and a non-context memory
-                // matches no row.
+                // projection, along with its sessions and their participants. The deletes are now
+                // redundant with the schema's `ON DELETE CASCADE` clauses, but they stay explicit and
+                // ordered inner-to-outer so each subquery still resolves the conversation — and the
+                // cascade must remain complete, or the idle sweep's `open_sessions` would surface an
+                // orphaned open session and flush a turn into a room that no longer exists. The
+                // `ConversationStarted`/`SessionStarted` events stay in the log (this is the
+                // materialized graph, rebuilt from it), and a non-context memory matches no row.
                 let id = id.0.to_string();
                 self.conn
                     .execute(

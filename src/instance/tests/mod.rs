@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod ambient_recall;
 #[cfg(test)]
+mod boot;
+#[cfg(test)]
 mod designation;
 #[cfg(test)]
 mod embedding_swap;

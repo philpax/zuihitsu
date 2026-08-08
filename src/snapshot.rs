@@ -75,6 +75,16 @@ pub fn restore_if_stale(graph_path: &Path, dir: &Path) -> Result<Option<Seq>, Sn
     if snapshot_head <= read_graph_head(graph_path)? {
         return Ok(None);
     }
+    // The graph is a WAL database, so a killed process can leave `-wal`/`-shm` siblings that
+    // shadow the main file: copying a (self-contained, checkpointed) snapshot over `graph_path`
+    // while a stale `graph.sqlite-wal` still sits beside it would let the live WAL replay over the
+    // fresh copy and resurrect the pre-restore state. Clear the siblings first so the copy lands on
+    // a clean target. `VACUUM INTO` snapshots carry no WAL of their own.
+    for suffix in ["-wal", "-shm"] {
+        let mut sibling = graph_path.as_os_str().to_owned();
+        sibling.push(suffix);
+        let _ = fs::remove_file(PathBuf::from(sibling));
+    }
     fs::copy(&snapshot_path, graph_path).map_err(|source| SnapshotError::Restore {
         from: snapshot_path,
         to: graph_path.to_path_buf(),
@@ -129,6 +139,14 @@ pub fn read_graph_head(path: &Path) -> Result<Seq, SnapshotError> {
         return Ok(Seq::ZERO);
     }
     let conn = Connection::open(path).map_err(|source| SnapshotError::OpenGraph {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    // Read-only at its core but opened with the read-write flag so SQLite can recover a WAL left
+    // hot by a killed process — the head a restore decision compares must see every committed event,
+    // including one only present in the live WAL. The shared pragma set (busy timeout, NORMAL sync,
+    // FKs on) applies; journal mode is already what the file is.
+    crate::db::sqlite_defaults(&conn, false).map_err(|source| SnapshotError::OpenGraph {
         path: path.to_path_buf(),
         source,
     })?;
@@ -307,6 +325,58 @@ mod tests {
         let missing = dir.join("missing.sqlite");
         assert_eq!(restore_if_stale(&missing, &snaps).unwrap(), Some(Seq(20)));
         assert_eq!(read_graph_head(&missing).unwrap(), Seq(20));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Restore must clear a killed process's WAL siblings before copying the snapshot over the main
+    /// file. The graph is a WAL database, so a stale `-wal`/`-shm` beside a fresh `VACUUM INTO` copy
+    /// would let the live WAL replay over it and resurrect the pre-restore state (spec §Snapshots).
+    #[test]
+    fn restore_clears_wal_siblings_before_copying() {
+        let dir = temp_dir();
+        let snaps = dir.join("snaps");
+        fs::create_dir_all(&snaps).unwrap();
+        write_graph_head(&snaps.join(snapshot_filename(Seq(20))), 20);
+
+        let stale = dir.join("stale.sqlite");
+        write_graph_head(&stale, 5);
+        // A killed process left a live WAL and its shared-memory index beside the graph.
+        fs::write(dir.join("stale.sqlite-wal"), b"stale wal").unwrap();
+        fs::write(dir.join("stale.sqlite-shm"), b"stale shm").unwrap();
+
+        assert_eq!(restore_if_stale(&stale, &snaps).unwrap(), Some(Seq(20)));
+        // The siblings are gone, so the copy cannot be shadowed by them.
+        assert!(!dir.join("stale.sqlite-wal").exists());
+        assert!(!dir.join("stale.sqlite-shm").exists());
+        assert_eq!(read_graph_head(&stale).unwrap(), Seq(20));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `read_graph_head` reads a graph whose committed head lives only in a hot WAL: a connection
+    /// which cannot recover the WAL (a read-only one) would see a stale or empty head, and the
+    /// restore decision would wrongly think the snapshot leads the graph. The open is read-write so
+    /// SQLite recovers the WAL, and the head it reports includes every committed event.
+    #[test]
+    fn read_graph_head_sees_a_hot_wal() {
+        let dir = temp_dir();
+        let graph = dir.join("graph.sqlite");
+        let conn = Connection::open(&graph).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);")
+            .unwrap();
+        // Commit into the WAL without a checkpoint: the head exists only in the live `-wal` file.
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('graph_head', 42)",
+            [],
+        )
+        .unwrap();
+        // The connection is still open, so the WAL is hot and un-checkpointed.
+        assert_eq!(read_graph_head(&graph).unwrap(), Seq(42));
+        assert!(
+            dir.join("graph.sqlite-wal").exists(),
+            "the WAL must still be live when the head read succeeds"
+        );
+        drop(conn);
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -9,7 +9,10 @@ use crate::{
         PromptTemplateName, TurnRole, Visibility,
     },
     graph::Graph,
-    ids::{ConversationId, MemoryId, Namespace, Seq, SessionId, TurnId},
+    ids::{
+        ConversationId, ConversationLocator, MemoryId, Namespace, Seq, SessionId, TEST_PLATFORM,
+        TurnId,
+    },
     store::{MemoryStore, Store},
     time::Timestamp,
     vocabulary::RelationName,
@@ -25,6 +28,7 @@ fn chat_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, TurnId)
     let turn_id = TurnId::generate();
     let chat = MemoryId::generate();
     let direct = MemoryId::generate();
+    let context = MemoryId::generate();
 
     let mut events = vec![
         EventPayload::LinkTypeRegistered {
@@ -38,6 +42,14 @@ fn chat_moment(merge_direct: bool) -> (std::sync::Arc<Engine>, MemoryId, TurnId)
         },
         EventPayload::memory_created(chat, Namespace::Person.with_name("maya@chat")),
         EventPayload::memory_created(direct, Namespace::Person.with_name("maya@direct")),
+        // The room is opened before the session (the write path mints the context memory and opens
+        // the conversation eagerly), so the session's `conversation` FK has a parent.
+        EventPayload::memory_created(context, Namespace::Context.with_name("room:chat")),
+        EventPayload::conversation_started(
+            conversation,
+            ConversationLocator::new(TEST_PLATFORM, "room"),
+            context,
+        ),
         EventPayload::session_started(
             conversation,
             session,

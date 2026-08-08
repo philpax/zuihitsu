@@ -7,7 +7,9 @@ use crate::{
     clock::ManualClock,
     event::{EventPayload, EventSource, SessionEndCause},
     graph::Graph,
-    ids::{ConversationId, MemoryId, Seq, SessionId},
+    ids::{
+        ConversationId, ConversationLocator, MemoryId, Namespace, Seq, SessionId, TEST_PLATFORM,
+    },
     instance::OpenSession,
     model::{
         ModelError,
@@ -119,21 +121,30 @@ async fn the_idle_sweep_closes_a_session_once_not_every_tick() {
     // tick — the live-instance "the session ended right after my message" loop.
     let conversation = ConversationId::generate();
     let session = SessionId::generate();
+    let context = MemoryId::generate();
     let mut store = MemoryStore::new();
     store
         .append(
             Timestamp::from_millis(1_000),
             EventSource::Agent,
-            vec![EventPayload::SessionStarted {
-                conversation,
-                id: session,
-                participants: vec![],
-                started_at: Timestamp::from_millis(1_000),
-                seeded_from_turn: None,
-                brief: "brief".to_owned(),
-                working_set: Vec::new(),
-                initiators: Vec::new(),
-            }],
+            vec![
+                EventPayload::memory_created(context, Namespace::Context.with_name("session:room")),
+                EventPayload::conversation_started(
+                    conversation,
+                    ConversationLocator::new(TEST_PLATFORM, "session/room"),
+                    context,
+                ),
+                EventPayload::SessionStarted {
+                    conversation,
+                    id: session,
+                    participants: vec![],
+                    started_at: Timestamp::from_millis(1_000),
+                    seeded_from_turn: None,
+                    brief: "brief".to_owned(),
+                    working_set: Vec::new(),
+                    initiators: Vec::new(),
+                },
+            ],
         )
         .unwrap();
 
@@ -224,21 +235,30 @@ async fn concurrent_closes_of_one_session_record_a_single_end() {
     // second sees the session already ended and skips — exactly one `SessionEnded`, not two.
     let conversation = ConversationId::generate();
     let session = SessionId::generate();
+    let context = MemoryId::generate();
     let mut store = MemoryStore::new();
     store
         .append(
             Timestamp::from_millis(1_000),
             EventSource::Agent,
-            vec![EventPayload::SessionStarted {
-                conversation,
-                id: session,
-                participants: vec![],
-                started_at: Timestamp::from_millis(1_000),
-                seeded_from_turn: None,
-                brief: "brief".to_owned(),
-                working_set: Vec::new(),
-                initiators: Vec::new(),
-            }],
+            vec![
+                EventPayload::memory_created(context, Namespace::Context.with_name("session:room")),
+                EventPayload::conversation_started(
+                    conversation,
+                    ConversationLocator::new(TEST_PLATFORM, "session/room"),
+                    context,
+                ),
+                EventPayload::SessionStarted {
+                    conversation,
+                    id: session,
+                    participants: vec![],
+                    started_at: Timestamp::from_millis(1_000),
+                    seeded_from_turn: None,
+                    brief: "brief".to_owned(),
+                    working_set: Vec::new(),
+                    initiators: Vec::new(),
+                },
+            ],
         )
         .unwrap();
     let mut graph = Graph::open_in_memory().unwrap();

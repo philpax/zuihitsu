@@ -210,6 +210,11 @@ fn conversations_and_sessions_project() {
             context,
             Namespace::Context.with_name("chat:guild/42/chan/leads"),
         ),
+        // The session's present set is resolved from existing memories (the write path mints a
+        // participant before a session names it), so each participant must exist as a memory.
+        EventPayload::memory_created(alice, Namespace::Person.with_name("alice")),
+        EventPayload::memory_created(bob, Namespace::Person.with_name("bob")),
+        EventPayload::memory_created(carol, Namespace::Person.with_name("carol")),
         EventPayload::conversation_started(
             conv,
             ConversationLocator::new(TEST_PLATFORM, "guild/42/chan/leads"),
@@ -308,6 +313,7 @@ fn deleting_a_context_memory_drops_its_conversation_from_the_projection() {
     let participant = MemoryId::generate();
     let (_store, graph) = materialized(vec![
         EventPayload::memory_created(context, Namespace::Context.with_name("console:lua")),
+        EventPayload::memory_created(participant, Namespace::Person.with_name("maya")),
         EventPayload::conversation_started(
             conv,
             ConversationLocator::new("console", "lua"),
@@ -355,4 +361,129 @@ fn deleting_a_context_memory_drops_its_conversation_from_the_projection() {
         EventPayload::memory_deleted(unrelated),
     ]);
     assert_eq!(graph.conversations().unwrap().len(), 1);
+}
+
+/// The FK-load-bearing replay: a full memory → conversation → session → participants → content →
+/// consolidation → `MemoryDeleted` log replays cleanly with `foreign_keys = ON` (the shared open
+/// path), exercising the two exceptions the plan identifies — the `MemoryDeleted` cascade that
+/// hard-deletes the conversation's sessions/participants (now backed by `ON DELETE CASCADE`
+/// clauses rather than hand-maintained subqueries) and the `EntriesConsolidated` carry-over of a
+/// retired entry's attestation (`entry_attestations.source_entry → content_entries`). The cascade's
+/// rows are gone after the delete while the memory row stays soft-deleted.
+#[test]
+fn fk_enabled_replay_cascades_a_deleted_context_memory_and_carries_attestations() {
+    let conv = ConversationId::generate();
+    let context = MemoryId::generate();
+    let session = SessionId::generate();
+    let participant = MemoryId::generate();
+    let other = MemoryId::generate();
+    let (old_entry, new_entry, consolidation_source) = (
+        EntryId::generate(),
+        EntryId::generate(),
+        EntryId::generate(),
+    );
+    let appended = |entry_id, text: &str| EventPayload::MemoryContentAppended {
+        id: other,
+        entry_id,
+        asserted_at: Timestamp::from_millis(900),
+        occurred_at: None,
+        text: text.to_owned(),
+        told_by: Teller::Agent,
+        told_in: None,
+        visibility: Visibility::Public,
+    };
+    let (_store, graph) = materialized(vec![
+        EventPayload::memory_created(context, Namespace::Context.with_name("console:room")),
+        EventPayload::memory_created(participant, Namespace::Person.with_name("maya")),
+        EventPayload::memory_created(other, Namespace::Person.with_name("dave")),
+        EventPayload::conversation_started(
+            conv,
+            ConversationLocator::new("console", "room"),
+            context,
+        ),
+        EventPayload::SessionStarted {
+            conversation: conv,
+            id: session,
+            participants: vec![participant],
+            started_at: Timestamp::from_millis(1_000),
+            seeded_from_turn: None,
+            brief: "a brief".to_owned(),
+            working_set: Vec::new(),
+            initiators: Vec::new(),
+        },
+        appended(old_entry, "Dave works at Hooli"),
+        appended(new_entry, "Dave works at Pied Piper"),
+        // The consolidation writes a replacement entry, then tombstones the source and carries the
+        // source's attestation onto the replacement via `source_entry`.
+        appended(consolidation_source, "Dave works at Hooli"),
+        EventPayload::entries_consolidated(other, vec![old_entry], consolidation_source, None),
+        EventPayload::EntryAttested {
+            memory: other,
+            entry: consolidation_source,
+            teller: Teller::Participant(participant),
+            told_in: None,
+            asserted_at: Timestamp::from_millis(1_100),
+            posture: Visibility::Public,
+            phrasing: Some("Dave is at Hooli".to_owned()),
+            source_entry: Some(old_entry),
+            produced_by: None,
+        },
+        // Deleting the room's context memory cascades the conversation, its session, and the
+        // session's participants.
+        EventPayload::memory_deleted(context),
+    ]);
+
+    // The cascade completed: no conversation, no sessions, no participants remain.
+    assert!(graph.conversations().unwrap().is_empty());
+    assert!(graph.sessions_in(conv).unwrap().is_empty());
+    assert!(graph.session_participants(session).unwrap().is_empty());
+    assert!(graph.open_sessions().unwrap().is_empty());
+
+    // The deleted memory row stays (soft delete), with contents intact; the graph-level read hides
+    // it, matching the visibility contract.
+    let deleted: i64 = graph
+        .conn
+        .query_row(
+            "SELECT deleted FROM memories WHERE id = ?1",
+            [context.0.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        deleted, 1,
+        "the deleted context memory must stay soft-deleted"
+    );
+    assert!(
+        graph.memory_by_id(context).unwrap().is_none(),
+        "a soft-deleted memory must be hidden from graph reads"
+    );
+    // A *different* context memory that was never deleted keeps a healthy conversation.
+    let other_mem = MemoryId::generate();
+    let conv2 = ConversationId::generate();
+    let (_store2, graph2) = materialized(vec![
+        EventPayload::memory_created(other_mem, Namespace::Context.with_name("console:other")),
+        EventPayload::conversation_started(
+            conv2,
+            ConversationLocator::new("console", "other"),
+            other_mem,
+        ),
+    ]);
+    assert_eq!(graph2.conversations().unwrap().len(), 1);
+
+    // The consolidation carried the attestation: the replacement entry's live attestation set
+    // includes the retired source's teller, and its `source_entry` points at the retired entry —
+    // the FK arm `entry_attestations.source_entry → content_entries` held through the replay.
+    let carried: i64 = graph
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM entry_attestations
+             WHERE entry_id = ?1 AND retracted_reason IS NULL AND source_entry = ?2",
+            rusqlite::params![consolidation_source.0.to_string(), old_entry.0.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        carried, 1,
+        "the consolidation must carry the retired source's attestation onto the replacement"
+    );
 }

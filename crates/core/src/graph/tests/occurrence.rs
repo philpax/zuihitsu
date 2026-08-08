@@ -288,22 +288,25 @@ fn recurring_entries_lists_live_recurring_entries_by_memory() {
             e2,
             Some(TemporalRef::Instant(Timestamp::from_millis(1_000))),
         ),
-        // A recurring entry on mem_b that is superseded (excluded), then a live one.
+        // A recurring entry on mem_b that is superseded (excluded), then a live one. The replacement
+        // is appended before the supersession stamps it, matching the revise write path
+        // (append-then-supersede) — the projection's `superseded_by` pointer always names an existing
+        // entry.
         appended(
             mem_b,
             e3,
             Some(TemporalRef::Recurring(Rrule("FREQ=DAILY".into()))),
+        ),
+        appended(
+            mem_b,
+            e4,
+            Some(TemporalRef::Recurring(Rrule("FREQ=MONTHLY".into()))),
         ),
         EventPayload::MemorySuperseded {
             id: mem_b,
             entry: e3,
             superseded_by: e4,
         },
-        appended(
-            mem_b,
-            e4,
-            Some(TemporalRef::Recurring(Rrule("FREQ=MONTHLY".into()))),
-        ),
     ]);
 
     // Only the two live recurring entries, each under its memory — the instant and the superseded one

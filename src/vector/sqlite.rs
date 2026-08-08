@@ -24,6 +24,7 @@ impl SqliteVectorIndex {
     pub fn open_in_memory(dimensions: usize) -> Result<SqliteVectorIndex, VectorError> {
         register_sqlite_vec();
         let conn = Connection::open_in_memory().map_err(backend)?;
+        crate::db::sqlite_defaults(&conn, false).map_err(backend)?;
         SqliteVectorIndex::init(conn, dimensions)
     }
 
@@ -34,6 +35,7 @@ impl SqliteVectorIndex {
     ) -> Result<SqliteVectorIndex, VectorError> {
         register_sqlite_vec();
         let conn = Connection::open(path).map_err(backend)?;
+        crate::db::sqlite_defaults(&conn, true).map_err(backend)?;
         SqliteVectorIndex::init(conn, dimensions)
     }
 
@@ -51,6 +53,7 @@ impl SqliteVectorIndex {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .map_err(backend)?;
+        crate::db::sqlite_defaults(&conn, false).map_err(backend)?;
         Ok(SqliteVectorIndex { conn, dimensions })
     }
 
@@ -393,5 +396,54 @@ mod tests {
             index.upsert(record(&embedder, "new", "new").await).is_err(),
             "a read-only connection must refuse writes"
         );
+    }
+
+    /// The shared pragma set lands on the index's open paths: `foreign_keys` ON and `synchronous`
+    /// NORMAL on every connection, with a writable file-backed index in WAL mode and the in-memory
+    /// one left alone. The `vec0` virtual table itself is unchanged (it cannot be STRICT); only the
+    /// pragmas apply here.
+    #[tokio::test]
+    async fn index_open_carries_the_shared_pragma_defaults() {
+        let dir = tempfile::tempdir().expect("a temp directory for a vector index");
+        let path = dir.path().join("vectors.sqlite");
+
+        let file_index = SqliteVectorIndex::open(&path, DIMS).unwrap();
+        let journal_mode: String = file_index
+            .conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            journal_mode, "wal",
+            "a file-backed index must be in WAL mode"
+        );
+        let foreign_keys: i64 = file_index
+            .conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(foreign_keys, 1);
+        let vec_ddl: String = file_index
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vectors'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!vec_ddl.contains("STRICT"), "vec0 cannot be STRICT");
+
+        let memory_index = SqliteVectorIndex::open_in_memory(DIMS).unwrap();
+        let journal_mode: String = memory_index
+            .conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            journal_mode, "memory",
+            "an in-memory index must not switch to WAL"
+        );
+        let foreign_keys: i64 = memory_index
+            .conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(foreign_keys, 1);
     }
 }

@@ -6,17 +6,24 @@
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
-use crate::graph::{Graph, GraphError, backend};
+use crate::{
+    db::sqlite_defaults,
+    graph::{Graph, GraphError, backend},
+};
 
 impl Graph {
     /// Open (creating if absent) a file-backed graph.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Graph, GraphError> {
-        Self::init(Connection::open(path).map_err(backend)?)
+        let conn = Connection::open(path).map_err(backend)?;
+        sqlite_defaults(&conn, true).map_err(backend)?;
+        Self::init(conn)
     }
 
     /// Open an ephemeral in-memory graph — the no-file-I/O configuration tests use.
     pub fn open_in_memory() -> Result<Graph, GraphError> {
-        Self::init(Connection::open_in_memory().map_err(backend)?)
+        let conn = Connection::open_in_memory().map_err(backend)?;
+        sqlite_defaults(&conn, false).map_err(backend)?;
+        Self::init(conn)
     }
 
     /// Open an existing graph file read-only, taking no lock and running no DDL — a read-only boot
@@ -33,6 +40,7 @@ impl Graph {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .map_err(backend)?;
+        sqlite_defaults(&conn, false).map_err(backend)?;
         let graph = Graph { conn };
         graph.check_schema()?;
         Ok(graph)
@@ -56,6 +64,20 @@ impl Graph {
         let expected = schema_fingerprint();
         let stored = self.stored_fingerprint()?;
         if stored != Some(expected) {
+            // The reset drops every table and re-runs the DDL batch. With foreign keys ON, dropping
+            // a referenced parent while its children still hold rows would raise an FK violation,
+            // and the sweep visits tables in `sqlite_master` order, so no ordering is safe. Turn
+            // enforcement off for the drop loop and restore the captured value afterwards, or this
+            // connection would keep enforcement disabled for its whole lifetime. `defer_foreign_keys`
+            // would not work: each `DROP` runs in autocommit, so each deferral resets after the
+            // first statement.
+            let foreign_keys = self
+                .conn
+                .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                .map_err(backend)?;
+            self.conn
+                .pragma_update(None, "foreign_keys", "OFF")
+                .map_err(backend)?;
             // The FTS shadow tables (`memories_fts_*`) drop with their virtual table, so they are
             // excluded from the sweep rather than dropped twice.
             let tables: Vec<String> = self
@@ -75,6 +97,13 @@ impl Graph {
                     .map_err(backend)?;
             }
             self.conn.execute_batch(Self::SCHEMA_SQL).map_err(backend)?;
+            // Restore enforcement before the stamp insert: the insert itself needs no FKs, and this
+            // ordering keeps the connection's enforcement live from the moment the tables exist —
+            // do not move the restore after the stamp write, which would leave a window where a
+            // concurrent writer on this connection could insert FK-violating rows.
+            self.conn
+                .pragma_update(None, "foreign_keys", foreign_keys != 0)
+                .map_err(backend)?;
             self.conn
                 .execute(
                     "INSERT INTO meta (key, value) VALUES ('schema_fingerprint', ?1)",
