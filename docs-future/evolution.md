@@ -63,7 +63,7 @@ Replay the existing instance's 198 content entries through a schema-constrained 
 
 The figures above are recorded in [`research/2026-08-06/log-measurements.md`](research/2026-08-06/log-measurements.md).
 
-Unblocks: the cost model for the whole seam, and the choice of default in [`write-surface.md`](write-surface.md).
+Unblocks: the cost model for the whole verified write path, and the choice of default in [`write-surface.md`](write-surface.md).
 Gating: none. This is measurement, not a gate, and its output is numbers that stages 2 and 4 are then judged against.
 Risk: the extractor used in the harness is not the one that ships, so the numbers are indicative rather than binding. They are still better than the current position, which is no numbers at all.
 
@@ -81,16 +81,16 @@ Risk: a synthetic log is not a real one, and the shape of real traffic decides t
 
 Model the [Statement](statements.md), the [Event](events-and-roles.md), the [frame](statements.md), and the first hard critics: type, domain and range, frame consistency, and duplicate resolution. Replay them over recorded logs with no live model, in the style of the existing rejudge mode.
 
-Unblocks: confidence that the shape holds real utterances before the seam is committed to.
+Unblocks: confidence that the shape holds real utterances before the verified write path is committed to.
 Gating: the two same-happening entries of the recorded four-entry case resolve to one Event with correct roles, while the distinct causal claim stays distinct; the duplicate critic flags the re-filing.
 
 For the frame, the criterion is deliberately stricter than "the layers separate", because both readings of what a `source` claim's subject is would satisfy that. The observed cat case must resolve to the right subject: a claim about a persona's principal must land on the principal, not on the persona under any frame value. The mechanism under test is [the `principal` redirect](statements.md), resolved against a seeded `presents` edge by a critic at write time, so this stage has a concrete design to falsify rather than a gap to report. If the redirect fails here, the alternative is a referent pointer carried on the Statement, at a cost the redirect avoids.
 
 Risk: the frame's values prove wrong on a corpus other than the one that motivated them. This is why the check happens here rather than after the substrate is built.
 
-## Stage 2: the Statement substrate and the seam
+## Stage 2: the Statement substrate and verification
 
-Build the Statement as the atomic write unit, the typed seam, the hard and soft critic banks, and forced-choice elicitation for the load-bearing writes.
+Build the Statement as the atomic write unit, the hard and soft critic banks, and forced-choice elicitation for the load-bearing writes.
 
 Two pieces of configuration land here too, because a new instance needs both at genesis and neither is a memory: [the self slot](memory-typology.md), which holds the charter the prompt reads every turn, and [scoped directives](memory-typology.md), versioned, which is what a connector writes when it opens a context.
 
@@ -98,7 +98,7 @@ One further obligation is easy to miss and belongs here rather than later: the a
 
 Unblocks: everything downstream. Every later stage writes Statements.
 Gating: extraction fidelity against gold-structure scenarios, scored on precision and recall; a faithfulness oracle asserting every structural write is entailed by some utterance in the transcript; and a paraphrase-spread probe showing near-zero spread on field-content correctness, not on capture presence, which a required field pins by construction.
-Risk: the constraint tax. Schema forcing can suppress tool use or degrade reasoning, and this must be measured on the target model per behaviour rather than assumed. If it bites, the response is to constrain fewer behaviours, not to abandon the seam.
+Risk: the constraint tax. Schema forcing can suppress tool use or degrade reasoning, and this must be measured on the target model per behaviour rather than assumed. If it bites, the response is to constrain fewer behaviours, rather than to give up verifying writes.
 
 ## Stage 3: time
 

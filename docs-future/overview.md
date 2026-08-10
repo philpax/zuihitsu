@@ -18,7 +18,7 @@ Around that keystone:
 - [Time](time.md) separates what happened, what the agent must do, and what fires, so a dated description can never wake anything up.
 - [Memory](memory-typology.md) is four kinds with four lifecycles, not one container with one decay rule, and the agent's own charter is a slot outside all four rather than an entry inside one.
 - [Privacy](privacy-and-provenance.md) is a transmission condition carried as data on each Statement, evaluated deterministically and fail-closed.
-- The [write seam](the-seam.md) is typed: the model proposes structure and a bank of critics decides whether to accept it, so a write can be rejected rather than merely recorded.
+- The [verified write](verified-write.md) is typed: the model proposes structure and a bank of critics decides whether to accept it, so a write can be rejected rather than merely recorded.
 - The [query surface](query-surface.md) stays handle-shaped and small, however rich the substrate gets, and the [write surface](write-surface.md) is two verbs that hand the parse back for correction.
 - [Off-turn work](off-turn.md) is ordinary writing under the same critics, driven by queues that write-time marks fill rather than by sweeps over the store.
 
@@ -44,7 +44,7 @@ A fact stops being a sentence. Every downstream mechanism currently re-derives s
 
 Prose stops being the only representation, without stopping being a representation. The narrative is kept and indexed rather than discarded or demoted, because sequencing, change-tracking, and synthesis across occasions run on it.
 
-The writer stops being unchecked. Today the guards check authority and visibility but never well-formedness, so a confidently recorded falsehood meets nothing until a contradiction happens to collide with it. Writes now cross a typed seam into sound symbolic critics that can reject them.
+The writer stops being unchecked. Today the guards check authority and visibility but never well-formedness, so a confidently recorded falsehood meets nothing until a contradiction happens to collide with it. Writes now pass a bank of sound symbolic critics that can reject them.
 
 Load-bearing behaviour stops riding on wording. A behaviour whose failure is silent moves off the prompt and into structure the harness enforces. The prompt keeps what tolerates drift: principles, taste, and voice.
 

@@ -55,7 +55,7 @@ The second field is the audience: who may learn this. The utterance rarely says,
 
 A compound utterance cannot carry a single transmission principle, so the write does not ask it to. The call's `visibility` is a default for the parse, and the parse does not commit until every proposal's principle is settled: the agent either accepts the default for all of them or sets the ones that differ. Declining to look is not available, because the field is required per Statement rather than per call.
 
-This is the [seam's own rule](the-seam.md) applied to the behaviour that carries the privacy commitment. Noticing that one clause of a sentence is sensitive is a judgement whose failure is silent and whose consequence is a leaked confidence, so it becomes a required field rather than a habit the prompt asks for. The corpus's principal case has exactly this shape: one biography sentence yielding seven public claims and one that had to be held back, split by hand months later.
+This is the [rule that load-bearing behaviour moves off the prompt](verified-write.md) applied to the behaviour that carries the privacy commitment. Noticing that one clause of a sentence is sensitive is a judgement whose failure is silent and whose consequence is a leaked confidence, so it becomes a required field rather than a habit the prompt asks for. The corpus's principal case has exactly this shape: one biography sentence yielding seven public claims and one that had to be held back, split by hand months later.
 
 The third field is the teller, where the teller is not the obvious speaker. Relaying what someone else said is a different claim from saying it.
 

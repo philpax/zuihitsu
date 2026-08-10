@@ -39,7 +39,7 @@ Some content is only a gloss. Metaphor, analogy, and reframing have no claim to 
 
 ## Deduplicate claims, preserve occasions
 
-This is the seam where the two traces pull against each other, and it is stated here because getting it wrong reinstates a failure the model exists to fix.
+This is where the two traces pull against each other, and it is stated here because getting it wrong reinstates a failure the model exists to fix.
 
 A re-mention of a known fact resolves to the existing Statement. It does not create a second one. That is what ends the observed failure of one happening recorded four times in subject-appropriate rephrasings.
 
@@ -76,7 +76,7 @@ An episodic trace:
 - is marked as a reconstruction wherever it surfaces
 - is composed under the intersection rule, and never over anything held in confidence
 
-These are enforced by the critic bank, not by instruction. See [the seam](the-seam.md).
+These are enforced by the critic bank, not by instruction. See [the verified write](verified-write.md).
 
 ## The narrative is a distillation
 

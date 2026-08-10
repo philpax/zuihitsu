@@ -51,7 +51,7 @@ A [reflection pass](off-turn.md) promotes or discards. Promotion means writing a
 
 ### Promotion carries a taint
 
-A working note has no transmission principle of its own, which is what makes promotion dangerous: the [audience-invariant critic](the-seam.md) checks that no endorsement is wider than what it was founded under, and a note founded under nothing passes trivially. A confidence reasoned about in the scratchpad and then promoted arrives with whatever audience the promotion chose.
+A working note has no transmission principle of its own, which is what makes promotion dangerous: the [audience-invariant critic](verified-write.md) checks that no endorsement is wider than what it was founded under, and a note founded under nothing passes trivially. A confidence reasoned about in the scratchpad and then promoted arrives with whatever audience the promotion chose.
 
 So a note carries a taint set: the Statements consulted while it was written. Promotion intersects the promoted Statement's principle against them, which is the same arithmetic [a derivation](statements.md) already does over its premises, reaching one step further back.
 
@@ -79,7 +79,7 @@ The self slot is an append-only sequence of versions, of which one is current. I
 
 - Always in context. It is not retrieved, so it cannot fail to be retrieved. No ranking, no similarity, no budget under which it loses to something more recent.
 - Invisible to the memory API. It is not returned by search, not readable or writable through the memory verbs, and cannot be retracted, consolidated, distilled, superseded, or tombstoned. No pass can reach it.
-- Operator-owned. A new version is an operator write. The agent may propose one, and a proposal is an ordinary Statement about the agent that reaches the [exception queue](the-seam.md), not an edit.
+- Operator-owned. A new version is an operator write. The agent may propose one, and a proposal is an ordinary Statement about the agent that reaches the [exception queue](verified-write.md), not an edit.
 - Versioned rather than mutable, so a change to who the agent is has a date, an author, and a diff, and the prompt reads exactly one version.
 
 The current system keeps the charter as immutable content entries on a `self` memory, which protects the wording and not the slot. Immutability stops an entry being rewritten. It does not stop the entry being retracted, selected into a synthesis by a consolidation pass, summarised into a regenerable description, or dropped from a surface by an audience evaluation. A thing that must appear in every prompt should not be reachable by the machinery whose entire purpose is deciding what to leave out.

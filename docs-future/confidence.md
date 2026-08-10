@@ -145,7 +145,7 @@ The five corrections are folded into the chapters. They were: the identification
 | The belief is absolute and the evidence account is filtered | Synthesis | Taken, and it is the only option consistent with computing visibility once in the substrate: a room-dependent credence makes a derivation rest on different evidence per conversation. Where the only distinguishing fact is an unnameable endorser, the ordinal surfaces with no account, which is the zero-residue standard rather than a special case |
 | Principles are universally quantified over the present set and fail closed on any member | Synthesis | The set-shaped evaluator was implied by audiences-as-predicates from the start; the per-principle consequences, and `in_confidence` becoming relative to who was there, are this design's own working out |
 
-### The seam
+### The verified write
 
 | Claim | Status | Note |
 |---|---|---|
@@ -180,7 +180,7 @@ The five corrections are folded into the chapters. They were: the identification
 
 | Claim | Status | Note |
 |---|---|---|
-| Passes are ordinary writers under the same critics, with no maintenance bypass | Synthesis | Follows from the seam doctrine. The current system's passes already write through the block path, so this tightens an existing posture rather than inventing one |
+| Passes are ordinary writers under the same critics, with no maintenance bypass | Synthesis | Follows from the doctrine that writes are verified (the neural half is never the final authority on a structural question). The current system's passes already write through the block path, so this tightens an existing posture rather than inventing one |
 | Queues fed by write-time marks replace whole-store sweeps | Synthesis | Forced by the cost-per-fact constraint. The marks are cheap consequences of records the design already keeps; that the queues stay short under real traffic is unmeasured |
 | Structural deduplication and cross-audience merging leave consolidation entirely | Synthesis | Both exist today to recover what the write path did not capture. This is the strongest economic claim in the chapter and it rests on extraction convergence, which [`evolution.md`](evolution.md) stage 0c measures and which is currently unmeasured |
 | Triggers are drained before maintenance | Synthesis | A commitment starved by tidying is the failure this prevents. No surveyed system reports the failure; the ordering is cheap enough not to need one |

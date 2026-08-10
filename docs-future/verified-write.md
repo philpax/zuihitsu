@@ -1,4 +1,4 @@
-# The seam
+# The verified write
 
 The model proposes a write. The store decides whether to accept it. The boundary between them is typed, and a write that crosses it can be rejected.
 
@@ -8,7 +8,7 @@ This is the part of the design that is genuinely unfinished elsewhere. Essential
 
 Writes cross as typed structured proposals: an [Event](events-and-roles.md) with typed roles, a [relation](relations.md) instance against a declared schema, a typed interval, a [frame](statements.md), a transmission principle. Never an untyped sentence.
 
-If the seam is typed, nothing downstream has to recover structure from prose, because the structure was captured where it was known. The current seam is a prose sentence, which is the maximally untyped interface and the reason every downstream mechanism re-parses.
+If the boundary is typed, nothing downstream has to recover structure from prose, because the structure was captured where it was known. The current boundary is a prose sentence, which is the maximally untyped interface and the reason every downstream mechanism re-parses.
 
 The doctrine is adopted as doctrine rather than as machinery: the neural half is never the final authority on a structural question. There is no differentiable logic layer here and no theorem prover. There is a typed interface and a bank of checks.
 

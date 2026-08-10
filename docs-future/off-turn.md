@@ -6,7 +6,7 @@ None of it is a separate write path. Off-turn work inherits every commitment the
 
 ## A pass is an ordinary writer
 
-Every pass crosses the same typed [seam](the-seam.md), meets the same critics, and can be rejected. There is no maintenance bypass, no privileged verb, and no pass-only authority.
+Every pass meets the same critics and can be rejected. There is no maintenance bypass, no privileged verb, and no pass-only authority.
 
 Five rules follow, and each closes a way a pass could otherwise evade a constraint.
 
@@ -41,7 +41,7 @@ The marks already exist, or are cheap consequences of things that do:
 
 A tick that finds empty queues costs a queue read. A tick that finds work does exactly that work, and the cost is proportional to what changed rather than to what is stored.
 
-Whole-store sweeps do not disappear, but they stop being the routine path. The [drift](the-seam.md) machinery, canaries and re-derivation audits, is inherently whole-store, and it is a diagnostic run rarely rather than curation run constantly. Confusing the two is how a maintenance budget becomes a scaling problem.
+Whole-store sweeps do not disappear, but they stop being the routine path. The [drift](verified-write.md) machinery, canaries and re-derivation audits, is inherently whole-store, and it is a diagnostic run rarely rather than curation run constantly. Confusing the two is how a maintenance budget becomes a scaling problem.
 
 ## The heartbeat
 
@@ -81,7 +81,7 @@ It samples structurally, not randomly. Random pairing is the crude form of the i
 
 Its output is a working note, never an utterance and never a settled claim. An exploration writes into [the scratchpad](memory-typology.md), so it inherits promotion by reflection, a taint set, and the audience arithmetic that goes with them. It never speaks: what it produces is something the agent might later have a reason to say, not a reason to say it.
 
-It cannot promote itself. A daydreamed link has exactly one signal behind it, the model that proposed it, and [agreement before promotion](the-seam.md) requires two independent ones. So an exploration's output stays a candidate until ordinary evidence arrives to corroborate it, and if none ever does it decays with the rest of the scratchpad. This is stricter than scoring the idea for novelty and keeping the good ones, and it is the correct strictness: a plausible connection between two true facts is exactly what a language model produces when there is no connection at all.
+It cannot promote itself. A daydreamed link has exactly one signal behind it, the model that proposed it, and [agreement before promotion](verified-write.md) requires two independent ones. So an exploration's output stays a candidate until ordinary evidence arrives to corroborate it, and if none ever does it decays with the rest of the scratchpad. This is stricter than scoring the idea for novelty and keeping the good ones, and it is the correct strictness: a plausible connection between two true facts is exactly what a language model produces when there is no connection at all.
 
 The privacy consequence needs stating, because the pairing sampler is the first mechanism here that deliberately reaches across memories with unrelated audiences. The most interesting pair is often the cross-person one, and that is also the disclosure hazard: pairing a confidence with a public fact yields a note that encodes the confidence. The [intersection rule](statements.md) covers it, the taint set carries it into promotion, and the sampler is not exempt from either. An exploration that pairs across audiences produces a note no wider than the narrower of them.
 

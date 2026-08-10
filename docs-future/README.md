@@ -25,7 +25,7 @@ The chapters below are the design. [`overview.md`](overview.md) is the entry poi
 | [`time.md`](time.md) | occurrence, task, and trigger kept apart, so a description cannot fire |
 | [`memory-typology.md`](memory-typology.md) | four kinds with four lifecycles, and the self in a slot outside all of them |
 | [`privacy-and-provenance.md`](privacy-and-provenance.md) | transmission conditions as data, zero residue, retraction against erasure |
-| [`the-seam.md`](the-seam.md) | the model proposes structure, the critics accept or reject it, and drift is watched from outside |
+| [`verified-write.md`](verified-write.md) | the model proposes structure, the critics accept or reject it, and drift is watched from outside |
 | [`query-surface.md`](query-surface.md) | structural questions, structural answers, and a deliberately small API |
 | [`write-surface.md`](write-surface.md) | two verbs, structuring inside the transaction, and the parse handed back for correction |
 | [`off-turn.md`](off-turn.md) | passes as ordinary writers, queues instead of sweeps, and initiative that is exception-triggered |

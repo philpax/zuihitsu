@@ -30,9 +30,9 @@ Belief has no credence model. [Credence from counting evidence](belief.md), with
 
 Hygiene thresholds are embedder geometry. This is better than it first appears, and incomplete. Structural equality removes similarity from the deduplication path entirely, which is where the measured damage was: one re-phrased fact sitting at 0.966, 0.851, and 0.757 under three phrasings. Consolidation and retrieval still use geometry, now calibrated to the current embedder's own distribution and recomputed when it changes, with ranking drawing on access recency and frequency as well. The residual is that the analogy from human recall to agent salience is an analogy.
 
-Load-bearing behaviour is prompt-sensitive. [Forced-choice elicitation](the-seam.md) collapses omission variance, which is what produced the 6%-to-75% swing. It relocates variance into field content, introduces junk fill, and costs an unmeasured constraint tax. This is the shakiest of the five, and the design's own answer is to measure per behaviour rather than assume.
+Load-bearing behaviour is prompt-sensitive. [Forced-choice elicitation](verified-write.md) collapses omission variance, which is what produced the 6%-to-75% swing. It relocates variance into field content, introduces junk fill, and costs an unmeasured constraint tax. This is the shakiest of the five, and the design's own answer is to measure per behaviour rather than assume.
 
-The neural writer is unverified. [Hard critics](the-seam.md) check typing, domain and range, mutual exclusion, temporal well-formedness, audience invariants, duplicate resolution, and span justification. Only the last of these touches faithfulness, and it checks groundedness rather than truth: a value must be traceable to words in the gloss, which catches a value read from nowhere and passes a value read wrongly from something the utterance does say. A confidently recorded, well-typed falsehood therefore still passes at write time exactly as it does today. Faithfulness checking at runtime is unsolved here as it is across the field, and the mitigations, agreement before promotion and drift detection from outside the loop, reduce the rate rather than close the gap. This is the largest residual in the design.
+The neural writer is unverified. [Hard critics](verified-write.md) check typing, domain and range, mutual exclusion, temporal well-formedness, audience invariants, duplicate resolution, and span justification. Only the last of these touches faithfulness, and it checks groundedness rather than truth: a value must be traceable to words in the gloss, which catches a value read from nowhere and passes a value read wrongly from something the utterance does say. A confidently recorded, well-typed falsehood therefore still passes at write time exactly as it does today. Faithfulness checking at runtime is unsolved here as it is across the field, and the mitigations, agreement before promotion and drift detection from outside the loop, reduce the rate rather than close the gap. This is the largest residual in the design.
 
 ## Regressions
 
@@ -42,7 +42,7 @@ Narrative generation is a new prompt-borne load-bearing surface. The design's ru
 
 Narrative is a new geometry-sensitive index. The survey measured its widest similarity variance in exactly the long-text regime a narrative occupies: 0.80 against 0.94 for the same content under different prefixes, varying by length. The new index needs the same distribution-relative calibration as every other, and inherits none of the protection that structural equality gives the deduplication path.
 
-Narrative licenses invention. The mechanism works by asking a model to commit to concrete detail it was not told. The instance has already produced the unelaborated version of that failure. This is why the [episodic wall](the-seam.md) is a critic rather than a sentence, and why it should ship before any narrative generation rather than alongside it.
+Narrative licenses invention. The mechanism works by asking a model to commit to concrete detail it was not told. The instance has already produced the unelaborated version of that failure. This is why the [episodic wall](verified-write.md) is a critic rather than a sentence, and why it should ship before any narrative generation rather than alongside it.
 
 ## Mitigations the design erases
 
@@ -50,7 +50,7 @@ The survey notes that a mitigation in the current ontology is itself evidence of
 
 - The write-time cross-subject advisory, which steers the agent around the one-subject representation, becomes the Event node. There is nothing left to steer around.
 - The temporal extraction's third-party-routine rule, which teaches the model not to stamp a recurrence on a fact describing someone else's job, becomes the absence of a trigger. The rule is unnecessary because the outcome is unrepresentable.
-- The current-day guard's text check, which asks whether a statement could have supplied today's date, becomes [span justification](the-seam.md). The current system calls that check a heuristic over text rather than a property of it, and accepts false suppressions in both directions to keep it. A span matched against the gloss is a property of the text, so the heuristic has nothing left to approximate.
+- The current-day guard's text check, which asks whether a statement could have supplied today's date, becomes [span justification](verified-write.md). The current system calls that check a heuristic over text rather than a property of it, and accepts false suppressions in both directions to keep it. A span matched against the gloss is a property of the text, so the heuristic has nothing left to approximate.
 
 The first two are load-bearing behaviours moving from wording into structure, which is the class 10 remedy applied to classes 2 and 4. The third is a heuristic being replaced by a decidable check rather than by a representation, which is a weaker kind of erasure and worth naming as one.
 
@@ -64,7 +64,7 @@ The stage is where the issue closes, from [`evolution.md`](evolution.md). Readin
 |---|---|---|
 | #112 episodic session recaps | An [episode](memory-typology.md): a first-class memory with span, participants, turn references, and a narrative body, linked bidirectionally to the Statements recorded during it | 4 |
 | #74 search past conversations | Reframed from fallback to companion. The episode anchor rides the search result; verbatim turn search remains as the tier below, under the existing audience gate | 4 |
-| #114 fabricated content attributed to a teller | The [episodic wall](the-seam.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
+| #114 fabricated content attributed to a teller | The [episodic wall](verified-write.md) as a hard critic: agent-told only, never a premise, never distilled, never attested. Prerequisite for shipping narrative generation | 4, before any narrative |
 | #115 date correction needs a full-text supersede | The occurrence is a field; correcting it leaves the gloss untouched, because the person's words did not change | 3 |
 | #106 volatile facts never age | The temporalise-annotate-reverify-retire ladder, using the episode date as the reference point rather than a guess | 4, since the ladder reads the episode |
 | #44 long-document ingestion | Semantic Statement clusters plus an episodic source layer, with the observed-against-recorded split making delayed ingestion coherent, through [the bulk path](memory-typology.md) | 4, costed at 0c |
@@ -96,7 +96,7 @@ Three issues this design addresses were fixed against the running system on 2026
 | #125 agent-authored occurrence dates an entry to another referent's date | Withdrawal of a misdated occurrence, never substitution | The [referential frame](statements.md). This is the frame failure in its temporal form, and it was filed independently of the corpus study that found the general case |
 | #126 brief names a participant by their arrival stub | The brief rendering a block under its `same_as` class primary | The [substrate wall](identity.md): one resolved handle, resolved before anything is composed |
 
-Two of the fixes feed back into the design rather than only out of it. Span justification is adopted as a [hard critic](the-seam.md), generalised from one field to every extracted value. Withdrawal without substitution is adopted as a rule for [off-turn passes](off-turn.md).
+Two of the fixes feed back into the design rather than only out of it. Span justification is adopted as a [hard critic](verified-write.md), generalised from one field to every extracted value. Withdrawal without substitution is adopted as a rule for [off-turn passes](off-turn.md).
 
 ### Answered obliquely
 
