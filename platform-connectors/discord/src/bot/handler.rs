@@ -20,6 +20,7 @@ use crate::{
     addressing::{AddressingDecision, MessageContext, should_respond},
     bot::{
         BotStateKey,
+        attachments::{append_notes, collect},
         identity::{
             channel_metadata, guild_name, observed_identity, observed_mention_identity,
             sync_guild_name,
@@ -297,12 +298,23 @@ impl EventHandler for Handler {
                 .unwrap_or_default()
         };
 
+        // Relay the files the message carried: fetch each within the connector's caps, store it in
+        // the agent's blob store, and name it on the message. A file that is too large, too many, or
+        // that failed to fetch or store is announced in the text instead — the agent must know
+        // something was shared even when the bytes never arrived.
+        let collected = collect(&state.platform, &msg.attachments, &state.config.attachments).await;
+        let text = append_notes(&text, &collected.notes);
+
         let sender = msg.author.id.to_string();
 
         // Submit to the debounce. The actor collects all messages within the debounce window,
         // then fires once with the batch — one turn for the whole burst. The latest message's
         // context (present set, locator) is used, since it's the freshest.
-        let pending = PendingMessage { text, sender };
+        let pending = PendingMessage {
+            text,
+            sender,
+            attachments: collected.attachments,
+        };
         let ctx_clone = ctx.clone();
         let state_clone = state.clone();
         let present_clone = present.clone();

@@ -52,6 +52,8 @@ pub enum Operation {
     SelfMemory,
     /// `POST /platform/link` — asserting or retracting a structural link.
     Link,
+    /// `POST /platform/blobs` — uploading an attachment's bytes.
+    UploadBlob,
 }
 
 impl fmt::Display for Operation {
@@ -63,6 +65,7 @@ impl fmt::Display for Operation {
             Operation::Project => write!(f, "project"),
             Operation::SelfMemory => write!(f, "self memory"),
             Operation::Link => write!(f, "link"),
+            Operation::UploadBlob => write!(f, "upload blob"),
         }
     }
 }
@@ -152,6 +155,13 @@ pub struct ProjectResponse {
 #[derive(Deserialize)]
 pub struct SelfMemoryResponse {
     pub memory_id: MemoryId,
+}
+
+/// The response to `POST /platform/blobs`: the content address the uploaded bytes are stored at. A
+/// connector names it in the [`MessageAttachment`] that rides the message the file came with.
+#[derive(Deserialize)]
+pub struct BlobResponse {
+    pub hash: BlobHash,
 }
 
 /// One inbound message to submit to the platform API. `attachments` names the files the message
@@ -517,6 +527,45 @@ impl PlatformClient {
             .await
             .map_err(|e| Error::Http {
                 operation: Operation::SelfMemory,
+                source: e,
+            })
+    }
+
+    /// `POST /platform/blobs` — store an attachment's bytes, returning the content address they are
+    /// stored at. The bytes are the whole request body and `mime` is its `Content-Type`, so a
+    /// download streams straight through. The server refuses a message naming a blob it does not
+    /// hold, so a connector uploads a file's bytes before naming them in the message that carried it.
+    /// The upload is idempotent: the same bytes always yield the same address.
+    pub async fn upload_blob(&self, bytes: Vec<u8>, mime: &str) -> Result<BlobHash> {
+        let url = format!("{}/platform/blobs", self.base_url);
+        let response = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.platform_key)
+            .header(reqwest::header::CONTENT_TYPE, mime)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::UploadBlob,
+                source: e,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::UploadBlob,
+                status,
+                body,
+            });
+        }
+        response
+            .json::<BlobResponse>()
+            .await
+            .map(|body| body.hash)
+            .map_err(|e| Error::Http {
+                operation: Operation::UploadBlob,
                 source: e,
             })
     }
