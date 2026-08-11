@@ -16,8 +16,7 @@ use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::{Deserialize, Serialize};
 use zuihitsu_core::{
-    attachment::Attachment,
-    ids::{ConversationLocator, EntryId, MemoryId, PersonId},
+    ids::{BlobHash, ConversationLocator, EntryId, MemoryId, PersonId},
     progress::TurnProgress,
 };
 
@@ -162,7 +161,17 @@ pub struct SelfMemoryResponse {
 pub struct PlatformMessage {
     pub sender: PersonId,
     pub text: String,
-    pub attachments: Vec<Attachment>,
+    pub attachments: Vec<MessageAttachment>,
+}
+
+/// One stored file a message names: the sender's name for it, and the address its bytes were
+/// uploaded to. Deliberately only these two — the media type, the length, and the classification are
+/// the store's to state, read back from the blob the address names, so a connector has no field in
+/// which to describe a file as something it is not.
+#[derive(Clone, Debug, Serialize)]
+pub struct MessageAttachment {
+    pub name: String,
+    pub blob: BlobHash,
 }
 
 /// A scoped memory named on the wire — a participant or a context. It is the endpoint of a structural
@@ -234,7 +243,7 @@ impl PlatformClient {
         struct WireMessage<'a> {
             sender: &'a str,
             text: &'a str,
-            attachments: &'a [Attachment],
+            attachments: &'a [MessageAttachment],
         }
 
         /// The request body for `POST /platform/messages` and `/platform/messages/stream`. No platform: the

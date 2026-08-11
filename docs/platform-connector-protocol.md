@@ -28,7 +28,7 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
   "scope_path": "room/42",
   "messages": [
     { "sender": "dave", "text": "hello" },
-    { "sender": "dave", "text": "anyone there?" }
+    { "sender": "dave", "text": "anyone there?", "attachments": [{ "name": "build.log", "blob": "9f86d0…" }] }
   ],
   "present": ["dave", "erin"]
 }
@@ -36,6 +36,7 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
 
 - `scope_path` — the conversation's address within the connector's platform. The server pairs it with the request's platform, and resolves (or mints) a conversation and its context memory on first contact.
 - `messages` — the inbound batch. Each carries a `sender` — the bare id of the sender, resolved under the request's platform to `person/<id>@<platform>` — and `text`. A single message is a one-element batch.
+- `attachments` — optional, the files the message carried. Each names the sender's `name` for the file and the `blob` its bytes were uploaded to via [`POST /platform/blobs`](#post-platformblobs). Only those two: the media type, the length, and the classification are read back from the stored blob, so a connector has no field in which to describe a file as something it is not. A message naming a blob the store has never held is refused whole with a `400` — upload the bytes first, then send the message that names them.
 - `present` — the bare ids currently in the room, each resolved under the request's platform. The server resolves each to a participant stub (minting on first contact) and uses the set for the subject-guard and join-brief logic.
 
 **Response body (`200 OK`):**
@@ -99,6 +100,20 @@ Resync the room's roster against a fresh member list. Each newly-arrived member 
 ```
 
 `joined` is the bare ids newly briefed in.
+
+## Uploading files
+
+### `POST /platform/blobs`
+
+Store the bytes of a file so a message may name it. The request body is the file itself, and its `Content-Type` header is the media type the bytes are stored under (`application/octet-stream` when absent). The response is the content address:
+
+```json
+{ "hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" }
+```
+
+Storage is content-addressed and idempotent: the same bytes always yield the same address, and uploading them twice stores one blob. A body over the server's `max_attachment_bytes` is refused whole with a `400` — a file is never truncated to fit.
+
+The bytes are read back at `GET /blobs/{hash}`, which sits outside `/platform` and takes no key: a console renders an image with an ordinary `<img>` tag, which cannot carry an `Authorization` header, so the 256-bit content address is itself the capability. A connector never needs this route; it is there for the viewers.
 
 ## Writing context
 

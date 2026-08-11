@@ -7,6 +7,7 @@ import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../../lib/api/operator.ts";
 import { isDegraded, useInstanceHealth } from "../../lib/api/health.ts";
 import { ReadOnly } from "../../lib/view/readOnly.ts";
+import { BlobBase } from "../../lib/view/blobBase.ts";
 import { Dot } from "../../components/primitives.tsx";
 import { BackendBanner } from "./BackendBanner.tsx";
 import { ReadOnlyBanner } from "./ReadOnlyBanner.tsx";
@@ -60,90 +61,95 @@ export function LiveShell({
 
   return (
     <ReadOnly.Provider value={readOnly}>
-      <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
-        <header className="shrink-0 pt-4 pb-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="font-serif text-xl text-ink">zuihitsu</span>
-            <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
-              <span className="hidden items-baseline gap-3 sm:flex">
-                <ConnectionBadge status={log.status} />
-                <Dot />
-                <span>{log.head} events</span>
-              </span>
-              {onClose && (
-                <button
-                  onClick={onClose}
-                  className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
-                  title="Disconnect"
-                >
-                  ✕
-                </button>
-              )}
+      {/* This frame has an agent behind it, so an attachment's bytes are reachable: the transcript
+          renders images and text excerpts against this origin. The eval frame provides nothing and
+          its attachments announce themselves instead. */}
+      <BlobBase.Provider value={connection.baseUrl}>
+        <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
+          <header className="shrink-0 pt-4 pb-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-serif text-xl text-ink">zuihitsu</span>
+              <div className="flex items-baseline gap-3 font-mono text-xs text-ink-soft">
+                <span className="hidden items-baseline gap-3 sm:flex">
+                  <ConnectionBadge status={log.status} />
+                  <Dot />
+                  <span>{log.head} events</span>
+                </span>
+                {onClose && (
+                  <button
+                    onClick={onClose}
+                    className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
+                    title="Disconnect"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* On mobile the connection status drops to a quieter second row. */}
-          <div className="mt-2 flex items-baseline gap-3 font-mono text-xs text-ink-soft sm:hidden">
-            <ConnectionBadge status={log.status} />
-            <Dot />
-            <span>{log.head} events</span>
-          </div>
-        </header>
+            {/* On mobile the connection status drops to a quieter second row. */}
+            <div className="mt-2 flex items-baseline gap-3 font-mono text-xs text-ink-soft sm:hidden">
+              <ConnectionBadge status={log.status} />
+              <Dot />
+              <span>{log.head} events</span>
+            </div>
+          </header>
 
-        {readOnly && <ReadOnlyBanner />}
+          {readOnly && <ReadOnlyBanner />}
 
-        {health && isDegraded(health.model) && <BackendBanner health={health.model} />}
+          {health && isDegraded(health.model) && <BackendBanner health={health.model} />}
 
-        {!log.replica ? (
-          <ShellBody>
-            <Pending status={log.status} />
-          </ShellBody>
-        ) : genesis === "loading" ? (
-          <ShellBody>
-            <Pending status={log.status} />
-          </ShellBody>
-        ) : genesis === "Empty" || genesis === "Incomplete" ? (
-          <ShellBody>
-            <GenesisGate
-              connection={connection}
-              resuming={genesis === "Incomplete"}
-              onCreated={() => setGenesis("Complete")}
+          {!log.replica ? (
+            <ShellBody>
+              <Pending status={log.status} />
+            </ShellBody>
+          ) : genesis === "loading" ? (
+            <ShellBody>
+              <Pending status={log.status} />
+            </ShellBody>
+          ) : genesis === "Empty" || genesis === "Incomplete" ? (
+            <ShellBody>
+              <GenesisGate
+                connection={connection}
+                resuming={genesis === "Incomplete"}
+                onCreated={() => setGenesis("Complete")}
+              />
+            </ShellBody>
+          ) : (
+            <StreamWorkspace
+              replica={log.replica}
+              events={log.events}
+              head={log.head}
+              view={view}
+              onSelectView={selectView}
+              seq={seq}
+              onSeq={setSeq}
+              onFollowingChange={(value) => {
+                following.current = value;
+              }}
+              participant={{ connection, sender, setSender }}
+              progress={log.progress}
+              extraViews={[
+                {
+                  id: "console",
+                  label: "Console",
+                  node: <LuaConsole connection={connection} />,
+                },
+                {
+                  id: "prompts",
+                  label: "Prompts",
+                  node: <PromptsView connection={connection} events={log.events} />,
+                },
+                {
+                  id: "settings",
+                  label: "Settings",
+                  node: <SettingsView connection={connection} events={log.events} />,
+                },
+              ]}
             />
-          </ShellBody>
-        ) : (
-          <StreamWorkspace
-            replica={log.replica}
-            events={log.events}
-            head={log.head}
-            view={view}
-            onSelectView={selectView}
-            seq={seq}
-            onSeq={setSeq}
-            onFollowingChange={(value) => {
-              following.current = value;
-            }}
-            participant={{ connection, sender, setSender }}
-            progress={log.progress}
-            extraViews={[
-              {
-                id: "console",
-                label: "Console",
-                node: <LuaConsole connection={connection} />,
-              },
-              {
-                id: "prompts",
-                label: "Prompts",
-                node: <PromptsView connection={connection} events={log.events} />,
-              },
-              {
-                id: "settings",
-                label: "Settings",
-                node: <SettingsView connection={connection} events={log.events} />,
-              },
-            ]}
-          />
-        )}
-      </div>
+          )}
+        </div>
+      </BlobBase.Provider>
     </ReadOnly.Provider>
   );
 }

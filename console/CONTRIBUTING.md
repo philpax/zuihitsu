@@ -22,6 +22,15 @@ real materialiser in means the console renders the exact fold the agent lives in
 disagree with the agent's own projection, and a new event type or payload version is handled once, in
 Rust, not twice forever.
 
+Attachment bytes are the one thing the console fetches rather than folds, and they are not an
+exception to the doctrine: the log carries the attachment's *record* — its name, media type, length,
+and content address — and the fold gives the console all of it. Only the bytes behind the address are
+fetched, from `GET /blobs/{hash}`, because bytes were never state to begin with. The consequence is
+that a source with no agent behind it (an eval package, a dropped file) can still render everything
+the log knows about an attachment; it just cannot show the image. That is why the attachment strip
+degrades to a name/type/size chip when no blob base is provided, rather than rendering a broken
+image: the absence is a property of the source, not a failure.
+
 The cost is that the console folds the whole log. That is milliseconds for an eval package and fine
 for an operator tool loaded once, but live-scale catch-up (snapshot download, windowing, incremental
 tailing) is deferred. Time-travel re-folds from zero

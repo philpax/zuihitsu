@@ -17,6 +17,7 @@ use smol_str::SmolStr;
 use zuihitsu::{
     Attachment, AttachmentKind, ContextEntry, ContextOutcome, ConversationLocator, LinkError,
     LinkNode, MemoryId, MessageInput, ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
+    ids::BlobHash,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
@@ -41,16 +42,25 @@ pub(super) struct WireMessage {
     sender: String,
     text: String,
     #[serde(default)]
-    attachments: Vec<Attachment>,
+    attachments: Vec<WireAttachment>,
+}
+
+/// One stored file a message names: the sender's name for it, and the address its bytes were
+/// uploaded to. The media type, the length, and the classification are read back from the stored
+/// blob rather than accepted from the body, so the wire gives a client no field in which to describe
+/// a file as something it is not.
+#[derive(Deserialize)]
+pub(super) struct WireAttachment {
+    name: String,
+    blob: BlobHash,
 }
 
 /// Scope a batch of wire messages to the request's connector, resolving each named attachment against
 /// the blob store. Shared by the unary and streaming delivery endpoints, which differ only in how they
 /// return the turn.
 ///
-/// The stored blob is authoritative for everything but the name: a body's `mime`, `byte_len`, and
-/// `kind` are replaced by the media type the bytes were uploaded under, their real length, and the one
-/// classification derived from it, so a connector cannot describe a blob as something it is not. A
+/// The stored blob is authoritative for everything but the name: the media type, the length, and the
+/// classification all come from the blob the address names, which is why the wire carries neither. A
 /// message naming a blob the store has never held is refused outright — the bytes must be uploaded
 /// before the message that carries them, or the turn would record an attachment nobody can read.
 fn message_inputs(
