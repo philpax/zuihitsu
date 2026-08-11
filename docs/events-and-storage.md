@@ -102,6 +102,18 @@ Vectors do **not** carry visibility metadata; the index stores only the embeddin
 
 A full re-embed from the log — needed only on an embedding-model swap, which is itself a logged `EmbeddingModelChanged` migration (the model identity is environmental config, but changing it is a behaviourally-significant, recorded event) — is the single most expensive operation in the system, far costlier than rebuilding the graph. "Rebuildable" should not be read as "cheap": a full re-embed is a real operational event, not a casual one. It needs the crash discipline applied everywhere else, because a half-finished re-embed leaves two embedding spaces in one index and cosine across them is silently wrong (degraded rankings, not an error). On an embedding-model swap the boot path clears the index and re-embeds the whole log under the new model *before the server serves* — requests are refused until the rebuild completes, so search never runs over a mixed space, at the cost of unavailability during the rebuild.
 
+### Blob store
+
+Content-addressed, and a fourth database beside the log, the graph, and the vector index: `blobs.sqlite`, holding the bytes of attachments the log refers to only by their address. The log's payload column is JSON text and the log is the source of truth, so bulk bytes do not belong in it; the attachment record on a `ConversationTurn` carries the file's name, media type, length, and the lowercase hex SHA-256 of its bytes, and the bytes themselves live here. The address is the primary key, so a write is idempotent by construction: storing the same bytes twice stores one blob. The media type and length are held with the bytes rather than sniffed at read time or kept in a sidecar.
+
+Bytes rather than a fan-out directory, because one file backs up beside the other three, writes are atomic, and the listing a sweep needs is a query rather than a directory walk.
+
+Unlike the graph and the vector index, a blob is **not rebuildable from the log** — the log records the address, never the content. It is the one derived-looking store that is not derived, so it is backed up with the log rather than treated as disposable.
+
+Reclamation is an offline operator action (`debug gc-blobs`), not a background sweep, because the log is append-only: an attachment recorded on a turn is referred to forever, and a blob becomes garbage only when a `revert` truncates the tail that named it or when an upload was never followed by the message that would have carried it. The sweep marks conservatively — it walks each payload's JSON for anything shaped like an address rather than knowing which fields hold one — so a payload that gains a blob reference later is covered without the sweep being taught about it, and the failure it can make is retaining a blob it need not rather than deleting one the log still points at.
+
+The bytes are served over an unauthenticated top-level route, addressed by hash, because the console renders an image with an ordinary `<img>` tag and that cannot carry an `Authorization` header; the address is a 256-bit secret, so knowing it is having seen the reference.
+
 ### Snapshots
 
 A snapshot is a checkpoint of the materialised graph, not of the log. The log is append-only and always retained in full, so there is nothing to snapshot there; what is expensive to rebuild is the derived graph. `VACUUM INTO 'snapshot-{seq}.sqlite'` produces an atomic graph file, its captured head zero-padded into the filename (so a lexical sort of the directory is a numeric sort by `seq`) and its `meta.graph_head` riding along in the copy, so the file is self-describing about the `seq` it holds.
