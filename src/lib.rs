@@ -25,8 +25,8 @@ pub mod web;
 // is re-exported under `memory::visibility`, its historical home (see `memory`).
 use zuihitsu_core::db;
 pub use zuihitsu_core::{
-    brief, decay, event, graph, ids, instance_features::InstanceFeatures, mem_ref, message_refs,
-    progress, prompt, settings, time, turn_ref, vocabulary,
+    attachment, brief, decay, event, graph, ids, instance_features::InstanceFeatures, mem_ref,
+    message_refs, progress, prompt, settings, time, turn_ref, vocabulary,
 };
 
 // The TypeScript wire-contract types live in `zuihitsu-frontend-types` (a separate crate that
@@ -43,6 +43,7 @@ pub use agent::{
     genesis::{GenesisStatus, Rollout, SeedSelf},
     templates::{PromptTemplate, latest_template},
 };
+pub use attachment::{Attachment, AttachmentKind};
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use config::{
     ConfigError, EmbeddingConfig, EnvConfig, ModelConfig, ResilienceConfig, SnapshotConfig,
@@ -54,7 +55,7 @@ pub use event::{
     SUPERSEDED_CAUSE, Teller, TerminalCause, TurnRole, Visibility, Volatility,
 };
 pub use ids::{
-    ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
+    BlobHash, ConversationId, ConversationLocator, EntryId, MemoryId, MemoryName, Namespace,
     NamespacedMemoryName, PersonId, Seq, SessionId, TEST_PLATFORM, TEST_PLATFORM_ALT, TurnId,
     UnknownNamespace,
 };
@@ -74,7 +75,7 @@ pub use settings::{
     ConcurrencySettings, MaintenanceSettings, ObservabilitySettings, RecencySettings,
     SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings, WebSettings,
 };
-pub use store::{MemoryStore, Store, StoreError};
+pub use store::{Blob, BlobError, BlobMeta, BlobStore, MemoryStore, Store, StoreError};
 pub use time::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
     Timestamp, format_occurrence,

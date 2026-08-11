@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     agent::{TurnView, estimated_turn_tokens},
+    attachment::Attachment,
     graph::GraphError,
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     instance::{Instance, InstanceError},
@@ -27,6 +28,11 @@ pub struct MessageInput {
     pub sender: PersonId,
     /// The message text.
     pub text: String,
+    /// The files the message carried, each already resolved against the blob store by the transport
+    /// that accepted it. Empty for a message without files, and defaulted so a caller that predates
+    /// attachments deserialises unchanged.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
 }
 
 /// One attribute projected onto a scoped memory via [`Platform::project`] — a participant's username,

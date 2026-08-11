@@ -48,6 +48,9 @@ pub struct TurnView {
     /// no model call), for an agent turn whose backend reported no usage, and under
     /// `CaptureLevel::Off`, which records no `ModelCalled` at all.
     pub prompt_tokens: Option<u32>,
+    /// The files the turn's message carried, replayed from the payload so a later turn sees the same
+    /// attachments the live one did. Empty for every turn that carried none.
+    pub attachments: Vec<Attachment>,
 }
 
 /// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
@@ -108,6 +111,7 @@ pub fn buffer_turns(
                 text,
                 participant,
                 produced_by,
+                attachments,
                 ..
             } if turn_conversation == conversation => {
                 let (steps, prompt_tokens) = if role == TurnRole::Agent {
@@ -139,6 +143,7 @@ pub fn buffer_turns(
                     steps,
                     produced_by,
                     prompt_tokens,
+                    attachments,
                 });
                 // The marker rides right after the flush reply as a system note, in the same style as
                 // the supersession seam hint — recorded content stays visible, honestly labelled.
@@ -153,6 +158,7 @@ pub fn buffer_turns(
                         steps: Vec::new(),
                         produced_by: None,
                         prompt_tokens: None,
+                        attachments: Vec::new(),
                     });
                 }
             }
@@ -174,6 +180,7 @@ pub fn buffer_turns(
                     steps: Vec::new(),
                     produced_by: None,
                     prompt_tokens: None,
+                    attachments: Vec::new(),
                 });
             }
             // The ambient recall hint replays as a system turn at its log position — the byte-identity
@@ -194,6 +201,7 @@ pub fn buffer_turns(
                     steps: Vec::new(),
                     produced_by: None,
                     prompt_tokens: None,
+                    attachments: Vec::new(),
                 });
             }
             _ => {}

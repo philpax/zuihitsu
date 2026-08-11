@@ -9,7 +9,7 @@
 
 use std::{path::Path, sync::Arc};
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OpenFlags, params};
 
 use crate::{
     clock::{Clock, SystemClock},
@@ -70,6 +70,21 @@ impl BlobStore {
         let conn = Connection::open(path)?;
         db::sqlite_defaults(&conn, true)?;
         BlobStore::init(conn)
+    }
+
+    /// Open an existing store at `path` for reading only — the read-only serving mode, which creates
+    /// nothing on disk and writes nothing. The file must already exist; a missing one is an error
+    /// naming it, since a read-only boot has no business creating an instance's storage.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<BlobStore, BlobError> {
+        let conn = Connection::open_with_flags(
+            path.as_ref(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        db::sqlite_defaults(&conn, false)?;
+        Ok(BlobStore {
+            conn,
+            clock: Arc::new(SystemClock),
+        })
     }
 
     /// Open an ephemeral in-memory store — what the tests use.

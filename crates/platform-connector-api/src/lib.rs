@@ -16,6 +16,7 @@ use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::{Deserialize, Serialize};
 use zuihitsu_core::{
+    attachment::Attachment,
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     progress::TurnProgress,
 };
@@ -154,11 +155,14 @@ pub struct SelfMemoryResponse {
     pub memory_id: MemoryId,
 }
 
-/// One inbound message to submit to the platform API.
+/// One inbound message to submit to the platform API. `attachments` names the files the message
+/// carried, each already uploaded to `POST /platform/blobs` — the server refuses a message naming a
+/// blob it does not hold, so the bytes go up before the message that carries them.
 #[derive(Serialize)]
 pub struct PlatformMessage {
     pub sender: PersonId,
     pub text: String,
+    pub attachments: Vec<Attachment>,
 }
 
 /// A scoped memory named on the wire — a participant or a context. It is the endpoint of a structural
@@ -230,6 +234,7 @@ impl PlatformClient {
         struct WireMessage<'a> {
             sender: &'a str,
             text: &'a str,
+            attachments: &'a [Attachment],
         }
 
         /// The request body for `POST /platform/messages` and `/platform/messages/stream`. No platform: the
@@ -248,6 +253,7 @@ impl PlatformClient {
                 .map(|message| WireMessage {
                     sender: message.sender.id.as_str(),
                     text: &message.text,
+                    attachments: &message.attachments,
                 })
                 .collect(),
             present: present.iter().map(|person| person.id.as_str()).collect(),

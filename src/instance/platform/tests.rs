@@ -17,6 +17,7 @@ fn turn(seq: u64, text: &str) -> TurnView {
         steps: Vec::new(),
         produced_by: None,
         prompt_tokens: None,
+        attachments: Vec::new(),
     }
 }
 
@@ -27,6 +28,7 @@ fn estimate_tokens_counts_buffer_and_messages() {
     let messages = vec![MessageInput {
         sender: PersonId::new(TEST_PLATFORM, "dave"),
         text: "1234".to_owned(),
+        attachments: Vec::new(),
     }];
     assert_eq!(estimate_tokens(&buffer, &messages), 3);
 }

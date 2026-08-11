@@ -216,6 +216,11 @@ pub struct TurnSettings {
     /// per-conversation serialization stays on regardless.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub supersede_window_seconds: i64,
+    /// How much of a text attachment is inlined into the message that carried it. A longer file is
+    /// inlined up to the cap and marked as clipped, so a large paste informs the turn without
+    /// displacing the conversation around it.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_attachment_text_chars: i64,
 }
 
 /// Concurrency limits (spec §Concurrency): how many conversation streams may run at once. The shared
@@ -506,6 +511,7 @@ impl Default for TurnSettings {
             block_timeout_seconds: 3 * MINUTE,
             max_block_attempts: 3,
             supersede_window_seconds: MINUTE,
+            max_attachment_text_chars: 8_000,
         }
     }
 }

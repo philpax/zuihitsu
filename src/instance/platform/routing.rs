@@ -36,6 +36,7 @@ impl Platform<'_> {
             &[MessageInput {
                 sender: sender.clone(),
                 text: text.to_owned(),
+                attachments: Vec::new(),
             }],
             present,
         )
@@ -88,6 +89,7 @@ impl Platform<'_> {
             inbound.push(InboundMessage {
                 participant,
                 text: msg.text.clone(),
+                attachments: msg.attachments.clone(),
             });
             participant_turn_ids.push(turn_id);
         }

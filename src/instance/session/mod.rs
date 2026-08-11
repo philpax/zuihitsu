@@ -122,6 +122,7 @@ mod tests {
             steps: Vec::new(),
             produced_by: None,
             prompt_tokens: None,
+            attachments: Vec::new(),
         }
     }
 

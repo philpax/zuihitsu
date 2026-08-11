@@ -2,6 +2,7 @@
 
 use crate::{
     agent::turn::TurnError,
+    attachment::Attachment,
     clock::Clock,
     event::{EventPayload, EventSource, Initiation, ProducedBy, TurnRole},
     ids::{ConversationId, MemoryId, TurnId},
@@ -22,6 +23,9 @@ pub struct TurnRecord {
     /// flush is `Initiated`; ordinary participant and agent turns are `Responding`).
     pub initiation: Initiation,
     pub produced_by: Option<ProducedBy>,
+    /// The files an inbound message carried, recorded on the participant turn. Empty for the agent's
+    /// own turns and for a message without files.
+    pub attachments: Vec<Attachment>,
 }
 
 pub fn append_turn(
@@ -43,6 +47,7 @@ pub fn append_turn(
             // Only a mid-session join carries a structured brief; the turns this records — inbound,
             // agent reply, flush — do not.
             brief: None,
+            attachments: record.attachments,
         }],
     )?;
     Ok(())

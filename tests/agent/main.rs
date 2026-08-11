@@ -52,6 +52,7 @@ fn count_agent_turns(events: &[Event]) -> usize {
 }
 
 mod arbitration;
+mod attachments;
 mod link_inference;
 mod model_calls;
 mod steps;

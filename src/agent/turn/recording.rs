@@ -408,6 +408,8 @@ pub(crate) async fn run_steps(
                     participant: None,
                     initiation,
                     produced_by: provenance.clone(),
+                    // Attachments arrive with an inbound message; the agent's own turn carries none.
+                    attachments: Vec::new(),
                 },
             )
         };

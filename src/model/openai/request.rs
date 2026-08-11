@@ -4,14 +4,16 @@
 use async_openai::types::chat::{
     ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls,
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
+    ChatCompletionRequestMessageContentPartImage, ChatCompletionRequestMessageContentPartText,
     ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestToolMessageArgs,
-    ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionTools,
-    CreateChatCompletionRequest, FunctionCall, FunctionObject,
+    ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContent,
+    ChatCompletionRequestUserMessageContentPart, ChatCompletionTool, ChatCompletionTools,
+    CreateChatCompletionRequest, FunctionCall, FunctionObject, ImageUrl,
 };
 use serde::Serialize;
 
 use crate::model::{
-    GenerateRequest, ModelError, Role, ToolCall,
+    GenerateRequest, Message, ModelError, Role, ToolCall,
     openai::{ChatTemplateKwargs, backend},
 };
 
@@ -62,7 +64,7 @@ pub(crate) fn to_messages(
         messages.push(match message.role {
             Role::System => system_message(&message.content)?,
             Role::User => ChatCompletionRequestUserMessageArgs::default()
-                .content(message.content.clone())
+                .content(user_content(message))
                 .build()
                 .map_err(backend)?
                 .into(),
@@ -91,6 +93,35 @@ pub(crate) fn to_messages(
         });
     }
     Ok(messages)
+}
+
+/// The content of a user message: the plain string it has always been, or — when the message shows
+/// images — a content-part array of the text followed by one `image_url` part per image.
+///
+/// A text-only message keeps the string form, so no request that carried no image changes shape. The
+/// images ride as `data:` URIs rather than as links back to this server, since nothing guarantees the
+/// inference host can reach it.
+fn user_content(message: &Message) -> ChatCompletionRequestUserMessageContent {
+    if message.images.is_empty() {
+        return ChatCompletionRequestUserMessageContent::Text(message.content.clone());
+    }
+    let mut parts = Vec::with_capacity(message.images.len() + 1);
+    parts.push(ChatCompletionRequestUserMessageContentPart::Text(
+        ChatCompletionRequestMessageContentPartText {
+            text: message.content.clone(),
+        },
+    ));
+    for image in &message.images {
+        parts.push(ChatCompletionRequestUserMessageContentPart::ImageUrl(
+            ChatCompletionRequestMessageContentPartImage {
+                image_url: ImageUrl {
+                    url: format!("data:{};base64,{}", image.mime, image.data),
+                    detail: None,
+                },
+            },
+        ));
+    }
+    ChatCompletionRequestUserMessageContent::Array(parts)
 }
 
 pub(crate) fn to_tools(request: &GenerateRequest) -> Vec<ChatCompletionTools> {

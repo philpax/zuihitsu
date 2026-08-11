@@ -157,6 +157,7 @@ impl Instance {
         let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);
         let max_block_attempts = turn_settings.max_block_attempts.max(1) as u32;
         let max_entry_chars = settings.memory.max_entry_chars.max(1) as usize;
+        let max_attachment_text_chars = turn_settings.max_attachment_text_chars.max(0) as usize;
         let capture = settings.observability.capture_model_calls;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq` with
@@ -187,6 +188,7 @@ impl Instance {
                     participant: Some(msg.participant),
                     initiation: Initiation::Responding,
                     produced_by: None,
+                    attachments: msg.attachments.clone(),
                 },
             )?;
         }
@@ -208,6 +210,7 @@ impl Instance {
             block_timeout,
             max_block_attempts,
             max_entry_chars,
+            max_attachment_text_chars,
             capture,
             supersession,
         })

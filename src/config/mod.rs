@@ -125,6 +125,11 @@ pub struct ServingConfig {
     /// the writer lock or running any background work. The `--read-only` CLI flag forces this on
     /// regardless of the config value.
     pub read_only: bool,
+    /// The largest attachment a connector may upload to `POST /platform/blobs`, in bytes. A body over
+    /// the cap is rejected whole (`400`) — an attachment is never truncated, since a half a file is
+    /// worse than none: its content address would name bytes nobody sent. Also the axum body limit
+    /// for the route, so an oversized upload is refused rather than buffered.
+    pub max_attachment_bytes: usize,
 }
 
 /// Serialize a list of API keys as its length — the count is informative ("two keys configured"); the

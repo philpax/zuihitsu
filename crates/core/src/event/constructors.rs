@@ -363,6 +363,10 @@ impl EventPayload {
             initiation,
             produced_by,
             brief: None,
+            // Only a mid-session join carries a structured brief, and only a platform message carries
+            // attachments; the callers of this constructor (a seeded turn, a synthetic one) carry
+            // neither, and the platform path builds the payload through `append_turn`.
+            attachments: Vec::new(),
         }
     }
 

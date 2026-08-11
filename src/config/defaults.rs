@@ -9,6 +9,10 @@ use crate::config::*;
 /// a retryable timeout rather than a forever-stall.
 pub(crate) const DEFAULT_REQUEST_TIMEOUT_SECONDS: u64 = 300;
 
+/// The default attachment upload cap: 16 MiB, which comfortably holds the images and documents a
+/// chat platform lets a participant post, while keeping one hostile upload from filling the disk.
+pub(crate) const DEFAULT_MAX_ATTACHMENT_BYTES: usize = 16 * 1024 * 1024;
+
 impl Default for ResilienceConfig {
     fn default() -> Self {
         ResilienceConfig {
@@ -28,6 +32,7 @@ impl Default for ServingConfig {
             bind: SocketAddr::from(([127, 0, 0, 1], 7777)),
             control_keys: Vec::new(),
             read_only: false,
+            max_attachment_bytes: DEFAULT_MAX_ATTACHMENT_BYTES,
         }
     }
 }

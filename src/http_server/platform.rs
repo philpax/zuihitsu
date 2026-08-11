@@ -13,9 +13,10 @@ use axum::{
     response::sse::{Event as SseEvent, KeepAlive, Sse},
 };
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 use zuihitsu::{
-    ContextEntry, ContextOutcome, ConversationLocator, LinkError, LinkNode, MemoryId, MessageInput,
-    ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
+    Attachment, AttachmentKind, ContextEntry, ContextOutcome, ConversationLocator, LinkError,
+    LinkNode, MemoryId, MessageInput, ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
@@ -32,12 +33,61 @@ fn person(scope: &PlatformConnectorScope, id: String) -> PersonId {
     PersonId::new(scope.platform.clone(), id)
 }
 
-/// One inbound message on the wire: the sender's bare id (the platform is the request's scope) and its
-/// text.
+/// One inbound message on the wire: the sender's bare id (the platform is the request's scope), its
+/// text, and the files it carried. `attachments` is defaulted, so a connector built before
+/// attachments existed posts exactly as it always did.
 #[derive(Deserialize)]
 pub(super) struct WireMessage {
     sender: String,
     text: String,
+    #[serde(default)]
+    attachments: Vec<Attachment>,
+}
+
+/// Scope a batch of wire messages to the request's connector, resolving each named attachment against
+/// the blob store. Shared by the unary and streaming delivery endpoints, which differ only in how they
+/// return the turn.
+///
+/// The stored blob is authoritative for everything but the name: a body's `mime`, `byte_len`, and
+/// `kind` are replaced by the media type the bytes were uploaded under, their real length, and the one
+/// classification derived from it, so a connector cannot describe a blob as something it is not. A
+/// message naming a blob the store has never held is refused outright — the bytes must be uploaded
+/// before the message that carries them, or the turn would record an attachment nobody can read.
+fn message_inputs(
+    state: &AppState,
+    scope: &PlatformConnectorScope,
+    messages: Vec<WireMessage>,
+) -> Result<Vec<MessageInput>, ApiError> {
+    let mut inputs = Vec::with_capacity(messages.len());
+    for message in messages {
+        let mut attachments = Vec::with_capacity(message.attachments.len());
+        for attachment in message.attachments {
+            let meta = state
+                .server
+                .blob_meta(&attachment.blob)
+                .map_err(|error| ApiError::Internal(error.to_string()))?
+                .ok_or_else(|| {
+                    ApiError::BadRequest(format!(
+                        "platform: no blob is stored under {}; upload it to /platform/blobs before \
+                         the message that carries it",
+                        attachment.blob
+                    ))
+                })?;
+            attachments.push(Attachment {
+                name: attachment.name,
+                mime: SmolStr::new(&meta.mime),
+                blob: attachment.blob,
+                byte_len: meta.byte_len,
+                kind: AttachmentKind::of_mime(&meta.mime),
+            });
+        }
+        inputs.push(MessageInput {
+            sender: person(scope, message.sender),
+            text: message.text,
+            attachments,
+        });
+    }
+    Ok(inputs)
 }
 
 /// `POST /platform/messages` — deliver a batch of participant turns and run one agent response
@@ -58,14 +108,7 @@ pub(super) async fn message(
 ) -> Result<Json<PlatformResponse>, ApiError> {
     let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let locator = locator(&scope, request.scope_path);
-    let messages: Vec<MessageInput> = request
-        .messages
-        .into_iter()
-        .map(|message| MessageInput {
-            sender: person(&scope, message.sender),
-            text: message.text,
-        })
-        .collect();
+    let messages = message_inputs(&state, &scope, request.messages)?;
     let present: Vec<PersonId> = request
         .present
         .into_iter()
@@ -314,14 +357,7 @@ pub(super) async fn message_stream(
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let model = state.model.clone().ok_or(ApiError::NoModel)?;
     let locator = locator(&scope, request.scope_path);
-    let messages: Vec<MessageInput> = request
-        .messages
-        .into_iter()
-        .map(|message| MessageInput {
-            sender: person(&scope, message.sender),
-            text: message.text,
-        })
-        .collect();
+    let messages = message_inputs(&state, &scope, request.messages)?;
     let present: Vec<PersonId> = request
         .present
         .into_iter()

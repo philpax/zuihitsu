@@ -7,7 +7,12 @@
 //! stays in the main crate's `model` module, which re-exports these types so they remain reachable
 //! at `crate::model::*`.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
+
+use crate::ids::BlobHash;
 
 /// A message in the conversation handed to the model. `tool_calls` is populated on an assistant
 /// message that called tools; `tool_call_id` ties a tool-result message to the call it answers —
@@ -17,8 +22,35 @@ use serde::{Deserialize, Serialize};
 pub struct Message {
     pub role: Role,
     pub content: String,
+    /// The images this message shows the model, alongside its text — the perceivable attachments a
+    /// participant's turn carried. Skipped from serialisation when empty, so a text-only message
+    /// hashes to exactly the bytes it always did and every `request_digest` recorded to date stays
+    /// verifiable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImagePart>,
     pub tool_calls: Vec<ToolCall>,
     pub tool_call_id: Option<String>,
+}
+
+/// One image shown to the model. The `blob` address is the content identity, so it alone is what the
+/// request digest and a captured `ModelCalled` record need; the bytes themselves are held beside it
+/// only for the trip to the backend.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ImagePart {
+    /// The content address of the image's bytes — what identifies this image in a digest, and the
+    /// key the console fetches it under.
+    pub blob: BlobHash,
+    /// The media type the bytes were stored under, which the `data:` URI declares to the backend.
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub mime: SmolStr,
+    /// The base64 payload sent to the backend, shared across a turn's steps rather than re-encoded
+    /// per step. Deliberately outside serialisation: the address above already identifies the
+    /// content, so a digest stays a digest and a captured request record stays small rather than
+    /// carrying megabytes of base64 into the event log.
+    #[serde(skip)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    pub data: Arc<str>,
 }
 
 impl Message {
@@ -26,6 +58,7 @@ impl Message {
     pub fn user(content: impl Into<String>) -> Message {
         Message {
             role: Role::User,
+            images: Vec::new(),
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -37,6 +70,7 @@ impl Message {
     pub fn assistant(content: impl Into<String>) -> Message {
         Message {
             role: Role::Assistant,
+            images: Vec::new(),
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -47,6 +81,7 @@ impl Message {
     pub fn system(content: impl Into<String>) -> Message {
         Message {
             role: Role::System,
+            images: Vec::new(),
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -57,6 +92,7 @@ impl Message {
     pub fn assistant_tool_calls(tool_calls: Vec<ToolCall>) -> Message {
         Message {
             role: Role::Assistant,
+            images: Vec::new(),
             content: String::new(),
             tool_calls,
             tool_call_id: None,
@@ -67,6 +103,7 @@ impl Message {
     pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Message {
         Message {
             role: Role::Tool,
+            images: Vec::new(),
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),

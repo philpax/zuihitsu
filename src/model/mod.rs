@@ -24,7 +24,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 // The model-interaction wire types live in zuihitsu-core (so the event log and the console can
 // share them in wasm) and are re-exported here, keeping them reachable at `crate::model::*`.
-pub use zuihitsu_core::model::{Completion, Message, Role, ToolCall, ToolChoice, ToolSpec, Usage};
+pub use zuihitsu_core::model::{
+    Completion, ImagePart, Message, Role, ToolCall, ToolChoice, ToolSpec, Usage,
+};
 
 /// A JSON-schema constraint on the whole response body — OpenAI `response_format: { type:
 /// "json_schema" }`. For a single structured extraction this is preferable to a forced tool call: some
@@ -294,7 +296,9 @@ impl std::error::Error for ModelError {}
 mod tests {
     //! The scripted model returns its programmed steps in order, then reports exhaustion — the
     //! determinism agent-level tests rely on (spec §Testability).
-    use super::{Completion, GenerateRequest, ModelClient, ModelError, ScriptedModel, ToolCall};
+    use super::{
+        Completion, GenerateRequest, Message, ModelClient, ModelError, ScriptedModel, ToolCall,
+    };
 
     #[test]
     fn generate_request_serializes_with_the_digest_view_shape() {
@@ -306,6 +310,35 @@ mod tests {
             serde_json::to_string(&GenerateRequest::default()).unwrap(),
             r#"{"system":"","messages":[],"tools":[],"tool_choice":"Auto","response_format":null,"thinking":null}"#
         );
+    }
+
+    #[test]
+    fn a_message_showing_no_images_hashes_exactly_as_it_always_did() {
+        // `images` is skipped when empty, so every `request_digest` recorded before images existed
+        // stays verifiable against the request it was taken over.
+        assert_eq!(
+            serde_json::to_string(&Message::user("hello")).unwrap(),
+            r#"{"role":"user","content":"hello","tool_calls":[],"tool_call_id":null}"#
+        );
+    }
+
+    #[test]
+    fn a_shown_image_hashes_by_address_not_by_its_bytes() {
+        // The base64 payload is outside serialisation: the content address already identifies the
+        // image, so a digest stays a digest and a captured request record stays small.
+        let hash = zuihitsu_core::ids::BlobHash::of(b"the image bytes");
+        let message = Message {
+            images: vec![super::ImagePart {
+                blob: hash.clone(),
+                mime: "image/png".into(),
+                data: "c29tZSB2ZXJ5IGxvbmcgYmFzZTY0".into(),
+            }],
+            ..Message::user("what is this")
+        };
+        let json = serde_json::to_string(&message).unwrap();
+
+        assert!(json.contains(hash.as_str()), "{json}");
+        assert!(!json.contains("c29tZSB2ZXJ5IGxvbmcgYmFzZTY0"), "{json}");
     }
 
     #[tokio::test]

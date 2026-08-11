@@ -362,6 +362,7 @@ impl Instance {
                 ),
                 max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
                 max_entry_chars: settings.memory.max_entry_chars.max(1) as usize,
+                max_attachment_text_chars: settings.turn.max_attachment_text_chars.max(0) as usize,
                 capture: settings.observability.capture_model_calls,
             })
             .await

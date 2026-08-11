@@ -94,6 +94,8 @@ impl Control<'_> {
         let inbound = vec![InboundMessage {
             participant: operator,
             text: text.to_owned(),
+            // The imprint interview is typed prose from the console; it carries no files.
+            attachments: Vec::new(),
         }];
         let participant_turn_ids = vec![participant_turn_id];
         let (report, _buffer) = self

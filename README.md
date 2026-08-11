@@ -59,6 +59,10 @@ control_keys = []
 # return 409. The --read-only CLI flag forces this on regardless of this value.
 # Default: false.
 read_only = false
+# The largest attachment a connector may upload to POST /platform/blobs, in bytes.
+# A body over the cap is rejected whole (400) — an attachment is never truncated.
+# Default: 16777216 (16 MiB).
+max_attachment_bytes = 16777216
 
 [model]
 # Where to reach the generation model (an OpenAI-compatible endpoint). An empty

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 use crate::{
+    attachment::Attachment,
     brief::Brief,
     event::{
         ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
@@ -528,6 +529,12 @@ pub enum EventPayload {
         /// without one.
         #[serde(default)]
         brief: Option<Brief>,
+        /// The files the message carried (spec §Attachments): the record only, the bytes living in
+        /// the blob store under each [`Attachment::blob`]. Empty for every turn that carried none —
+        /// the agent's own, a system turn, and any participant message without files — and defaulted
+        /// so payloads written before the field existed replay without it.
+        #[serde(default)]
+        attachments: Vec<Attachment>,
     },
     /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
     /// the room then persists across sessions for the agent's life (spec §Conversations).

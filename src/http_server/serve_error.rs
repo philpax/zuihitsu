@@ -3,7 +3,7 @@
 use std::{io, net::SocketAddr, path::PathBuf};
 
 use zuihitsu::{
-    ConfigError, GraphError, ServerError, StoreError, VectorError, WebError,
+    BlobError, ConfigError, GraphError, ServerError, StoreError, VectorError, WebError,
     snapshot::SnapshotError,
 };
 
@@ -27,6 +27,10 @@ pub enum ServeError {
     OpenVectors {
         path: PathBuf,
         source: VectorError,
+    },
+    OpenBlobs {
+        path: PathBuf,
+        source: BlobError,
     },
     /// Restoring the graph from a snapshot at boot failed (spec §Snapshots).
     Snapshot(SnapshotError),
@@ -83,6 +87,13 @@ impl std::fmt::Display for ServeError {
                     path.display()
                 )
             }
+            ServeError::OpenBlobs { path, source } => {
+                write!(
+                    f,
+                    "serve: could not open the blob store at {}: {source}",
+                    path.display()
+                )
+            }
             ServeError::Snapshot(source) => {
                 write!(
                     f,
@@ -115,6 +126,7 @@ impl std::error::Error for ServeError {
             ServeError::OpenEventLog { source, .. } => Some(source),
             ServeError::OpenGraph { source, .. } => Some(source),
             ServeError::OpenVectors { source, .. } => Some(source),
+            ServeError::OpenBlobs { source, .. } => Some(source),
             ServeError::Snapshot(source) => Some(source),
             ServeError::Web(source) => Some(source),
             ServeError::Server(source) => Some(source.as_ref()),

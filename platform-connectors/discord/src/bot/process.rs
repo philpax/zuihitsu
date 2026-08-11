@@ -28,6 +28,8 @@ pub(super) async fn process_message(
         .map(|m| PlatformMessage {
             sender: PersonId::new(DISCORD_PLATFORM, &m.sender),
             text: m.text,
+            // Discord attachments are not yet collected and uploaded; a message carries none.
+            attachments: Vec::new(),
         })
         .collect();
 
