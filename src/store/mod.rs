@@ -3,7 +3,8 @@
 //! The seam itself — the `Store` trait, `StoreError`, the in-memory backend, and the subscriber
 //! fan-out — lives in `zuihitsu-core` so the wasm replica can share it. This module re-exports that
 //! surface and adds the durable, file-backed [`SqliteStore`], which needs the host filesystem (WAL,
-//! an exclusive lock) and so cannot move to core.
+//! an exclusive lock) and so cannot move to core. Alongside it sits [`BlobStore`], the
+//! content-addressed store for the bulk bytes the log refers to only by hash.
 
 pub use zuihitsu_core::store::{MemoryStore, Store, StoreError, Subscription};
 
@@ -11,8 +12,10 @@ pub use zuihitsu_core::store::{MemoryStore, Store, StoreError, Subscription};
 // as `crate::store::notify`.
 pub(crate) use zuihitsu_core::store::notify;
 
+mod blobs;
 mod sqlite;
 
+pub use blobs::{Blob, BlobError, BlobMeta, BlobStore};
 pub use sqlite::SqliteStore;
 
 #[cfg(test)]

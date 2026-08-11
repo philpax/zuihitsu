@@ -183,6 +183,12 @@ impl StorageConfig {
     pub fn vectors(&self) -> PathBuf {
         self.dir.join("vectors.sqlite")
     }
+
+    /// The content-addressed blob store, holding the bytes of attachments the log refers to by
+    /// [`BlobHash`](crate::ids::BlobHash).
+    pub fn blobs(&self) -> PathBuf {
+        self.dir.join("blobs.sqlite")
+    }
 }
 
 /// Graph snapshotting (spec §Snapshots): periodic `VACUUM INTO` checkpoints so boot restores the
