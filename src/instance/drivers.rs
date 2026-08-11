@@ -187,7 +187,7 @@ impl Instance {
                     conversation,
                     recovered.start_seq,
                     recovered.start_seq,
-                    compaction.carryover_char_budget,
+                    compaction.carryover_token_budget,
                 )?
                 .last()
                 .map_or(recovered.started_at, |turn| turn.recorded_at)
@@ -442,7 +442,7 @@ impl Instance {
             conversation,
             open.start_seq,
             open.session_start_seq,
-            settings.compaction.carryover_char_budget,
+            settings.compaction.carryover_token_budget,
         )?;
         let watermark = flushed_up_to(&buffer, open.session_start_seq);
         // The watermark's wall-clock anchor: when the last flush turn was recorded, or the session's

@@ -29,8 +29,8 @@ mod tools;
 pub use supersede::Supersession;
 
 pub use buffer::{
-    ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, flushed_up_to,
-    recent_touched, session_touched,
+    ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, estimated_turn_tokens,
+    flushed_up_to, recent_touched, session_touched, turn_token_costs,
 };
 pub use record::{TurnRecord, append_turn};
 pub use resolve::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn};

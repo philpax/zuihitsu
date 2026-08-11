@@ -85,7 +85,7 @@ impl Instance {
             conversation,
             open.start_seq,
             open.session_start_seq,
-            settings.compaction.carryover_char_budget,
+            settings.compaction.carryover_token_budget,
         )?;
         // Gate the flush on this session's *own* turns, not the carried tail: a tail seeds the buffer
         // for the flush's context, but it is a prior session's substance (already consolidated when that
@@ -154,7 +154,7 @@ impl Instance {
         &self,
         conversation: ConversationId,
         previous_start: Option<Seq>,
-        char_budget: i64,
+        token_budget: i64,
     ) -> Result<Option<PreviousTail>, InstanceError> {
         let Some(previous_start) = previous_start else {
             return Ok(None);
@@ -164,9 +164,9 @@ impl Instance {
             conversation,
             previous_start,
             previous_start,
-            char_budget,
+            token_budget,
         )?;
-        Ok(carryover_tail(&own, char_budget).map(|seed| PreviousTail {
+        Ok(carryover_tail(&own, token_budget).map(|seed| PreviousTail {
             seed,
             last_activity: own
                 .last()
@@ -282,7 +282,7 @@ impl Instance {
                 conversation,
                 recovered.start_seq,
                 recovered.start_seq,
-                settings.compaction.carryover_char_budget,
+                settings.compaction.carryover_token_budget,
             )?;
             let last_activity = buffer
                 .last()
@@ -340,7 +340,7 @@ impl Instance {
         let tail = self.previous_session_tail(
             conversation,
             previous_start,
-            settings.compaction.carryover_char_budget,
+            settings.compaction.carryover_token_budget,
         )?;
         let seeded_from_turn = tail.as_ref().map(|tail| ConversationRef {
             conversation,

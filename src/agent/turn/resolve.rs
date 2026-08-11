@@ -255,6 +255,7 @@ fn audience_turns(store: &dyn Store) -> Result<Vec<AudienceTurn>, StoreError> {
                         recorded_at: event.recorded_at,
                         steps: Vec::new(),
                         produced_by,
+                        prompt_tokens: None,
                     },
                     conversation,
                     session,

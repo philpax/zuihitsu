@@ -104,7 +104,7 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
     // growth is isolated from flush turns.
     settings.compaction.flush_min_turns = 1_000_000;
     // A loose char budget (the default) that small turns never fill — the pre-fix stuck condition.
-    settings.compaction.carryover_char_budget = 4_000;
+    settings.compaction.carryover_token_budget = 4_000;
     server.control().set_settings(settings).unwrap();
 
     let leads = ConversationLocator::new(TEST_PLATFORM, "leads");
@@ -191,7 +191,7 @@ async fn the_buffer_stays_bounded_across_repeated_compactions() {
         .settings()
         .unwrap()
         .compaction
-        .carryover_char_budget;
+        .carryover_token_budget;
     assert!(
         last_chars <= (char_budget + 1_000) as usize,
         "the last prompt's char size {last_chars} exceeds the bound",

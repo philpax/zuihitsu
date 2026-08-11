@@ -160,13 +160,13 @@ impl Instance {
         let capture = settings.observability.capture_model_calls;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq` with
-        // the carried tail bounded to the carryover char budget so it cannot grow across seams.
+        // the carried tail bounded to the carryover token budget so it cannot grow across seams.
         let buffer = bounded_buffer_turns(
             self.engine.store.lock().as_ref(),
             routed.conversation,
             open.start_seq,
             open.session_start_seq,
-            settings.compaction.carryover_char_budget,
+            settings.compaction.carryover_token_budget,
         )?;
         // Record each inbound participant turn after `ensure_session` opens the session (so the
         // session's `start_seq` precedes them) but after `bounded_buffer_turns` builds the buffer

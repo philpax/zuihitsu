@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agent::TurnView,
+    agent::{TurnView, estimated_turn_tokens},
     graph::GraphError,
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     instance::{Instance, InstanceError},
@@ -189,19 +189,15 @@ pub(super) fn retract_if_live(
     }
 }
 
-/// A deterministic `chars / 4` estimate of the prompt's token count over the buffer plus the inbound
-/// message — the compaction-trigger fallback when the backend reports no usage. Coarse and an
-/// under-count (it omits the frozen prefix); only the real client's `prompt_tokens` is authoritative.
+/// A deterministic estimate of the prompt's token count over the buffer plus the inbound message — the
+/// compaction-trigger fallback when the backend reports no usage. Prices each carried turn with
+/// [`estimated_turn_tokens`], the same fallback the carryover trim uses, so the two budgets are read in
+/// one unit by one rule. Coarse and an under-count (it omits the frozen prefix); only the real client's
+/// `prompt_tokens` is authoritative.
 pub(super) fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
-    let chars: usize = buffer
-        .iter()
-        .map(|turn| turn.text.chars().count())
-        .sum::<usize>()
-        + messages
-            .iter()
-            .map(|m| m.text.chars().count())
-            .sum::<usize>();
-    (chars / 4) as i64
+    let buffer_tokens: usize = buffer.iter().map(estimated_turn_tokens).sum();
+    let inbound_chars: usize = messages.iter().map(|m| m.text.chars().count()).sum();
+    (buffer_tokens + inbound_chars / 4) as i64
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ fn turn(seq: u64, text: &str) -> TurnView {
         recorded_at: Timestamp::from_millis(0),
         steps: Vec::new(),
         produced_by: None,
+        prompt_tokens: None,
     }
 }
 

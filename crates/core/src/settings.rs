@@ -61,9 +61,11 @@ pub struct CompactionSettings {
     /// Quiet period that ends a session.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub idle_gap_seconds: i64,
-    /// How much raw transcript crosses a compaction boundary.
+    /// How much raw transcript crosses a compaction boundary, priced in the prompt tokens the backend
+    /// reported for it rather than in characters — so the replayed tool steps and image parts a
+    /// character count cannot see are charged for what they actually cost.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
-    pub carryover_char_budget: i64,
+    pub carryover_token_budget: i64,
     /// Minimum number of turns in the ending session for the pre-compaction flush to run — the
     /// flush-gating threshold. A low-activity session (e.g. one that crossed the budget via a single
     /// large paste) falls below it and skips the flush, so the hot-path model call is paid only when
@@ -455,7 +457,7 @@ impl Default for CompactionSettings {
         CompactionSettings {
             token_budget: 24_000,
             idle_gap_seconds: 30 * MINUTE,
-            carryover_char_budget: 4_000,
+            carryover_token_budget: 4_000,
             flush_min_turns: 4,
             context_length: None,
         }
