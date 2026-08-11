@@ -9,7 +9,7 @@ use zuihitsu::{EventPayload, MemoryId, MemoryName, TurnRole, Usage};
 use crate::{
     analyze::format::trunc,
     event_render::diagnostic_summary,
-    step::{EvalStep, OnMissing, StepText},
+    step::{EvalStep, OnMissing, StepAttachment, StepText},
 };
 
 /// How many characters of a step's or event's text the compact summaries keep before clipping.
@@ -21,11 +21,12 @@ const SUMMARY_CLIP: usize = 60;
 pub(crate) fn summarize_step(step: &EvalStep) -> String {
     match step {
         EvalStep::Turn(turn) => format!(
-            "Turn {}/{} {}: {}",
+            "Turn {}/{} {}: {}{}",
             turn.platform,
             turn.scope,
             turn.sender,
             summarize_text(&turn.text),
+            summarize_attachments(&turn.attachments),
         ),
         EvalStep::InterruptedTurn(burst) => format!(
             "InterruptedTurn {}/{} {}: {} | interrupt {}: {}",
@@ -71,6 +72,19 @@ pub(crate) fn summarize_step(step: &EvalStep) -> String {
             format!("ConfirmProposedMerge (on_missing: {on_missing})")
         }
     }
+}
+
+/// The files a turn carries, as a trailing ` +[notes.txt, cover.png]` — empty for a message with
+/// none, so an ordinary turn's summary is unchanged.
+fn summarize_attachments(attachments: &[StepAttachment]) -> String {
+    if attachments.is_empty() {
+        return String::new();
+    }
+    let names: Vec<&str> = attachments
+        .iter()
+        .map(|attachment| attachment.name.as_str())
+        .collect();
+    format!(" +[{}]", names.join(", "))
 }
 
 /// A step's text as a compact quoted fragment. A [`StepText::WithTurnRef`] shows its template and the

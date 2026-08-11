@@ -12,10 +12,10 @@ use tokio::sync::broadcast::{Receiver, error::RecvError};
 use zuihitsu::progress::{ProgressKind, TurnProgress};
 
 use zuihitsu::{
-    CheckpointTrigger, ConversationLocator, Embedder, Event, EventPayload, FakeWebFetcher, Graph,
-    InstanceFeatures, LinkPosture, LinkSource, ManualClock, MemoryId, MemoryStore, ModelClient,
-    PersonId, RelationName, SeedSelf, Seq, Server, SqliteVectorIndex, Store, Timestamp,
-    TurnOutcome, Visibility,
+    Attachment, AttachmentKind, CheckpointTrigger, ConversationLocator, Embedder, Event,
+    EventPayload, FakeWebFetcher, Graph, InstanceFeatures, LinkPosture, LinkSource, ManualClock,
+    MemoryId, MemoryStore, MessageInput, ModelClient, PersonId, RelationName, SeedSelf, Seq,
+    Server, SqliteVectorIndex, Store, Timestamp, TurnOutcome, Visibility,
 };
 
 use crate::{error::EvalError, fetch_fixture::FIXTURE_MAX_MARKDOWN_CHARS};
@@ -145,7 +145,7 @@ impl RunContext {
     /// clock so turns sit on a realistic timescale: a human pause before the message, then the agent's
     /// actual think time after — so the recorded timestamps reflect how the conversation paced (legible
     /// especially in the multi-party rooms), rather than stacking every turn at one frozen instant. The
-    /// executor resolves the step's `present` set and text before calling.
+    /// executor resolves the step's `present` set, text, and attachments before calling.
     pub(crate) async fn turn(
         &self,
         platform: &str,
@@ -153,18 +153,47 @@ impl RunContext {
         sender: &PersonId,
         text: &str,
         present: &[PersonId],
+        attachments: Vec<Attachment>,
     ) -> Result<TurnOutcome, EvalError> {
         self.clock.advance_millis(HUMAN_PAUSE_MS);
         let locator = ConversationLocator::new(platform, scope);
         let started = Instant::now();
+        let message = MessageInput {
+            sender: sender.clone(),
+            text: text.to_owned(),
+            attachments,
+        };
         let response = self
             .server
             .platform()
-            .route_message(self.model.as_ref(), &locator, sender, text, present)
+            .route_messages(self.model.as_ref(), &locator, &[message], present)
             .await?;
         self.clock
             .advance_millis(started.elapsed().as_millis() as i64);
         Ok(response.outcome)
+    }
+
+    /// Store a fixture's bytes in the run's blob store and build the attachment record a message
+    /// carries them by — what a connector does when it accepts an upload and then names the blob on
+    /// the message. The media type and length are the stored blob's, and the kind is derived from the
+    /// type by the one classification, so an eval attachment reaches the turn exactly as a live one
+    /// does.
+    pub(crate) fn store_attachment(
+        &self,
+        name: &str,
+        mime: &str,
+        bytes: &[u8],
+    ) -> Result<Attachment, EvalError> {
+        let blob = self.server.put_blob(bytes, mime).map_err(|error| {
+            EvalError::Executor(format!("storing attachment {name:?}: {error}"))
+        })?;
+        Ok(Attachment {
+            name: name.to_owned(),
+            mime: mime.into(),
+            blob,
+            byte_len: bytes.len() as u64,
+            kind: AttachmentKind::of_mime(mime),
+        })
     }
 
     /// Drive a two-message burst into one room where the second message lands mid-generation, so the

@@ -5,6 +5,7 @@
 /// journal, so the marker map is empty and the log renders unbroken.
 
 import type { EvalStep } from "@zuihitsu/wire/types/EvalStep.ts";
+import type { StepAttachment } from "@zuihitsu/wire/types/StepAttachment.ts";
 import type { StepRecord } from "@zuihitsu/wire/types/StepRecord.ts";
 import type { StepText } from "@zuihitsu/wire/types/StepText.ts";
 
@@ -81,7 +82,7 @@ export function summarizeStep(step: EvalStep): string {
 
   if ("turn" in step) {
     const turn = step.turn;
-    return `Turn ${turn.platform}/${turn.scope} ${turn.sender}: ${summarizeText(turn.text)}`;
+    return `Turn ${turn.platform}/${turn.scope} ${turn.sender}: ${summarizeText(turn.text)}${summarizeAttachments(turn.attachments)}`;
   }
   if ("interrupted_turn" in step) {
     const burst = step.interrupted_turn;
@@ -107,6 +108,14 @@ export function summarizeStep(step: EvalStep): string {
   }
   // The remaining variant: confirm_proposed_merge.
   return `ConfirmProposedMerge (on_missing: ${step.confirm_proposed_merge.on_missing})`;
+}
+
+/// The files a turn carries, as a trailing ` +[notes.txt, cover.png]` — empty for a message with none,
+/// so an ordinary turn's summary is unchanged. A package recorded before attachments existed carries no
+/// such field, which reads the same as carrying none.
+function summarizeAttachments(attachments: readonly StepAttachment[] | undefined): string {
+  if (!attachments || attachments.length === 0) return "";
+  return ` +[${attachments.map((attachment) => attachment.name).join(", ")}]`;
 }
 
 /// A step's text as a compact quoted fragment. A `with_turn_ref` shows its template and the anchor turn
