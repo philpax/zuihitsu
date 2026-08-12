@@ -30,8 +30,8 @@ pub(super) struct BlobUploaded {
 /// `POST /platform/blobs` — store an attachment's raw bytes, returning their content address. The
 /// request's `Content-Type` is the media type they are stored under (`application/octet-stream` when
 /// absent), and the body is the bytes themselves rather than any envelope, so a connector streams a
-/// download straight through. Idempotent by construction: the same bytes always yield the same
-/// address and are stored once.
+/// download straight through. Re-uploading the same bytes with the same MIME is idempotent; a
+/// different MIME is a `409` because existing attachment metadata is immutable.
 ///
 /// A body over `[serving] max_attachment_bytes` is refused whole as a `400`. Truncating would be
 /// worse than refusing: the stored address would name bytes nobody sent, and the message referring to
@@ -50,10 +50,7 @@ pub(super) async fn upload_blob(
         )));
     }
     let mime = media_type(&headers);
-    let hash = state
-        .server
-        .put_blob(&body, mime)
-        .map_err(|error| ApiError::Internal(error.to_string()))?;
+    let hash = state.server.put_blob(&body, mime).map_err(ApiError::from)?;
     tracing::info!(%hash, byte_len = body.len(), mime, "stored an attachment");
     Ok(Json(BlobUploaded { hash }))
 }

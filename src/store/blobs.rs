@@ -4,12 +4,12 @@
 //! their own SQLite database with their own lifecycle (a later GC sweep reconciles them against the
 //! hashes the log still mentions).
 //!
-//! The hash *is* the key, so a write is idempotent by construction: putting the same bytes twice
-//! stores one blob and yields one address.
+//! The hash *is* the key, so a write with the same bytes and MIME is idempotent: putting the same
+//! content twice stores one blob and yields one address, while a conflicting MIME is rejected.
 
 use std::{path::Path, sync::Arc};
 
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::{
     clock::{Clock, SystemClock},
@@ -32,11 +32,18 @@ pub struct BlobMeta {
     pub byte_len: u64,
 }
 
-/// A blob-store failure: a backend error, or a stored row whose recorded length does not fit the
-/// representable range.
+/// A blob-store failure: a backend error, a MIME conflict, or a stored row whose recorded length does
+/// not fit the representable range.
 #[derive(Debug)]
 pub enum BlobError {
     Backend(String),
+    /// The content address already exists under a different media type. Existing metadata is never
+    /// changed because recorded attachments rely on it remaining stable for replay.
+    MimeConflict {
+        hash: BlobHash,
+        existing_mime: String,
+        requested_mime: String,
+    },
     Malformed(String),
 }
 
@@ -44,6 +51,14 @@ impl std::fmt::Display for BlobError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlobError::Backend(message) => write!(f, "blob store: {message}"),
+            BlobError::MimeConflict {
+                hash,
+                existing_mime,
+                requested_mime,
+            } => write!(
+                f,
+                "blob store: content address {hash} is stored as {existing_mime}, not {requested_mime}"
+            ),
             BlobError::Malformed(message) => write!(f, "blob store: {message}"),
         }
     }
@@ -101,22 +116,55 @@ impl BlobStore {
         self
     }
 
-    /// Store `bytes` under their content address, returning it. Idempotent: re-putting identical
-    /// bytes leaves the existing row (and its original `created_at`) untouched.
+    /// Store `bytes` under their content address, returning it. Re-putting identical bytes is
+    /// idempotent only when the requested media type matches the stored one; a conflicting type is
+    /// rejected so historical attachment metadata cannot change.
     pub fn put(&self, bytes: &[u8], mime: &str) -> Result<BlobHash, BlobError> {
         let hash = BlobHash::of(bytes);
-        self.conn.execute(
-            "INSERT OR IGNORE INTO blobs (hash, mime, byte_len, created_at, bytes) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                hash.as_str(),
-                mime,
-                bytes.len() as i64,
-                self.clock.now().as_millisecond(),
-                bytes,
-            ],
-        )?;
-        Ok(hash)
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| {
+            let existing_mime: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT mime FROM blobs WHERE hash = ?1",
+                    params![hash.as_str()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(existing_mime) = existing_mime {
+                if existing_mime != mime {
+                    return Err(BlobError::MimeConflict {
+                        hash: hash.clone(),
+                        existing_mime,
+                        requested_mime: mime.to_owned(),
+                    });
+                }
+                return Ok(hash.clone());
+            }
+
+            self.conn.execute(
+                "INSERT INTO blobs (hash, mime, byte_len, created_at, bytes) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    hash.as_str(),
+                    mime,
+                    bytes.len() as i64,
+                    self.clock.now().as_millisecond(),
+                    bytes,
+                ],
+            )?;
+            Ok(hash.clone())
+        })();
+        match result {
+            Ok(hash) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(hash)
+            }
+            Err(error) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(error)
+            }
+        }
     }
 
     /// The blob stored under `hash`, or `None` when the store holds none.
@@ -208,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn put_is_idempotent_by_content() {
+    fn put_is_idempotent_for_same_content_and_mime() {
         let store = BlobStore::open_in_memory().unwrap();
         let first = store.put(b"same bytes", PNG).unwrap();
         let second = store.put(b"same bytes", PNG).unwrap();
@@ -218,6 +266,58 @@ mod tests {
         // Different bytes are a different blob, so the store now holds two.
         store.put(b"other bytes", PNG).unwrap();
         assert_eq!(store.hashes().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn put_rejects_same_content_with_different_mime() {
+        let store = BlobStore::open_in_memory().unwrap();
+        let hash = store.put(b"same bytes", PNG).unwrap();
+        let error = store.put(b"same bytes", "text/plain").unwrap_err();
+        assert!(matches!(
+            error,
+            super::BlobError::MimeConflict {
+                hash: conflict_hash,
+                existing_mime,
+                requested_mime,
+            } if conflict_hash == hash && existing_mime == PNG && requested_mime == "text/plain"
+        ));
+        assert_eq!(store.head(&hash).unwrap().unwrap().mime, PNG);
+    }
+
+    #[test]
+    fn concurrent_file_backed_puts_have_one_success_and_one_mime_conflict() {
+        let path =
+            std::env::temp_dir().join(format!("zuihitsu-blobs-{}.sqlite", BlobHash::of(b"race")));
+        let _ = std::fs::remove_file(&path);
+        let first = BlobStore::open(&path).unwrap();
+        let second = BlobStore::open(&path).unwrap();
+        let bytes = b"race bytes".to_vec();
+        let expected_hash = BlobHash::of(&bytes);
+        let first_bytes = bytes.clone();
+        let second_bytes = bytes.clone();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let first_barrier = barrier.clone();
+        let second_barrier = barrier.clone();
+        let first_thread = std::thread::spawn(move || {
+            first_barrier.wait();
+            first.put(&first_bytes, "image/png")
+        });
+        let second_thread = std::thread::spawn(move || {
+            second_barrier.wait();
+            second.put(&second_bytes, "text/plain")
+        });
+        let first_result = first_thread.join().unwrap();
+        let second_result = second_thread.join().unwrap();
+        assert_eq!(first_result.is_ok() as u8 + second_result.is_ok() as u8, 1);
+        assert!(
+            matches!(first_result, Err(super::BlobError::MimeConflict { .. }))
+                || matches!(second_result, Err(super::BlobError::MimeConflict { .. }))
+        );
+        let reader = BlobStore::open(&path).unwrap();
+        let mime = reader.head(&expected_hash).unwrap().unwrap().mime;
+        assert!(mime == "image/png" || mime == "text/plain");
+        drop(reader);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

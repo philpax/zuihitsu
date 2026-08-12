@@ -63,7 +63,8 @@ typing_refresh_secs = 8
 enabled = true
 # The largest file relayed, in bytes (16 MiB by default). Keep it at or below the server's
 # [serving] max_attachment_bytes, which is 16 MiB by default: the server refuses a larger upload
-# outright, so a higher cap here only spends a download to earn the same announcement.
+# outright, so a higher cap here only spends a download to earn the same announcement. The server's
+# request-wide message budgets are separate and apply to the complete messages batch.
 max_bytes = 16777216
 # How many of one message's files are relayed (4 by default). The rest are announced rather than
 # fetched, so a message carrying a folder's worth of files costs a bounded number of downloads.
@@ -114,8 +115,13 @@ set `reply_to = "addressed"` to forward only mentions and replies.
   than a message that appears to have carried nothing. `max_bytes` (16 MiB) is checked against
   Discord's reported size before anything is downloaded, and again against the bytes that arrive;
   `max_per_message` (4) bounds how many files one message may cost, counting only the files actually
-  fetched, so a run of oversized files does not push out the ones that fit. Setting
-  `enabled = false` relays and announces nothing. Discord's **embeds and stickers are out of scope**:
+  fetched, so a run of oversized files does not push out the ones that fit. When Discord omits a MIME
+  type or reports `application/octet-stream`, the connector uses a conservative fallback for common
+  text and supported image extensions; unknown, HTML/XML/SVG, and other active-content extensions
+  remain opaque. Explicit non-generic MIME metadata remains authoritative. The server's per-upload
+  cap and request-wide count/aggregate-byte budgets are separate from these connector caps. Successful
+  downloads are buffered before the post-download size check; bounded streaming is deferred as separate
+  defence in depth. Setting `enabled = false` relays and announces nothing. Discord's **embeds and stickers are out of scope**:
   neither is a file the sender shared, and both are already described by the message text or by
   Discord's own rendering.
 - **Identity**: every participant is keyed by their stable snowflake — stubs mint as

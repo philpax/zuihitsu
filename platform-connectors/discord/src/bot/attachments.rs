@@ -12,7 +12,8 @@ use serenity::all::Attachment as DiscordAttachment;
 use std::{fmt, time::Duration};
 use tokio::time::timeout;
 
-use zuihitsu_platform_connector_api::{MessageAttachment, PlatformClient};
+use zuihitsu_core::ids::BlobHash;
+use zuihitsu_platform_connector_api::{Error as PlatformError, MessageAttachment, PlatformClient};
 
 use crate::config::AttachmentConfig;
 
@@ -142,22 +143,47 @@ impl fmt::Display for NotDelivered {
 /// than waited on.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The media type a file with no reported one is treated as — "some bytes", which is what Discord
-/// actually said about it.
+/// The media type a file with no usable reported one is treated as when its filename is not in the
+/// conservative fallback table.
 const OCTET_STREAM: &str = "application/octet-stream";
 
-/// Read Discord's description of one file: its name, the media type it reported (or the generic type
-/// when it reported none), and its size.
+/// Read Discord's description of one file. Explicit non-generic media types remain authoritative;
+/// absent, blank, and generic metadata uses only the conservative filename table below. Extensions are
+/// never proof of the bytes' contents: text still has to decode as UTF-8, and unknown or active-content
+/// extensions remain opaque.
 fn describe(name: &str, content_type: Option<&str>, byte_len: u32) -> IncomingFile {
-    let mime = content_type
-        .map(str::trim)
-        .filter(|mime| !mime.is_empty())
-        .unwrap_or(OCTET_STREAM)
-        .to_owned();
+    let reported = content_type.map(str::trim).filter(|mime| !mime.is_empty());
+    let mime = reported
+        .filter(|mime| !is_generic_mime(mime))
+        .map(str::to_owned)
+        .or_else(|| fallback_mime(name).map(str::to_owned))
+        .unwrap_or_else(|| OCTET_STREAM.to_owned());
     IncomingFile {
         name: name.to_owned(),
         mime,
         byte_len: u64::from(byte_len),
+    }
+}
+
+/// Whether the media-type token before parameters is the generic Discord placeholder.
+fn is_generic_mime(mime: &str) -> bool {
+    mime.split(';')
+        .next()
+        .is_some_and(|token| token.trim().eq_ignore_ascii_case(OCTET_STREAM))
+}
+
+/// The deliberately narrow filename fallback for files Discord labels as absent or generic.
+fn fallback_mime(name: &str) -> Option<&'static str> {
+    let extension = name.rsplit('.').next()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "txt" | "py" | "rs" | "json" | "log" | "md" | "csv" | "toml" | "yaml" | "yml" | "ini"
+        | "cfg" | "conf" | "c" | "h" | "cc" | "cpp" | "hpp" | "java" | "js" | "jsx" | "ts"
+        | "tsx" | "go" | "rb" | "sh" | "sql" | "css" => Some("text/plain"),
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
     }
 }
 
@@ -186,16 +212,87 @@ fn plan(files: &[IncomingFile], config: &AttachmentConfig) -> Vec<PlanItem> {
         .collect()
 }
 
-/// Fetch one file's bytes and store them, yielding the record that names the stored blob. The size
-/// is re-checked against the cap after the download, since Discord's reported size is a claim about
-/// bytes we had not yet seen.
-async fn relay(
-    platform: &PlatformClient,
-    file: &DiscordAttachment,
+#[async_trait::async_trait]
+trait AttachmentDownloader: Send + Sync {
+    async fn download(&self, url: &str) -> Result<Vec<u8>, String>;
+}
+
+#[derive(Clone, Debug)]
+enum UploadFailure {
+    Status {
+        status: reqwest::StatusCode,
+        body: String,
+    },
+    Other(String),
+}
+
+impl fmt::Display for UploadFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UploadFailure::Status { status, body } => write!(f, "upload returned {status}: {body}"),
+            UploadFailure::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+trait BlobUploader: Send + Sync {
+    async fn upload(&self, bytes: Vec<u8>, mime: &str) -> Result<BlobHash, UploadFailure>;
+}
+
+struct DiscordDownloader {
+    client: reqwest::Client,
+}
+
+#[async_trait::async_trait]
+impl AttachmentDownloader for DiscordDownloader {
+    async fn download(&self, url: &str) -> Result<Vec<u8>, String> {
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+        response
+            .bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|error| error.to_string())
+    }
+}
+
+struct PlatformUploader<'a> {
+    platform: &'a PlatformClient,
+}
+
+#[async_trait::async_trait]
+impl BlobUploader for PlatformUploader<'_> {
+    async fn upload(&self, bytes: Vec<u8>, mime: &str) -> Result<BlobHash, UploadFailure> {
+        self.platform
+            .upload_blob(bytes, mime)
+            .await
+            .map_err(|error| match error {
+                PlatformError::Status { status, body, .. } => {
+                    UploadFailure::Status { status, body }
+                }
+                other => UploadFailure::Other(other.to_string()),
+            })
+    }
+}
+
+/// Fetch and store one file, with the download and upload operations injectable for tests. The size is
+/// re-checked against the cap after the download, since Discord's reported size is a claim about bytes
+/// we had not yet seen.
+async fn relay_with<D: AttachmentDownloader, U: BlobUploader>(
+    downloader: &D,
+    uploader: &U,
+    url: &str,
     incoming: &IncomingFile,
     config: &AttachmentConfig,
 ) -> Result<MessageAttachment, NotDelivered> {
-    let bytes = match timeout(FETCH_TIMEOUT, file.download()).await {
+    let bytes = match timeout(FETCH_TIMEOUT, downloader.download(url)).await {
         Ok(Ok(bytes)) => bytes,
         Ok(Err(error)) => {
             tracing::warn!(%error, file = incoming.name, "discord connector: could not download a file");
@@ -217,7 +314,7 @@ async fn relay(
             cap: config.max_bytes,
         });
     }
-    match platform.upload_blob(bytes, &incoming.mime).await {
+    match uploader.upload(bytes, &incoming.mime).await {
         Ok(blob) => Ok(MessageAttachment {
             name: incoming.name.clone(),
             blob,
@@ -227,6 +324,20 @@ async fn relay(
             Err(NotDelivered::UploadFailed)
         }
     }
+}
+
+/// Fetch one Discord file with status-aware HTTP handling, then upload it to the platform.
+async fn relay(
+    platform: &PlatformClient,
+    file: &DiscordAttachment,
+    incoming: &IncomingFile,
+    config: &AttachmentConfig,
+) -> Result<MessageAttachment, NotDelivered> {
+    let downloader = DiscordDownloader {
+        client: reqwest::Client::new(),
+    };
+    let uploader = PlatformUploader { platform };
+    relay_with(&downloader, &uploader, &file.url, incoming, config).await
 }
 
 #[cfg(test)]
@@ -253,16 +364,152 @@ mod tests {
     }
 
     #[test]
-    fn a_file_discord_gives_no_type_for_is_uploaded_as_opaque_bytes() {
-        // The media type is only what the upload is labelled with — the classification it implies is
-        // the server's, derived from the stored blob, so the connector keeps no copy of that rule.
+    fn describe_uses_only_the_conservative_filename_mime_fallback_table() {
+        let text_extensions = [
+            "txt", "py", "rs", "json", "log", "md", "csv", "toml", "yaml", "yml", "ini", "cfg",
+            "conf", "c", "h", "cc", "cpp", "hpp", "java", "js", "jsx", "ts", "tsx", "go", "rb",
+            "sh", "sql", "css",
+        ];
+        for extension in text_extensions {
+            assert_eq!(
+                describe(&format!("file.{extension}"), None, 10).mime,
+                "text/plain"
+            );
+        }
+        for (extension, expected) in [
+            ("png", "image/png"),
+            ("jpg", "image/jpeg"),
+            ("jpeg", "image/jpeg"),
+            ("gif", "image/gif"),
+            ("webp", "image/webp"),
+        ] {
+            assert_eq!(
+                describe(&format!("file.{extension}"), None, 10).mime,
+                expected
+            );
+        }
+        assert_eq!(describe("notes.TXT", None, 10).mime, "text/plain");
+        assert_eq!(
+            describe("src/main.Rs", Some("APPLICATION/OCTET-STREAM"), 10).mime,
+            "text/plain"
+        );
+        assert_eq!(
+            describe(
+                "photo.JpEg",
+                Some(" application/octet-stream ; foo=bar "),
+                10
+            )
+            .mime,
+            "image/jpeg"
+        );
         assert_eq!(
             describe("shot.png", Some("image/png"), 10).mime,
             "image/png"
         );
-        assert_eq!(describe("mystery.bin", None, 10).mime, OCTET_STREAM);
-        // An empty type is no type at all, not a media type of "".
-        assert_eq!(describe("mystery.bin", Some("  "), 10).mime, OCTET_STREAM);
+        assert_eq!(
+            describe("notes.txt", Some("text/markdown; charset=utf-8"), 10).mime,
+            "text/markdown; charset=utf-8"
+        );
+        for name in [
+            "mystery.bin",
+            "page.html",
+            "page.htm",
+            "vector.xml",
+            "vector.svg",
+            "no-extension",
+        ] {
+            assert_eq!(describe(name, None, 10).mime, OCTET_STREAM);
+        }
+    }
+
+    struct TestDownloader {
+        result: Result<Vec<u8>, String>,
+    }
+
+    #[async_trait::async_trait]
+    impl AttachmentDownloader for TestDownloader {
+        async fn download(&self, _url: &str) -> Result<Vec<u8>, String> {
+            self.result.clone()
+        }
+    }
+
+    struct TestUploader {
+        calls: std::sync::atomic::AtomicUsize,
+        result: Result<BlobHash, UploadFailure>,
+    }
+
+    #[async_trait::async_trait]
+    impl BlobUploader for TestUploader {
+        async fn upload(&self, _bytes: Vec<u8>, _mime: &str) -> Result<BlobHash, UploadFailure> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.result.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn non_success_discord_response_is_fetch_failure_and_skips_upload() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\n\r\nnot a file")
+                .await
+                .unwrap();
+        });
+
+        let downloader = DiscordDownloader {
+            client: reqwest::Client::new(),
+        };
+        let uploader = TestUploader {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            result: Ok(BlobHash::of(b"unexpected")),
+        };
+        let result = relay_with(
+            &downloader,
+            &uploader,
+            &format!("http://{address}/attachment"),
+            &describe("report.txt", None, 12),
+            &config(100, 1),
+        )
+        .await;
+        server.await.unwrap();
+        assert!(matches!(result, Err(NotDelivered::FetchFailed)));
+        assert_eq!(uploader.calls.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn upload_conflict_is_announced_without_an_attachment() {
+        let downloader = TestDownloader {
+            result: Ok(b"same bytes".to_vec()),
+        };
+        let uploader = TestUploader {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            result: Err(UploadFailure::Status {
+                status: reqwest::StatusCode::CONFLICT,
+                body: "MIME conflict".to_owned(),
+            }),
+        };
+        let result = relay_with(
+            &downloader,
+            &uploader,
+            "https://discord.invalid/file",
+            &describe("report.txt", None, 10),
+            &config(100, 1),
+        )
+        .await;
+        assert!(matches!(result, Err(NotDelivered::UploadFailed)));
+        assert_eq!(uploader.calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+        let note = NotDelivered::UploadFailed.note("report.txt");
+        assert!(note.contains("report.txt"));
+        assert!(!note.contains(BlobHash::of(b"same bytes").as_str()));
     }
 
     #[test]

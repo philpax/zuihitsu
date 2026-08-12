@@ -8,6 +8,8 @@ name = "zuihitsu-discord"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = { workspace = true }
+reqwest = { workspace = true, features = ["rustls"] }
 serenity = { version = "0.12", default-features = false, features = [
     "gateway",
     "client",

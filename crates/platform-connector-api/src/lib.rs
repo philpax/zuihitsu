@@ -535,7 +535,8 @@ impl PlatformClient {
     /// stored at. The bytes are the whole request body and `mime` is its `Content-Type`, so a
     /// download streams straight through. The server refuses a message naming a blob it does not
     /// hold, so a connector uploads a file's bytes before naming them in the message that carried it.
-    /// The upload is idempotent: the same bytes always yield the same address.
+    /// Re-uploading identical bytes is idempotent only when the MIME matches the existing blob; a
+    /// different MIME returns a conflict so historical attachment metadata remains stable.
     pub async fn upload_blob(&self, bytes: Vec<u8>, mime: &str) -> Result<BlobHash> {
         let url = format!("{}/platform/blobs", self.base_url);
         let response = self

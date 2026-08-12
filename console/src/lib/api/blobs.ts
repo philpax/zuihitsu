@@ -17,12 +17,15 @@ export function blobUrl(baseUrl: string, hash: BlobHash): string {
 
 /// Store a file's bytes and return their content address, the console acting as a platform connector
 /// (`POST /platform/blobs`). The body is the bytes themselves and the `Content-Type` is the media
-/// type they are stored under, so there is no envelope to build. Idempotent by construction: the same
-/// bytes always answer with the same address.
+/// type they are stored under, so there is no envelope to build. Re-uploading the same bytes is
+/// idempotent only when the MIME matches the existing blob; a different MIME returns a conflict and
+/// preserves the metadata already used by recorded attachments.
 ///
 /// A message may only name a blob the store already holds, so an attachment is uploaded as it is
 /// added to the composer rather than at send — a failure then surfaces while the sender is still
-/// typing, not after they have committed to the message.
+/// typing, not after they have committed to the message. The server's per-upload cap and the
+/// request-wide message count and aggregate-byte budgets are enforced separately when the message is
+/// sent.
 export async function uploadBlob(connection: LiveConnection, file: File): Promise<BlobHash> {
   // Not `authHeaders`: this body is the file, not JSON, and the content type is what the bytes are
   // stored under.

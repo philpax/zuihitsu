@@ -84,6 +84,49 @@ fn serving_bind_defaults_to_loopback_and_parses_an_override() {
 }
 
 #[test]
+fn serving_config_defaults_and_overrides_include_message_attachment_budgets() {
+    let defaults = EnvConfig::default().serving;
+    assert_eq!(defaults.max_message_attachment_count, 32);
+    assert_eq!(defaults.max_message_attachment_bytes, 64 * 1024 * 1024);
+
+    let config = EnvConfig::load_from_string(
+        "[serving]\nmax_message_attachment_count = 3\nmax_message_attachment_bytes = 99\n",
+        base(),
+    )
+    .unwrap();
+    assert_eq!(config.serving.max_message_attachment_count, 3);
+    assert_eq!(config.serving.max_message_attachment_bytes, 99);
+
+    let json = serde_json::to_value(config.serving).unwrap();
+    assert_eq!(json["max_message_attachment_count"], 3);
+    assert_eq!(json["max_message_attachment_bytes"], 99);
+}
+
+#[test]
+fn attachment_contract_documentation_names_the_limits_conflict_and_fallback() {
+    let readme = include_str!("../../README.md");
+    let protocol = include_str!("../../docs/platform-connector-protocol.md");
+    let storage = include_str!("../../docs/events-and-storage.md");
+    let discord = include_str!("../../platform-connectors/discord/README.md");
+    let http_upload = include_str!("../http_server/blobs.rs");
+    let instance_upload = include_str!("../instance/mod.rs");
+    let connector_api = include_str!("../../crates/platform-connector-api/src/lib.rs");
+    let console_upload = include_str!("../../console/src/lib/api/blobs.ts");
+
+    assert!(readme.contains("max_message_attachment_count"));
+    assert!(readme.contains("max_message_attachment_bytes"));
+    assert!(readme.contains("same bytes with another MIME return 409"));
+    assert!(protocol.contains("409 Conflict"));
+    assert!(protocol.contains("repeated references count independently"));
+    assert!(storage.contains("a different MIME is rejected"));
+    assert!(discord.contains("conservative fallback"));
+    assert!(http_upload.contains("different MIME is a `409`"));
+    assert!(instance_upload.contains("different MIME returns a conflict"));
+    assert!(connector_api.contains("different MIME returns a conflict"));
+    assert!(console_upload.contains("different MIME returns a conflict"));
+}
+
+#[test]
 fn control_keys_default_empty_and_parse_as_arrays() {
     // No keys by default — a loopback-only, no-remote-access posture.
     assert!(EnvConfig::default().serving.control_keys.is_empty());

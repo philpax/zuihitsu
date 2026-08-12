@@ -5894,8 +5894,10 @@ dependencies = [
 name = "zuihitsu-discord"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "parking_lot",
+ "reqwest 0.13.4",
  "rusqlite",
  "serde",
  "serenity",

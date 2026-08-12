@@ -104,7 +104,7 @@ A full re-embed from the log — needed only on an embedding-model swap, which i
 
 ### Blob store
 
-Content-addressed, and a fourth database beside the log, the graph, and the vector index: `blobs.sqlite`, holding the bytes of attachments the log refers to only by their address. The log's payload column is JSON text and the log is the source of truth, so bulk bytes do not belong in it; the attachment record on a `ConversationTurn` carries the file's name, media type, length, and the lowercase hex SHA-256 of its bytes, and the bytes themselves live here. The address is the primary key, so a write is idempotent by construction: storing the same bytes twice stores one blob. The media type and length are held with the bytes rather than sniffed at read time or kept in a sidecar.
+Content-addressed, and a fourth database beside the log, the graph, and the vector index: `blobs.sqlite`, holding the bytes of attachments the log refers to only by their address. The log's payload column is JSON text and the log is the source of truth, so bulk bytes do not belong in it; the attachment record on a `ConversationTurn` carries the file's name, media type, length, and the lowercase hex SHA-256 of its bytes, and the bytes themselves live here. The address is the primary key, so a write with the same MIME is idempotent: storing the same bytes twice under that MIME stores one blob, while a different MIME is rejected rather than rewriting metadata already used by recorded attachments. The media type and length are held with the bytes rather than sniffed at read time or kept in a sidecar.
 
 Bytes rather than a fan-out directory, because one file backs up beside the other three, writes are atomic, and the listing a sweep needs is a query rather than a directory walk.
 

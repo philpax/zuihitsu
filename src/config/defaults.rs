@@ -12,6 +12,10 @@ pub(crate) const DEFAULT_REQUEST_TIMEOUT_SECONDS: u64 = 300;
 /// The default attachment upload cap: 16 MiB, which comfortably holds the images and documents a
 /// chat platform lets a participant post, while keeping one hostile upload from filling the disk.
 pub(crate) const DEFAULT_MAX_ATTACHMENT_BYTES: usize = 16 * 1024 * 1024;
+/// The default request-wide attachment reference budget for one platform message batch.
+pub(crate) const DEFAULT_MAX_MESSAGE_ATTACHMENT_COUNT: usize = 32;
+/// The default request-wide attachment byte budget for one platform message batch.
+pub(crate) const DEFAULT_MAX_MESSAGE_ATTACHMENT_BYTES: u64 = 64 * 1024 * 1024;
 
 impl Default for ResilienceConfig {
     fn default() -> Self {
@@ -33,6 +37,8 @@ impl Default for ServingConfig {
             control_keys: Vec::new(),
             read_only: false,
             max_attachment_bytes: DEFAULT_MAX_ATTACHMENT_BYTES,
+            max_message_attachment_count: DEFAULT_MAX_MESSAGE_ATTACHMENT_COUNT,
+            max_message_attachment_bytes: DEFAULT_MAX_MESSAGE_ATTACHMENT_BYTES,
         }
     }
 }

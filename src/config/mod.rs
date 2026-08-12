@@ -130,6 +130,13 @@ pub struct ServingConfig {
     /// worse than none: its content address would name bytes nobody sent. Also the axum body limit
     /// for the route, so an oversized upload is refused rather than buffered.
     pub max_attachment_bytes: usize,
+    /// The maximum number of attachment references accepted in one complete `messages` batch. Every
+    /// reference counts, including repeated references to the same content address, because each one
+    /// expands the model input independently. Zero permits text-only batches but no attachment references.
+    pub max_message_attachment_count: usize,
+    /// The maximum aggregate stored byte length of attachment references in one complete `messages`
+    /// batch. Repeated references consume the budget repeatedly; zero permits text-only batches.
+    pub max_message_attachment_bytes: u64,
 }
 
 /// Serialize a list of API keys as its length — the count is informative ("two keys configured"); the

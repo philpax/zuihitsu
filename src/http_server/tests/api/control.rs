@@ -14,6 +14,32 @@ use tower::ServiceExt;
 use zuihitsu::{ManualClock, Server, time::Timestamp};
 
 #[tokio::test]
+async fn lua_api_does_not_expose_blob_reading() {
+    let app = router(test_state(Arc::new(
+        Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap(),
+    )));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .uri("/control/lua-api")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let catalogue: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let rendered = catalogue.to_string().to_ascii_lowercase();
+    assert!(!rendered.contains("blob"));
+    assert!(!rendered.contains("/blobs/"));
+    assert!(!rendered.contains("read url"));
+}
+
+#[tokio::test]
 async fn create_then_inspect_over_the_control_api() {
     let server =
         Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());

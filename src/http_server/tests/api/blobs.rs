@@ -45,6 +45,54 @@ fn state_with_cap(server: Arc<Server>, cap: usize) -> AppState {
     }
 }
 
+fn state_with_message_budgets(
+    server: Arc<Server>,
+    count: usize,
+    bytes: u64,
+    model: Option<Arc<dyn zuihitsu::ModelClient>>,
+) -> AppState {
+    let mut config = EnvConfig::default();
+    config.serving.max_message_attachment_count = count;
+    config.serving.max_message_attachment_bytes = bytes;
+    AppState {
+        config: Arc::new(config),
+        model,
+        ..test_state(server)
+    }
+}
+
+fn message_body(blob: &BlobHash, names: &[&str]) -> serde_json::Value {
+    serde_json::json!({
+        "scope_path": "general",
+        "messages": [{
+            "sender": "rowan",
+            "text": "look at these",
+            "attachments": names.iter().map(|name| serde_json::json!({
+                "name": name,
+                "blob": blob.as_str(),
+            })).collect::<Vec<_>>(),
+        }],
+        "present": ["rowan"],
+    })
+}
+
+async fn post_platform_message(
+    app: axum::Router,
+    body: serde_json::Value,
+) -> axum::response::Response {
+    app.oneshot(
+        Request::builder()
+            .extension(loopback())
+            .method("POST")
+            .uri("/platform/messages")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
 /// Upload `bytes` as `mime` and return the response.
 async fn upload(app: axum::Router, bytes: &[u8], mime: &str) -> axum::response::Response {
     app.oneshot(
@@ -134,6 +182,142 @@ async fn an_over_cap_upload_is_refused_rather_than_truncated() {
     // A body at the cap is fine — the refusal is over it, not at it.
     let response = upload(app, b"eight by", "text/plain").await;
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn platform_messages_accepts_exact_attachment_count_limit_and_rejects_one_over() {
+    let server = Arc::new(born_agent());
+    let model: Arc<dyn zuihitsu::ModelClient> = Arc::new(ScriptedModel::new([
+        Completion::Reply("Noted.".to_owned()),
+        Completion::Reply("Noted again.".to_owned()),
+    ]));
+    let hash = server.put_blob(b"one", "text/plain").unwrap();
+    let app = router(state_with_message_budgets(
+        server.clone(),
+        2,
+        6,
+        Some(model),
+    ));
+
+    let exact = post_platform_message(app.clone(), message_body(&hash, &["a", "b"])).await;
+    assert_eq!(exact.status(), StatusCode::OK);
+    let over = post_platform_message(app, message_body(&hash, &["a", "b", "c"])).await;
+    assert_eq!(over.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(over.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("max_message_attachment_count"));
+}
+
+#[tokio::test]
+async fn platform_messages_accepts_exact_attachment_byte_limit_and_rejects_one_over() {
+    let server = Arc::new(born_agent());
+    let model: Arc<dyn zuihitsu::ModelClient> = Arc::new(ScriptedModel::new([
+        Completion::Reply("Noted.".to_owned()),
+        Completion::Reply("Noted again.".to_owned()),
+    ]));
+    let hash = server.put_blob(b"123", "text/plain").unwrap();
+    let app = router(state_with_message_budgets(
+        server.clone(),
+        4,
+        6,
+        Some(model),
+    ));
+
+    let exact = post_platform_message(app.clone(), message_body(&hash, &["a", "b"])).await;
+    assert_eq!(exact.status(), StatusCode::OK);
+    let over = post_platform_message(app, message_body(&hash, &["a", "b", "c"])).await;
+    assert_eq!(over.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(over.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("max_message_attachment_bytes"));
+}
+
+#[tokio::test]
+async fn platform_message_counts_repeated_blob_references_individually() {
+    let server = Arc::new(born_agent());
+    let model: Arc<dyn zuihitsu::ModelClient> =
+        Arc::new(ScriptedModel::new([Completion::Reply("Noted.".to_owned())]));
+    let hash = server.put_blob(b"123", "text/plain").unwrap();
+    let app = router(state_with_message_budgets(server, 3, 100, Some(model)));
+    let response = post_platform_message(app, message_body(&hash, &["a", "a", "a", "a"])).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("max_message_attachment_count"));
+}
+
+#[tokio::test]
+async fn platform_messages_rejects_missing_blob_before_no_model() {
+    let server = Arc::new(born_agent());
+    let before = server.control().events().unwrap().len();
+    let app = router(state_with_message_budgets(
+        server.clone(),
+        32,
+        64 * 1024 * 1024,
+        None,
+    ));
+    let missing = BlobHash::of(b"never uploaded");
+    let response = post_platform_message(app, message_body(&missing, &["missing.txt"])).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = String::from_utf8_lossy(&body);
+    assert!(text.contains(missing.as_str()));
+    assert!(!text.contains("no model"));
+    assert_eq!(server.control().events().unwrap().len(), before);
+}
+
+#[tokio::test]
+async fn platform_messages_rejects_over_budget_before_turn() {
+    let server = Arc::new(born_agent());
+    let before = server.control().events().unwrap().len();
+    let hash = server.put_blob(b"123", "text/plain").unwrap();
+    let app = router(state_with_message_budgets(server.clone(), 0, 0, None));
+    let response = post_platform_message(app, message_body(&hash, &["a"])).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("max_message_attachment_count"));
+    assert_eq!(server.control().events().unwrap().len(), before);
+}
+
+#[tokio::test]
+async fn uploading_same_bytes_with_a_different_mime_returns_conflict_and_preserves_metadata() {
+    let server = Arc::new(born_agent());
+    let app = router(test_state(server.clone()));
+    let first = upload(app.clone(), b"same bytes", "text/plain").await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let second = upload(app.clone(), b"same bytes", "image/png").await;
+    assert_eq!(second.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(second.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains(BlobHash::of(b"same bytes").as_str()));
+    assert!(text.contains("text/plain") && text.contains("image/png"));
+    assert_eq!(
+        server
+            .blob_meta(&BlobHash::of(b"same bytes"))
+            .unwrap()
+            .unwrap()
+            .mime,
+        "text/plain"
+    );
+    let read = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/blobs/{}", BlobHash::of(b"same bytes")))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(read.headers()["content-type"], "text/plain");
 }
 
 #[tokio::test]

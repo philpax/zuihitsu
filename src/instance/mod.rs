@@ -265,7 +265,8 @@ impl Instance {
     }
 
     /// Store `bytes` under their content address, returning it — a connector's attachment upload.
-    /// Idempotent: the same bytes always yield the same address and are stored once.
+    /// Re-uploading identical bytes is idempotent only when the MIME matches the existing blob; a
+    /// different MIME returns a conflict so historical attachment metadata remains stable.
     pub fn put_blob(&self, bytes: &[u8], mime: &str) -> Result<BlobHash, BlobError> {
         self.engine.blobs.lock().put(bytes, mime)
     }

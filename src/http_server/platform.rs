@@ -68,14 +68,16 @@ fn message_inputs(
     scope: &PlatformConnectorScope,
     messages: Vec<WireMessage>,
 ) -> Result<Vec<MessageInput>, ApiError> {
-    let mut inputs = Vec::with_capacity(messages.len());
+    let mut inputs = Vec::new();
+    let mut attachment_count = 0usize;
+    let mut attachment_bytes = 0u64;
     for message in messages {
-        let mut attachments = Vec::with_capacity(message.attachments.len());
+        let mut attachments = Vec::new();
         for attachment in message.attachments {
             let meta = state
                 .server
                 .blob_meta(&attachment.blob)
-                .map_err(|error| ApiError::Internal(error.to_string()))?
+                .map_err(ApiError::from)?
                 .ok_or_else(|| {
                     ApiError::BadRequest(format!(
                         "platform: no blob is stored under {}; upload it to /platform/blobs before \
@@ -83,6 +85,31 @@ fn message_inputs(
                         attachment.blob
                     ))
                 })?;
+            attachment_count = attachment_count.checked_add(1).ok_or_else(|| {
+                ApiError::BadRequest(
+                    "platform: the message batch attachment count overflowed".to_owned(),
+                )
+            })?;
+            if attachment_count > state.config.serving.max_message_attachment_count {
+                return Err(ApiError::BadRequest(format!(
+                    "platform: the message batch contains more than the configured {} attachment references \
+                     ([serving] max_message_attachment_count)",
+                    state.config.serving.max_message_attachment_count
+                )));
+            }
+
+            attachment_bytes = attachment_bytes.checked_add(meta.byte_len).ok_or_else(|| {
+                ApiError::BadRequest(
+                    "platform: the message batch attachment byte total overflowed".to_owned(),
+                )
+            })?;
+            if attachment_bytes > state.config.serving.max_message_attachment_bytes {
+                return Err(ApiError::BadRequest(format!(
+                    "platform: the message batch attachments exceed the configured {} aggregate bytes \
+                     ([serving] max_message_attachment_bytes)",
+                    state.config.serving.max_message_attachment_bytes
+                )));
+            }
             attachments.push(Attachment {
                 name: attachment.name,
                 mime: SmolStr::new(&meta.mime),
@@ -116,9 +143,9 @@ pub(super) async fn message(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<Json<PlatformResponse>, ApiError> {
-    let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let locator = locator(&scope, request.scope_path);
     let messages = message_inputs(&state, &scope, request.messages)?;
+    let model = state.model.as_ref().ok_or(ApiError::NoModel)?;
     let present: Vec<PersonId> = request
         .present
         .into_iter()
@@ -365,9 +392,9 @@ pub(super) async fn message_stream(
     Extension(scope): Extension<PlatformConnectorScope>,
     Json(request): Json<MessageRequest>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
-    let model = state.model.clone().ok_or(ApiError::NoModel)?;
     let locator = locator(&scope, request.scope_path);
     let messages = message_inputs(&state, &scope, request.messages)?;
+    let model = state.model.clone().ok_or(ApiError::NoModel)?;
     let present: Vec<PersonId> = request
         .present
         .into_iter()
