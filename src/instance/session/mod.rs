@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn carryover_tail_admits_the_newest_turns_that_fit_the_budget() {
-        // Unmeasured turns fall back to `chars / 4`: texts of 16, 16, and 8 chars cost 4, 4, and 2.
+        // Unmeasured turns use the shared character estimator: texts of 16, 16, and 8 chars cost 4, 4, and 2.
         let buffer = vec![
             turn(1, &"a".repeat(16)),
             turn(2, &"b".repeat(16)),
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn a_turn_the_backend_never_priced_falls_back_to_the_character_estimate() {
-        // No turn carries a prompt size, so every turn is estimated at `chars / 4`.
+        // No turn carries a prompt size, so every turn uses the shared character estimator.
         let buffer = vec![turn(1, &"a".repeat(40)), turn(2, &"b".repeat(40))];
         assert_eq!(turn_token_costs(&buffer), vec![10, 10]);
     }

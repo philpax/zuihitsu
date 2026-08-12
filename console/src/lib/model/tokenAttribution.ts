@@ -2,6 +2,7 @@ import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
 import type { CacheVerdict } from "./cachePath.ts";
 import type { ModelInteraction } from "./interactions.ts";
+import { estimateTokensFromChars } from "../replica/replica.ts";
 import { resolveSections } from "./promptSections.ts";
 
 /// How a row's token count was obtained, most trusted first: measured from provider deltas,
@@ -29,15 +30,12 @@ export interface CallAttribution {
   totalProvenance: TokenProvenance;
 }
 
-/// The `chars / 4` heuristic, the TS port of the compaction trigger's fallback estimator
-/// (`estimate_tokens` in the agent): code-point counting, deliberately coarse.
-export function estimateTokens(text: string): number {
-  return Math.ceil([...text].length / 4);
-}
+/// The shared fallback estimator used by the agent and the console's WASM boundary.
+export { estimateTokens } from "../replica/replica.ts";
 
 /// Attribute each call's prompt tokens to rows, one `CallAttribution` per call, using the
 /// measurement ladder: exact deltas within a warm chain, char-share apportionment inside a measured
-/// lump, and the `chars / 4` estimate when no measurement exists. The displayed total always equals
+/// lump, and the shared character estimate when no measurement exists. The displayed total always equals
 /// the provider's `prompt_tokens` when reported.
 export function attributeTokens(
   calls: ModelInteraction[],
@@ -149,12 +147,12 @@ function apportionedLump(call: ModelInteraction, total: number): CallAttribution
   return { rows, total, totalProvenance: "measured" };
 }
 
-/// No measurement at all: every row is the raw `chars / 4` estimate, and so is the total.
+/// No measurement at all: every row uses the shared character estimate, and so does the total.
 function estimated(call: ModelInteraction): CallAttribution {
   const rows = lumpParts(call).map((part) => ({
     ...part.row,
-    // The char counts are already counted, so the estimator's division applies directly.
-    tokens: Math.ceil(part.chars / 4),
+    // The character counts are already available, so use the shared scalar-count estimator directly.
+    tokens: estimateTokensFromChars(part.chars),
     provenance: "estimated" as const,
   }));
   return {

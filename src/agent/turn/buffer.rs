@@ -259,9 +259,6 @@ pub fn carryover_start(turns: &[TurnView], token_budget: i64) -> usize {
     start
 }
 
-/// Characters per token in the fallback estimate, for the turns the backend never priced.
-const ESTIMATED_CHARS_PER_TOKEN: usize = 4;
-
 /// What each turn in `turns` costs the prompt, in tokens.
 ///
 /// Two turns that recorded a prompt size bound a span whose cost is exactly the difference between
@@ -276,7 +273,7 @@ const ESTIMATED_CHARS_PER_TOKEN: usize = 4;
 /// trailing instruction the next turn's does not — both read as a small negative rather than a real
 /// shrink.
 ///
-/// Turns the backend never priced fall back to [`ESTIMATED_CHARS_PER_TOKEN`]: the newest turns, whose
+/// Turns the backend never priced fall back to the shared character estimator: the newest turns, whose
 /// successor has not run yet; a backend that reports no usage; and a log written under
 /// `CaptureLevel::Off`, which records no `ModelCalled` to read.
 pub fn turn_token_costs(turns: &[TurnView]) -> Vec<usize> {
@@ -303,8 +300,8 @@ pub fn turn_token_costs(turns: &[TurnView]) -> Vec<usize> {
     costs
 }
 
-/// The fallback price of one turn: its text and its replayed tool steps at
-/// [`ESTIMATED_CHARS_PER_TOKEN`]. Deliberately counts the steps, which the prompt carries in full.
+/// The fallback price of one turn: its text and its replayed tool steps under the shared character
+/// estimator. Deliberately counts the steps, which the prompt carries in full.
 pub fn estimated_turn_tokens(turn: &TurnView) -> usize {
     let chars = turn.text.chars().count()
         + turn
@@ -312,7 +309,7 @@ pub fn estimated_turn_tokens(turn: &TurnView) -> usize {
             .iter()
             .map(|step| step.script.chars().count() + step.result.chars().count())
             .sum::<usize>();
-    chars / ESTIMATED_CHARS_PER_TOKEN
+    estimated_tokens_from_chars(chars)
 }
 
 /// Divide `total` across `turns` in proportion to how many characters each holds, writing the shares

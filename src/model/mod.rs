@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 // The model-interaction wire types live in zuihitsu-core (so the event log and the console can
 // share them in wasm) and are re-exported here, keeping them reachable at `crate::model::*`.
 pub use zuihitsu_core::model::{
-    Completion, ImagePart, Message, Role, ToolCall, ToolChoice, ToolSpec, Usage,
+    Completion, ImagePart, Message, Role, ToolCall, ToolChoice, ToolSpec, Usage, estimated_tokens,
+    estimated_tokens_from_chars,
 };
 
 /// A JSON-schema constraint on the whole response body — OpenAI `response_format: { type:

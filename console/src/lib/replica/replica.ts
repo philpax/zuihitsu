@@ -1,5 +1,7 @@
 import initWasm, {
   Replica as WasmReplica,
+  estimatedTokens as wasmEstimatedTokens,
+  estimatedTokensFromChars as wasmEstimatedTokensFromChars,
   memRefConstruct,
   refNormalize,
   refScan,
@@ -64,6 +66,17 @@ export function constructTurnRef(id: string): string {
 /// The canonical memory-reference token for a memory id. Throws if `id` is not a valid id.
 export function constructMemRef(id: string): string {
   return memRefConstruct(id);
+}
+
+/// Estimate provider tokens from text using the core fallback rule. Callers run beneath a loaded
+/// `Replica`, so the WASM module is ready before this synchronous pure function is reached.
+export function estimateTokens(text: string): number {
+  return wasmEstimatedTokens(text);
+}
+
+/// Estimate provider tokens from a Unicode scalar-value count using the core fallback rule.
+export function estimateTokensFromChars(chars: number): number {
+  return wasmEstimatedTokensFromChars(chars);
 }
 
 /// A typed handle over the console-wasm `Replica`: an event log folded through the agent's own

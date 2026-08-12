@@ -29,7 +29,10 @@ use zuihitsu_core::{
     event::{Event, EventPayload, MergeProposalSource, RequestRecord},
     graph::Graph,
     ids::{MemoryId, MemoryName, Namespace, Seq},
-    model::{Message, ToolChoice, ToolSpec},
+    model::{
+        Message, ToolChoice, ToolSpec, estimated_tokens as core_estimated_tokens,
+        estimated_tokens_from_chars as core_estimated_tokens_from_chars,
+    },
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };
@@ -52,6 +55,18 @@ const MAX_RECURRING_INSTANCES: usize = 20;
 /// A month grid spans six weeks (42 days), so a daily rule fills every cell and this bound leaves
 /// headroom above that without letting a malformed rule loop unbounded.
 const MAX_CALENDAR_INSTANCES: usize = 50;
+
+/// Apply the same coarse fallback used by the agent when a model provider omits token usage.
+#[wasm_bindgen(js_name = estimatedTokensFromChars)]
+pub fn estimated_tokens_from_chars(chars: usize) -> usize {
+    core_estimated_tokens_from_chars(chars)
+}
+
+/// Count Unicode scalar values and apply the shared coarse token fallback.
+#[wasm_bindgen(js_name = estimatedTokens)]
+pub fn estimated_tokens(text: &str) -> usize {
+    core_estimated_tokens(text)
+}
 
 #[wasm_bindgen]
 impl Replica {

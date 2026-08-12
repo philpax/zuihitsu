@@ -14,6 +14,34 @@ use smol_str::SmolStr;
 
 use crate::ids::BlobHash;
 
+/// Characters per token in the deterministic fallback used when the provider reports no usage.
+const ESTIMATED_CHARS_PER_TOKEN: usize = 4;
+
+/// Estimate tokens from a Unicode scalar-value count using the shared fallback rule. A non-empty
+/// fragment rounds up so the fallback does not understate the prompt budget.
+pub fn estimated_tokens_from_chars(chars: usize) -> usize {
+    chars.div_ceil(ESTIMATED_CHARS_PER_TOKEN)
+}
+
+/// Estimate tokens from text using the shared fallback rule.
+pub fn estimated_tokens(text: &str) -> usize {
+    estimated_tokens_from_chars(text.chars().count())
+}
+
+#[cfg(test)]
+mod token_estimate_tests {
+    use super::{estimated_tokens, estimated_tokens_from_chars};
+
+    #[test]
+    fn uses_unicode_scalar_counts_and_ceiling_division() {
+        assert_eq!(estimated_tokens_from_chars(0), 0);
+        assert_eq!(estimated_tokens_from_chars(3), 1);
+        assert_eq!(estimated_tokens_from_chars(4), 1);
+        assert_eq!(estimated_tokens("🐚🐚🐚🐚"), 1);
+        assert_eq!(estimated_tokens("🐚🐚🐚"), 1);
+    }
+}
+
 /// A message in the conversation handed to the model. `tool_calls` is populated on an assistant
 /// message that called tools; `tool_call_id` ties a tool-result message to the call it answers —
 /// the threading the OpenAI protocol needs across multi-step tool use.

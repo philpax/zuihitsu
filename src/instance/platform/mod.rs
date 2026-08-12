@@ -12,6 +12,7 @@ use crate::{
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     instance::{Instance, InstanceError},
     memory::memory_block::{MemoryBlock, MemoryError},
+    model::estimated_tokens_from_chars,
     store::StoreError,
     vocabulary::RelationName,
 };
@@ -203,7 +204,7 @@ pub(super) fn retract_if_live(
 pub(super) fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
     let buffer_tokens: usize = buffer.iter().map(estimated_turn_tokens).sum();
     let inbound_chars: usize = messages.iter().map(|m| m.text.chars().count()).sum();
-    (buffer_tokens + inbound_chars / 4) as i64
+    (buffer_tokens + estimated_tokens_from_chars(inbound_chars)) as i64
 }
 
 #[cfg(test)]

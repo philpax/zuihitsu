@@ -65,7 +65,7 @@ pub(super) use crate::{
     event::{EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     memory::memory_block::Authority,
-    model::{Message, ModelClient},
+    model::{Message, ModelClient, estimated_tokens_from_chars},
     prompt::PromptSectionSpan,
     settings::{AmbientSettings, CaptureLevel},
     store::{Store, StoreError},

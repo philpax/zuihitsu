@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The attribution tests are pure Node tests. Production uses the Rust estimator through this adapter;
+// the test replaces only the browser/WASM loading seam so the arithmetic paths remain deterministic.
+vi.mock("../replica/replica.ts", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  estimateTokens: (text: string) => Math.ceil([...text].length / 4),
+  estimateTokensFromChars: (chars: number) => Math.ceil(chars / 4),
+}));
 
 import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import { call, message } from "./callFixtures.ts";
@@ -115,7 +123,7 @@ describe("attributeTokens", () => {
     expect(a.tokens).toBeGreaterThanOrEqual(b.tokens);
   });
 
-  it("falls back to chars/4 estimates when usage is absent (AC4.3)", () => {
+  it("falls back to shared character estimates when usage is absent (AC4.3)", () => {
     const base = call({ seq: 1, messages: [message("user", "hello there")] });
     const [only] = attribution([base]);
     expect(only.totalProvenance).toBe("estimated");
@@ -210,8 +218,9 @@ describe("attributeTokens", () => {
     expect(next.rows.every((row) => row.tokens >= 0)).toBe(true);
   });
 
-  it("estimates by code points, mirroring the agent's chars/4", () => {
+  it("estimates by Unicode scalar values with the shared ceiling rule", () => {
     expect(estimateTokens("abcd")).toBe(1);
+    expect(estimateTokens("abc")).toBe(1);
     expect(estimateTokens("🐚🐚🐚🐚")).toBe(1);
     expect(estimateTokens("")).toBe(0);
   });
