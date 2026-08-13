@@ -17,7 +17,7 @@ use smol_str::SmolStr;
 use zuihitsu::{
     Attachment, AttachmentKind, ContextEntry, ContextOutcome, ConversationLocator, LinkError,
     LinkNode, MemoryId, MessageInput, ParticipantAttribute, PersonId, ProjectOutcome, RosterResync,
-    ids::BlobHash,
+    attachment::sanitize_attachment_name, ids::BlobHash,
 };
 use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame};
 
@@ -111,7 +111,7 @@ fn message_inputs(
                 )));
             }
             attachments.push(Attachment {
-                name: attachment.name,
+                name: sanitize_attachment_name(&attachment.name),
                 mime: SmolStr::new(&meta.mime),
                 blob: attachment.blob,
                 byte_len: meta.byte_len,

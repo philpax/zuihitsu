@@ -188,7 +188,7 @@ impl RunContext {
             EvalError::Executor(format!("storing attachment {name:?}: {error}"))
         })?;
         Ok(Attachment {
-            name: name.to_owned(),
+            name: zuihitsu::attachment::sanitize_attachment_name(name),
             mime: mime.into(),
             blob,
             byte_len: bytes.len() as u64,
