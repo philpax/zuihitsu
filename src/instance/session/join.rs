@@ -74,6 +74,8 @@ impl Instance {
                     initiation: Initiation::Responding,
                     produced_by: None,
                     brief: join_brief,
+                    // A join is a system turn about an arrival, not a message; it carries no files.
+                    attachments: Vec::new(),
                 },
             ],
         )?;

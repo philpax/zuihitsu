@@ -8,7 +8,7 @@ use crate::{
         system_prompt, templates,
         turn::{
             BlockContext, Flush, Steps, Turn, TurnError, TurnOutcome, TurnReport,
-            ambient::ambient_recall, buffer::TurnView, recording::run_steps,
+            ambient::ambient_recall, attachments, buffer::TurnView, recording::run_steps,
             tools::full_api_reference,
         },
     },
@@ -20,6 +20,7 @@ use crate::{
     memory::memory_block::Authority,
     metrics::{observe_turn_deferred, observe_turn_superseded},
     model::Message,
+    store::BlobStore,
     time::{Timestamp, format_stamp},
 };
 
@@ -43,7 +44,7 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         block_timeout,
         max_block_attempts,
         max_entry_chars,
-        capture,
+        max_attachment_text_chars,
         mut supersession,
     } = turn;
     let conversation = session
@@ -103,13 +104,27 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
     let turn_id = TurnId::generate();
     let inbound_participants: Vec<MemoryId> = inbound.iter().map(|m| m.participant).collect();
     let names = participant_names(engine.as_ref(), buffer, &inbound_participants);
-    let mut messages = buffer_messages(buffer, &names);
+    let mut messages = buffer_messages(
+        buffer,
+        &names,
+        &engine.blobs.lock(),
+        max_attachment_text_chars,
+    );
     for msg in inbound {
-        messages.push(Message::user(stamp(
+        let rendered = attachments::render(
             &msg.text,
-            engine.clock.now(),
-            names.get(&msg.participant).map(String::as_str),
-        )));
+            &msg.attachments,
+            &engine.blobs.lock(),
+            max_attachment_text_chars,
+        );
+        messages.push(Message {
+            images: rendered.images,
+            ..Message::user(stamp(
+                &rendered.body,
+                engine.clock.now(),
+                names.get(&msg.participant).map(String::as_str),
+            ))
+        });
     }
 
     // Supersession admission check: a newer inbound batch may have arrived while this turn queued for
@@ -196,7 +211,6 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         initiation: Initiation::Responding,
         provenance: agent_provenance,
         max_steps,
-        capture,
         supersession,
     })
     .await;
@@ -260,7 +274,7 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         block_timeout,
         max_block_attempts,
         max_entry_chars,
-        capture,
+        max_attachment_text_chars,
     } = flush;
     // The flush's standing instruction comes from the `Flush` template; without it there is nothing to
     // flush. It rides as a trailing message (below), not as the system prompt.
@@ -310,7 +324,12 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
     // system-role message — a stronger reframing than a user turn, while leaving the cached prefix
     // intact. (If a serving backend rejects a non-leading system message, switch this to
     // `Message::user`.)
-    let mut messages = buffer_messages(buffer, &participant_names(engine.as_ref(), buffer, &[]));
+    let mut messages = buffer_messages(
+        buffer,
+        &participant_names(engine.as_ref(), buffer, &[]),
+        &engine.blobs.lock(),
+        max_attachment_text_chars,
+    );
     messages.push(Message::system(flush_instruction.body));
 
     run_steps(Steps {
@@ -335,7 +354,6 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         initiation: Initiation::Initiated,
         provenance,
         max_steps,
-        capture,
         // The flush is agent-initiated background synthesis with no inbound batch behind it, so there
         // is nothing to supersede it.
         supersession: None,
@@ -365,6 +383,8 @@ pub(crate) fn tool_call_id(turn_id: TurnId, index: usize) -> String {
 pub(crate) fn buffer_messages(
     buffer: &[TurnView],
     names: &BTreeMap<MemoryId, String>,
+    blobs: &BlobStore,
+    max_text_chars: usize,
 ) -> Vec<Message> {
     let mut messages: Vec<Message> = Vec::with_capacity(buffer.len() + 1);
     for buffered in buffer {
@@ -376,11 +396,16 @@ pub(crate) fn buffer_messages(
                     .participant
                     .and_then(|id| names.get(&id))
                     .map(String::as_str);
-                messages.push(Message::user(stamp(
+                let rendered = attachments::render(
                     &buffered.text,
-                    buffered.recorded_at,
-                    speaker,
-                )))
+                    &buffered.attachments,
+                    blobs,
+                    max_text_chars,
+                );
+                messages.push(Message {
+                    images: rendered.images,
+                    ..Message::user(stamp(&rendered.body, buffered.recorded_at, speaker))
+                })
             }
             TurnRole::Agent => {
                 // Re-play the turn's tool-call steps so the model re-sees what it already ran —

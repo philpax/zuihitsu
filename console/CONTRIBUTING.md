@@ -22,6 +22,24 @@ real materialiser in means the console renders the exact fold the agent lives in
 disagree with the agent's own projection, and a new event type or payload version is handled once, in
 Rust, not twice forever.
 
+Attachment bytes are the one thing the console reaches for rather than folds, and they are not an
+exception to the doctrine: the log carries the attachment's *record* — its name, media type, length,
+and content address — and the fold gives the console all of it. Only the bytes behind the address come
+from elsewhere, because bytes were never state to begin with.
+
+Where "elsewhere" is differs by frame, which is what `BlobSource` (`lib/view/blobSource.ts`) exists to
+say. The live frame has an agent behind it and reads them from `GET /blobs/{hash}`. The eval frame has
+no server at all — a package is a finished log, and one opened months later has nothing to ask — so its
+bytes ride in the package as a base64 catalogue and are minted into object URLs
+(`lib/view/packageBlobs.ts`). A view asks its source for a URL and renders what it gets; it never knows
+which frame it is in. An address no source can reach resolves to `null` and the attachment degrades to
+a name/type/size chip rather than a broken image: the absence is a property of the source, not a
+failure.
+
+Bytes a viewer presents itself are as untrusted as bytes a server sends, so both mint their media type
+through the same Rust rule (`served_media_type`): markup a sender shared is presented as text, never as
+a document, whether it arrives over the read route or out of a package.
+
 The cost is that the console folds the whole log. That is milliseconds for an eval package and fine
 for an operator tool loaded once, but live-scale catch-up (snapshot download, windowing, incremental
 tailing) is deferred. Time-travel re-folds from zero

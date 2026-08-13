@@ -21,6 +21,7 @@ mod correction;
 mod delete_memory;
 mod embed;
 mod events;
+mod gc_blobs;
 mod identity;
 mod markdown_fetch;
 mod mcp;
@@ -113,6 +114,17 @@ pub(crate) enum DebugCommand {
         /// The entry whose occurrence to clear: its full id or a unique prefix of one.
         #[arg(long)]
         entry: String,
+    },
+    /// Delete stored blobs the event log no longer refers to. The log is append-only, so a blob only
+    /// becomes garbage after a `revert` truncates the tail that named it, or when an upload was never
+    /// followed by the message that would have carried it. The mark scan is deliberately
+    /// over-inclusive — it can retain a blob it need not, never delete one the log still points at.
+    /// Without `--yes` it reports what it would collect and changes nothing. It takes the log's
+    /// single-writer lock, so the agent must be stopped first.
+    GcBlobs {
+        /// Actually delete the unreferenced blobs. Without it, the command only reports them.
+        #[arg(long)]
+        yes: bool,
     },
     /// Designate a memory the primary of its `same_as` identity class, so its relationships render
     /// under that handle. Releases any incumbent designation in the same operator-sourced batch — the
@@ -245,5 +257,6 @@ pub(crate) fn dispatch(
         DebugCommand::Embed { a, b } => embed::embed(config, a, b),
         DebugCommand::Reindex { yes } => reindex::reindex(config, *yes),
         DebugCommand::UpgradePrompts { force } => upgrade_prompts::upgrade_prompts(config, *force),
+        DebugCommand::GcBlobs { yes } => gc_blobs::gc_blobs(config, *yes),
     }
 }

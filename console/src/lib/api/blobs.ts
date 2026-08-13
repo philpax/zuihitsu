@@ -1,0 +1,33 @@
+import type { BlobHash } from "@zuihitsu/wire/types/BlobHash.ts";
+import type { LiveConnection } from "./live.ts";
+import { errorMessage } from "./http.ts";
+
+/// The media type an upload whose file carries none is stored under, matching the server's own
+/// fallback: "some bytes", which is all the browser told us.
+export const OCTET_STREAM = "application/octet-stream";
+
+/// Store a file's bytes and return their content address, the console acting as a platform connector
+/// (`POST /platform/blobs`). The body is the bytes themselves and the `Content-Type` is the media
+/// type they are stored under, so there is no envelope to build. Re-uploading the same bytes is
+/// idempotent only when the MIME matches the existing blob; a different MIME returns a conflict and
+/// preserves the metadata already used by recorded attachments.
+///
+/// A message may only name a blob the store already holds, so an attachment is uploaded as it is
+/// added to the composer rather than at send — a failure then surfaces while the sender is still
+/// typing, not after they have committed to the message. The server's per-upload cap and the
+/// request-wide message count and aggregate-byte budgets are enforced separately when the message is
+/// sent.
+export async function uploadBlob(connection: LiveConnection, file: File): Promise<BlobHash> {
+  // Not `authHeaders`: this body is the file, not JSON, and the content type is what the bytes are
+  // stored under.
+  const headers: Record<string, string> = { "content-type": file.type || OCTET_STREAM };
+  if (connection.key) headers.Authorization = `Bearer ${connection.key}`;
+  const response = await fetch(`${connection.baseUrl}/platform/blobs`, {
+    method: "POST",
+    headers,
+    body: file,
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  const body = (await response.json()) as { hash: BlobHash };
+  return body.hash;
+}

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use smol_str::SmolStr;
 
 use crate::{
+    attachment::Attachment,
     brief::Brief,
     event::{
         ArbitrationResolution, Cardinality, ConversationRef, EventSource, Initiation,
@@ -275,7 +276,7 @@ pub enum EventPayload {
     /// ones). Log-only audit record — the materializer ignores it, since the actual links and
     /// registrations are committed as separate `LinkCreated` / `LinkTypeRegistered` events. The
     /// pass's model-call deliberation (the prompt and completion) is recorded by the `ModelCalled`
-    /// events the pass emits at `CaptureLevel::Full`; this event carries the structured outcome so
+    /// events the pass emits; this event carries the structured outcome so
     /// the log shows what the model decided without reconstructing it from the raw completion.
     LinksInferred {
         memory: MemoryId,
@@ -440,9 +441,9 @@ pub enum EventPayload {
     /// (spec §Observability). Log-only telemetry: the materializer ignores it, so faithful replay's
     /// rebuilt state is identical with or without it, and the recorded (non-deterministic) reasoning,
     /// usage, and latency are reproduced verbatim because replay reads them rather than recomputing.
-    /// `request` is `Some` at the `Full` capture level (the delta-encoded [`RequestRecord`]) and
-    /// `None` at `Digest`; `request_digest` is a `sha2::Sha256` over the full request actually sent,
-    /// always present, so a reconstructed prompt can be checked against it.
+    /// `request` is the delta-encoded [`RequestRecord`], `None` only on a record written before it
+    /// was captured; `request_digest` is a `sha2::Sha256` over the full request actually sent, always
+    /// present, so a reconstructed prompt can be checked against it.
     ModelCalled {
         conversation: ConversationId,
         turn_id: TurnId,
@@ -528,6 +529,12 @@ pub enum EventPayload {
         /// without one.
         #[serde(default)]
         brief: Option<Brief>,
+        /// The files the message carried (spec §Attachments): the record only, the bytes living in
+        /// the blob store under each [`Attachment::blob`]. Empty for every turn that carried none —
+        /// the agent's own, a system turn, and any participant message without files — and defaulted
+        /// so payloads written before the field existed replay without it.
+        #[serde(default)]
+        attachments: Vec<Attachment>,
     },
     /// Opens a durable conversation (a room), keyed by its `locator`. Fires once on first contact;
     /// the room then persists across sessions for the agent's life (spec §Conversations).

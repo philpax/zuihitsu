@@ -26,15 +26,26 @@ pub struct ScriptedModel {
     seen_tool_choice: Mutex<Vec<ToolChoice>>,
 }
 
+/// How much a scripted call's reported prompt grows per step: enough to be a real measurement, small
+/// enough that a whole scripted conversation stays inside any test's carryover budget.
+const SCRIPTED_PROMPT_STEP: u32 = 100;
+
 impl ScriptedModel {
-    /// Script the completions a turn will see, each reporting no usage. The common case for tests
-    /// that don't exercise the compaction trigger.
+    /// Script the completions a turn will see, each reporting a prompt that grows by
+    /// [`SCRIPTED_PROMPT_STEP`] per call. A real backend reports a size on every call — the seam
+    /// refuses a stream that does not — so a fake reporting none would exercise a state production
+    /// cannot reach, and would leave the carryover trim with nothing to cut on.
     pub fn new(steps: impl IntoIterator<Item = Completion>) -> ScriptedModel {
-        ScriptedModel::with_responses(steps.into_iter().map(|completion| GenerateResponse {
-            completion,
-            usage: Usage::default(),
-            reasoning: None,
-            finish_reason: None,
+        ScriptedModel::with_responses(steps.into_iter().enumerate().map(|(index, completion)| {
+            GenerateResponse {
+                completion,
+                usage: Usage {
+                    prompt_tokens: Some(SCRIPTED_PROMPT_STEP * (index as u32 + 1)),
+                    ..Usage::default()
+                },
+                reasoning: None,
+                finish_reason: None,
+            }
         }))
     }
 

@@ -56,6 +56,19 @@ db_path = "discord.db"
 [pacing]
 debounce_ms = 500
 typing_refresh_secs = 8
+
+[attachments]
+# Whether the files a message carries are fetched and relayed to the agent. Off (false) relays
+# nothing and announces nothing.
+enabled = true
+# The largest file relayed, in bytes (16 MiB by default). Keep it at or below the server's
+# [serving] max_attachment_bytes, which is 16 MiB by default: the server refuses a larger upload
+# outright, so a higher cap here only spends a download to earn the same announcement. The server's
+# request-wide message budgets are separate and apply to the complete messages batch.
+max_bytes = 16777216
+# How many of one message's files are relayed (4 by default). The rest are announced rather than
+# fetched, so a message carrying a folder's worth of files costs a bounded number of downloads.
+max_per_message = 4
 ```
 
 ### 3. run the connector
@@ -95,6 +108,22 @@ set `reply_to = "addressed"` to forward only mentions and replies.
 - **Presence**: the present set is per-channel and grows lazily — a user is added when they send a
   message the bot processes. Departures remove the user from every channel. The connector does not
   call `/platform/join`; presence is communicated per-message through the `present` field.
+- **Attachments**: the files a message carries are downloaded from Discord, uploaded to the agent's
+  blob store, and named on the message, so the agent sees an image it can look at and a text file it
+  can read. A file the caps exclude, or one whose download or upload failed, is announced in the
+  message text instead — the agent reads that `build.log` was shared and why it is not here, rather
+  than a message that appears to have carried nothing. `max_bytes` (16 MiB) is checked against
+  Discord's reported size before anything is downloaded, and again against the bytes that arrive;
+  `max_per_message` (4) bounds how many files one message may cost, counting only the files actually
+  fetched, so a run of oversized files does not push out the ones that fit. When Discord omits a MIME
+  type or reports `application/octet-stream`, the connector uses a conservative fallback for common
+  text and supported image extensions; unknown, HTML/XML/SVG, and other active-content extensions
+  remain opaque. Explicit non-generic MIME metadata remains authoritative. The server's per-upload
+  cap and request-wide count/aggregate-byte budgets are separate from these connector caps. Successful
+  downloads are buffered before the post-download size check; bounded streaming is deferred as separate
+  defence in depth. Setting `enabled = false` relays and announces nothing. Discord's **embeds and stickers are out of scope**:
+  neither is a file the sender shared, and both are already described by the message text or by
+  Discord's own rendering.
 - **Identity**: every participant is keyed by their stable snowflake — stubs mint as
   `person/<snowflake>@discord`, and the `(platform, platform_user_id)` binding, not the name, routes
   messages. A username or display-name change on Discord therefore never renames the stub; the new

@@ -76,6 +76,7 @@ pub(crate) fn turn_event(
         initiation: Initiation::Responding,
         produced_by: None,
         brief: None,
+        attachments: Vec::new(),
     }
 }
 

@@ -48,6 +48,8 @@ pub(crate) enum CliError {
     Reindex(String),
     /// The `upgrade-prompts` command could not read the templates or append the registrations.
     UpgradePrompts(String),
+    /// The `gc-blobs` command could not read the log or sweep the blob store.
+    GcBlobs(String),
 }
 
 impl From<ClientError> for CliError {
@@ -90,6 +92,7 @@ impl std::fmt::Display for CliError {
             CliError::Embed(message) => write!(f, "embed: {message}"),
             CliError::Reindex(message) => write!(f, "reindex: {message}"),
             CliError::UpgradePrompts(message) => write!(f, "upgrade-prompts: {message}"),
+            CliError::GcBlobs(message) => write!(f, "gc-blobs: {message}"),
         }
     }
 }
@@ -115,7 +118,8 @@ impl std::error::Error for CliError {
             | CliError::MarkdownFetch(_)
             | CliError::Embed(_)
             | CliError::Reindex(_)
-            | CliError::UpgradePrompts(_) => None,
+            | CliError::UpgradePrompts(_)
+            | CliError::GcBlobs(_) => None,
         }
     }
 }

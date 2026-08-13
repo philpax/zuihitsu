@@ -263,6 +263,7 @@ fn assemble_package(
             runs: vec![resumed],
             aggregate,
         }],
+        blobs: crate::attachment_fixture::catalogue(),
     }
 }
 

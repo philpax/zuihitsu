@@ -43,6 +43,14 @@ pub struct TurnView {
     /// flush watermark ([`flushed_up_to`]). `None` for participant/system turns and for agent turns
     /// recorded before provenance existed.
     pub produced_by: Option<ProducedBy>,
+    /// The prompt size the backend reported at this turn's first model call — what the carryover trim
+    /// prices the buffer with ([`carryover_start`]). `None` for participant and system turns (they run
+    /// no model call), for an agent turn whose backend reported no usage, and under
+    /// a backend that reports no usage.
+    pub prompt_tokens: Option<u32>,
+    /// The files the turn's message carried, replayed from the payload so a later turn sees the same
+    /// attachments the live one did. Empty for every turn that carried none.
+    pub attachments: Vec<Attachment>,
 }
 
 /// The `conversation`'s `ConversationTurn`s recorded at or after `from_seq`, oldest first — the live
@@ -59,8 +67,24 @@ pub fn buffer_turns(
     // both stamped with the same `turn_id` — so accumulate each turn's tool-call steps and attach them
     // to that turn's agent `TurnView` when it arrives.
     let mut steps_by_turn: BTreeMap<TurnId, Vec<ToolStep>> = BTreeMap::new();
+    // A turn's model calls record before its agent `ConversationTurn`, so the first reported prompt
+    // size is in hand by the time the turn arrives. The first call's is the one the carryover trim
+    // wants: it measures the prompt as it stood *before* this turn generated anything.
+    let mut prompt_tokens_by_turn: BTreeMap<TurnId, u32> = BTreeMap::new();
     for event in store.read_from(from_seq)? {
         match event.payload {
+            EventPayload::ModelCalled {
+                conversation: turn_conversation,
+                turn_id,
+                usage,
+                ..
+            } if turn_conversation == conversation => {
+                if let Some(prompt_tokens) = usage.prompt_tokens {
+                    prompt_tokens_by_turn
+                        .entry(turn_id)
+                        .or_insert(prompt_tokens);
+                }
+            }
             EventPayload::LuaExecuted {
                 conversation: turn_conversation,
                 turn_id,
@@ -87,12 +111,16 @@ pub fn buffer_turns(
                 text,
                 participant,
                 produced_by,
+                attachments,
                 ..
             } if turn_conversation == conversation => {
-                let steps = if role == TurnRole::Agent {
-                    steps_by_turn.remove(&turn_id).unwrap_or_default()
+                let (steps, prompt_tokens) = if role == TurnRole::Agent {
+                    (
+                        steps_by_turn.remove(&turn_id).unwrap_or_default(),
+                        prompt_tokens_by_turn.remove(&turn_id),
+                    )
                 } else {
-                    Vec::new()
+                    (Vec::new(), None)
                 };
                 // A non-empty agent reply produced by the flush path is an internal checkpoint note
                 // that reached no participant, yet on replay it is an ordinary agent turn
@@ -114,6 +142,8 @@ pub fn buffer_turns(
                     recorded_at: event.recorded_at,
                     steps,
                     produced_by,
+                    prompt_tokens,
+                    attachments,
                 });
                 // The marker rides right after the flush reply as a system note, in the same style as
                 // the supersession seam hint — recorded content stays visible, honestly labelled.
@@ -127,6 +157,8 @@ pub fn buffer_turns(
                         recorded_at: event.recorded_at,
                         steps: Vec::new(),
                         produced_by: None,
+                        prompt_tokens: None,
+                        attachments: Vec::new(),
                     });
                 }
             }
@@ -147,6 +179,8 @@ pub fn buffer_turns(
                     recorded_at: event.recorded_at,
                     steps: Vec::new(),
                     produced_by: None,
+                    prompt_tokens: None,
+                    attachments: Vec::new(),
                 });
             }
             // The ambient recall hint replays as a system turn at its log position — the byte-identity
@@ -166,6 +200,8 @@ pub fn buffer_turns(
                     recorded_at: event.recorded_at,
                     steps: Vec::new(),
                     produced_by: None,
+                    prompt_tokens: None,
+                    attachments: Vec::new(),
                 });
             }
             _ => {}
@@ -178,44 +214,75 @@ pub fn buffer_turns(
 /// without bound across compaction seams. `session_start_seq` is this session's own `SessionStarted`
 /// seq; it splits the read into the carried tail (turns before it, seeded from a prior session across
 /// a compaction seam) and this session's own turns (at or after it). The tail is re-trimmed to
-/// `char_budget` — the same newest-first fill the carryover staging uses ([`carryover_start`]) — so a
+/// the carryover budget — the same trim the carryover staging applies ([`carryover_start`]) — so a
 /// session seeded from a carryover, and every session after it, sees a tail no larger than the budget
 /// rather than every turn accrued since the original carryover point. The session's own turns always
-/// ride whole (the token-budget compaction already bounds them), so the buffer is structurally
-/// `≤ char_budget + one session's turns`, regardless of how the budgets are tuned. For a fresh session
+/// ride whole (the compaction budget already bounds them), so the buffer is structurally
+/// `≤ token_budget + one session's turns`, regardless of how the budgets are tuned. For a fresh session
 /// `start_seq == session_start_seq`, the tail is empty and this is exactly [`buffer_turns`].
 pub fn bounded_buffer_turns(
     store: &dyn Store,
     conversation: ConversationId,
     start_seq: Seq,
     session_start_seq: Seq,
-    char_budget: i64,
+    token_budget: i64,
 ) -> Result<Vec<TurnView>, StoreError> {
     let mut turns = buffer_turns(store, conversation, start_seq)?;
     // The read is in seq order, so the carried tail is the prefix below this session's own start.
     let split = turns.partition_point(|turn| turn.seq < session_start_seq);
-    let keep_from = carryover_start(&turns[..split], char_budget);
+    let keep_from = carryover_start(&turns[..split], token_budget);
     turns.drain(..keep_from);
     Ok(turns)
 }
 
-/// The index into `turns` of the oldest turn that fits `char_budget`, filling backward from the newest
-/// — the raw-transcript carryover trim rule (spec §Compaction → raw-transcript carryover). The newest
-/// turn is always kept (even if it alone exceeds the budget), then older turns while their running
-/// character total fits. Returns `turns.len()` for an empty slice (an empty tail keeps nothing).
-/// Shared by the read-time tail bound ([`bounded_buffer_turns`]) and the carryover staging, so both
-/// trim by the same rule.
-pub fn carryover_start(turns: &[TurnView], char_budget: i64) -> usize {
-    let char_budget = char_budget.max(0) as usize;
-    let mut total = 0usize;
-    let mut start = turns.len();
-    for (idx, turn) in turns.iter().enumerate().rev() {
-        let next = total.saturating_add(turn.text.chars().count());
-        if start != turns.len() && next > char_budget {
+/// The index into `turns` of the oldest turn the carryover can afford, filling backward from the
+/// newest — the raw-transcript carryover trim (spec §Compaction → raw-transcript carryover). The
+/// newest turn is always kept, even alone over budget. Returns `turns.len()` for an empty slice.
+///
+/// **The cost is the backend's own count, and nothing else is priced.** A turn's first model call
+/// records the prompt as it stood before that turn generated, and every prompt is assembled over the
+/// same frozen prefix, so the difference between two such counts is exactly what the buffer grew by
+/// between them — replayed tool steps, inlined attachments, and image parts included, each charged
+/// what the provider charged.
+///
+/// The cut lands just after a call, so the messages that call answered ride with its answer: a tail
+/// beginning with a reply whose question was dropped is worse context than a slightly shorter one.
+/// The granularity is therefore one exchange.
+///
+/// What no call has bracketed is not charged, because nothing measured it and this module does not
+/// guess. Two ends are unbracketed: the newest exchange, unreported until the next call prices it,
+/// and whatever precedes the oldest recorded call, which sits inside that call's total alongside the
+/// frozen prefix and cannot be separated from it. Both ride free, so the buffer is `budget` plus
+/// those ends — the `budget + one session's turns` bound the compaction design already states. A
+/// buffer with no recorded call at all carries its newest turn, which it carries regardless.
+pub fn carryover_start(turns: &[TurnView], token_budget: i64) -> usize {
+    let budget = token_budget.max(0) as usize;
+    let newest = turns.len().saturating_sub(1);
+    let measured: Vec<(usize, u32)> = turns
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, turn)| turn.prompt_tokens.map(|tokens| (idx, tokens)))
+        .collect();
+    let Some(&(_, last_tokens)) = measured.last() else {
+        return newest;
+    };
+
+    // The newest turn always rides, even alone over budget.
+    let mut start = newest;
+    let mut admitted_oldest = false;
+    for (position, &(idx, tokens)) in measured.iter().enumerate().rev() {
+        // Carrying from just after a call costs the growth since it, exactly: both prompts were
+        // measured over the same frozen prefix, so their difference is the buffer content between.
+        if last_tokens.saturating_sub(tokens) as usize > budget {
             break;
         }
-        total = next;
-        start = idx;
+        start = (idx + 1).min(start);
+        admitted_oldest = position == 0;
+    }
+    // Reaching the oldest recorded call means the turns before it ride too: they are unbracketed, so
+    // nothing prices them, and dropping content for want of a number it cannot have is not a trim.
+    if admitted_oldest {
+        start = 0;
     }
     start
 }

@@ -4,12 +4,13 @@
 //! scenario↔log correspondence — it lets a later phase restore the store up to a chosen step's
 //! watermark and re-execute the rest, or render a run's events grouped by the step that produced them.
 
-use zuihitsu::{Event, EventPayload, MemoryId, PersonId, Seq, TurnRole};
+use zuihitsu::{Attachment, Event, EventPayload, MemoryId, PersonId, Seq, TurnRole};
 
 use crate::{
+    attachment_fixture::fixture_bytes,
     context::{BurstDelivery, RunContext},
     error::EvalError,
-    step::{EvalStep, OnMissing, StepText},
+    step::{EvalStep, OnMissing, StepAttachment, StepText},
 };
 
 pub use zuihitsu_frontend_types::StepRecord;
@@ -72,8 +73,16 @@ async fn perform(step: &EvalStep, ctx: &RunContext) -> Result<bool, EvalError> {
                 .iter()
                 .map(|uid| PersonId::new(&turn.platform, uid))
                 .collect();
-            ctx.turn(&turn.platform, &turn.scope, &sender, &text, &present)
-                .await?;
+            let attachments = store_attachments(&turn.attachments, ctx)?;
+            ctx.turn(
+                &turn.platform,
+                &turn.scope,
+                &sender,
+                &text,
+                &present,
+                attachments,
+            )
+            .await?;
         }
         EvalStep::InterruptedTurn(burst) => {
             let first_text = resolve_text(&burst.first.text, ctx)?;
@@ -163,6 +172,23 @@ fn confirm_proposed_merge(on_missing: OnMissing, ctx: &RunContext) -> Result<boo
     Ok(false)
 }
 
+/// Store each of a step's fixtures in the run's blob store, returning the attachment records the
+/// message carries. The bytes must be in the store before the message that names them — the same
+/// ordering the HTTP transport enforces on a connector — so the turn that renders them can read them
+/// back.
+fn store_attachments(
+    attachments: &[StepAttachment],
+    ctx: &RunContext,
+) -> Result<Vec<Attachment>, EvalError> {
+    attachments
+        .iter()
+        .map(|attachment| {
+            let fixture = fixture_bytes(attachment.fixture);
+            ctx.store_attachment(&attachment.name, fixture.mime, fixture.bytes)
+        })
+        .collect()
+}
+
 /// Resolve a step's text against the live log. A [`StepText::WithTurnRef`] substitutes the `{turn}`
 /// marker with the `[turn:<id>]` token of the first participant turn whose text is exactly `of_turn`;
 /// an unresolvable reference is a clear executor error (the scenario referenced a moment its own
@@ -226,16 +252,19 @@ mod tests {
     use std::sync::Arc;
 
     use zuihitsu::{
-        Completion, EventPayload, InstanceFeatures, MemoryId, MemoryName, ScriptedModel,
-        TEST_PLATFORM, TurnRole,
+        AttachmentKind, Completion, EventPayload, InstanceFeatures, MemoryId, MemoryName,
+        ScriptedModel, TEST_PLATFORM, TurnRole,
     };
 
     use super::{execute, head_seq};
     use crate::{
         analysis,
+        attachment_fixture::fixture_bytes,
         context::{RunContext, RunDeps},
         error::EvalError,
-        step::{BurstMessage, EvalStep, InterruptedTurn, OnMissing, StepText, Turn},
+        step::{
+            AttachmentFixture, BurstMessage, EvalStep, InterruptedTurn, OnMissing, StepText, Turn,
+        },
     };
 
     /// Boot a fresh, retrieval-free agent whose turns reply from `model`. The in-memory backends make
@@ -373,6 +402,35 @@ mod tests {
         let events = ctx.events().expect("the log");
         assert!(analysis::participant_turn_recorded(&events, FIRST));
         assert!(analysis::participant_turn_recorded(&events, CORRECTION));
+    }
+
+    #[tokio::test]
+    async fn a_turns_attachment_is_stored_and_recorded_on_the_participant_turn() {
+        const SHARE: &str = "Here are the notes I typed up.";
+        let ctx = booted(ScriptedModel::new([Completion::Reply(
+            "Read it.".to_owned(),
+        )]))
+        .await;
+        let steps = vec![
+            Turn::new(TEST_PLATFORM, "planning", "rowan", SHARE)
+                .with_attachment("larkspur-notes.txt", AttachmentFixture::VenueNote)
+                .into(),
+        ];
+        execute(&steps, &ctx).await.expect("the step executes");
+
+        // The fixture reached the log on the participant's own turn, classified as the text the turn
+        // inlines — the connector contract the eval stands in for.
+        let events = ctx.events().expect("the log");
+        let attachments = crate::analysis::participant_turn_attachments(&events, SHARE);
+        let [attachment] = attachments else {
+            panic!("the sharing turn should record exactly one attachment, got {attachments:?}");
+        };
+        assert_eq!(attachment.name, "larkspur-notes.txt");
+        assert_eq!(attachment.kind, AttachmentKind::Text);
+        assert_eq!(
+            attachment.byte_len,
+            fixture_bytes(AttachmentFixture::VenueNote).bytes.len() as u64
+        );
     }
 
     #[tokio::test]

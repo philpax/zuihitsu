@@ -4,12 +4,13 @@
 //! and serves the API the CLI and a future web console drive. The HTTP layer lives here, in the
 //! binary, so the library stays transport-agnostic.
 //!
-//! Split by surface: [`control`] (operator handlers), [`platform`] (participant handlers), [`auth`]
-//! (bearer-key middleware), [`error`] (HTTP error responses), [`console`] (embedded web console),
-//! [`serve_error`] (startup [`ServeError`]). This file owns the boot sequence, the [`router`], and
-//! the shared [`AppState`].
+//! Split by surface: [`control`] (operator handlers), [`platform`] (participant handlers), [`blobs`]
+//! (attachment bytes in and out), [`auth`] (bearer-key middleware), [`error`] (HTTP error responses),
+//! [`console`] (embedded web console), [`serve_error`] (startup [`ServeError`]). This file owns the
+//! boot sequence, the [`router`], and the shared [`AppState`].
 
 mod auth;
+mod blobs;
 mod console;
 mod control;
 mod error;
@@ -28,8 +29,8 @@ use axum::{
 };
 use tokio::net::TcpListener;
 use zuihitsu::{
-    EnvConfig, Graph, HttpFetcher, HttpFetcherConfig, ModelArbiter, ModelClient, OpenAiClient,
-    OpenAiEmbedder, RetryingModel, RmcpHost, Server, SnapshotSchedule, SqliteStore,
+    BlobStore, EnvConfig, Graph, HttpFetcher, HttpFetcherConfig, ModelArbiter, ModelClient,
+    OpenAiClient, OpenAiEmbedder, RetryingModel, RmcpHost, Server, SnapshotSchedule, SqliteStore,
     SqliteVectorIndex, SystemClock, VectorIndex,
     metrics::{LATENCY_BUCKETS, describe},
     model::embed::Embedder,
@@ -37,6 +38,7 @@ use zuihitsu::{
 };
 
 use auth::{require_control_key, require_platform_key};
+use blobs::{blob, upload_blob};
 use console::{ShutdownFlag, console, ensure_parent_dir};
 use control::{
     arbitrations, confirm_merge, create_agent, designate_primary, edit_self, entries, env_config,
@@ -206,6 +208,16 @@ async fn serve(config: EnvConfig, cli_read_only: bool) -> Result<(), ServeError>
             .ok_or(ServeError::MissingContextLength)?;
         server.set_model_context_length(context_length);
     }
+    // The attachment bytes live beside the other three databases, in the storage directory the event
+    // log's parent already created.
+    let blobs_path = config.storage.blobs();
+    server.connect_blobs(
+        BlobStore::open(&blobs_path).map_err(|source| ServeError::OpenBlobs {
+            path: blobs_path.clone(),
+            source,
+        })?,
+    );
+
     let status = server.boot()?;
 
     // Install the Prometheus metrics recorder and declare every metric's help/type (spec
@@ -612,6 +624,19 @@ async fn serve_read_only(mut config: EnvConfig) -> Result<(), ServeError> {
     // No model client or arbiter — no model calls will be made. `model` and `backend` are `None`.
     // No MCP or web connection — those spawn subprocesses or build HTTP clients.
     // No background drivers — the read-only server performs no autonomous work.
+    // The attachment bytes open read-only too, and only when they are already there: a read-only boot
+    // creates no storage, and an instance that predates attachments has no blob database to open. The
+    // engine's empty in-memory default then stands, so a blob read answers `404` rather than failing.
+    let blobs_path = config.storage.blobs();
+    if blobs_path.exists() {
+        server.connect_blobs(BlobStore::open_read_only(&blobs_path).map_err(|source| {
+            ServeError::OpenBlobs {
+                path: blobs_path.clone(),
+                source,
+            }
+        })?);
+    }
+
     let server = Arc::new(server);
     let shutdown = ShutdownFlag::install();
     let metrics = install_metrics();
@@ -706,6 +731,16 @@ fn router(state: AppState) -> Router {
         .route("/project", post(project))
         .route("/self", get(self_memory))
         .route("/link", post(link))
+        // The upload's body is the attachment itself, so the route carries its own body limit: axum's
+        // default is far under any real file. It is set one byte above the cap so a body that merely
+        // exceeds it still reaches the handler and is refused with a `400` naming the cap, while
+        // anything larger is turned away by the limit before it is buffered.
+        .route(
+            "/blobs",
+            post(upload_blob).layer(axum::extract::DefaultBodyLimit::max(
+                state.config.serving.max_attachment_bytes.saturating_add(1),
+            )),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             refuse_mutations_when_read_only,
@@ -717,6 +752,10 @@ fn router(state: AppState) -> Router {
     Router::new()
         .nest("/control", control)
         .nest("/platform", platform)
+        // Attachment bytes are read at the top level, outside both nests and unauthenticated: an
+        // `<img src>` cannot carry an `Authorization` header, and the 64-hex content hash is itself
+        // the capability (see [`blobs`]).
+        .route("/blobs/{hash}", get(blob))
         .with_state(state)
         // Everything else is the embedded web console: its assets by path, and any client-side route
         // (no matching asset) served `index.html` so the single-page app can route it. The console is

@@ -9,9 +9,12 @@ import tailwindcss from "@tailwindcss/vite";
 // The agent's control/participant surfaces (default loopback bind, src/config.rs). Live mode talks
 // to its own origin, so dev and preview proxy those paths to a running agent. Same-origin in the
 // browser, no CORS, matching the production story where the agent itself serves this bundle.
+// `/blobs` is top-level rather than under `/platform` because attachment bytes are served
+// unauthenticated (an `<img src>` carries no bearer key), so it proxies as its own path.
 const agentProxy = {
   "/control": "http://127.0.0.1:7777",
   "/platform": "http://127.0.0.1:7777",
+  "/blobs": "http://127.0.0.1:7777",
 };
 
 // The embedded build (VITE_EMBEDDED, set by zuihitsu-console's build.rs) writes to that crate's

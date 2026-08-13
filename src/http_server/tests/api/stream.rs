@@ -11,7 +11,9 @@ use axum::{
 };
 use std::sync::Arc;
 use tower::ServiceExt;
-use zuihitsu::{Completion, ManualClock, ScriptedModel, Server, time::Timestamp};
+use zuihitsu::{
+    BlobHash, Completion, EnvConfig, ManualClock, ScriptedModel, Server, time::Timestamp,
+};
 
 #[tokio::test]
 async fn the_event_stream_opens_with_the_committed_snapshot() {
@@ -65,6 +67,52 @@ async fn the_event_stream_opens_with_the_committed_snapshot() {
         text.contains("\"seq\":1") && text.contains("\"source\":\"Bootstrap\""),
         "the snapshot replays the log from seq 1 with its envelope source, got: {text}"
     );
+}
+
+#[tokio::test]
+async fn platform_message_stream_rejects_over_budget_before_turn() {
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    server
+        .control()
+        .create_agent(&zuihitsu::SeedSelf {
+            agent_name: "Kestrel".to_owned(),
+            persona: "An assistant.".to_owned(),
+            seed_entries: vec![],
+        })
+        .unwrap();
+    let before = server.control().events().unwrap().len();
+    server.put_blob(b"123", "text/plain").unwrap();
+    let mut config = EnvConfig::default();
+    config.serving.max_message_attachment_count = 0;
+    let app = router(AppState {
+        config: Arc::new(config),
+        model: None,
+        ..test_state(server.clone())
+    });
+    let body = serde_json::json!({
+        "scope_path": "general",
+        "messages": [{"sender": "rowan", "text": "look", "attachments": [{"name": "a.txt", "blob": BlobHash::of(b"123").as_str()}]}],
+        "present": ["rowan"]
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .extension(loopback())
+                .method("POST")
+                .uri("/platform/messages/stream")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("max_message_attachment_count"));
+    assert_eq!(server.control().events().unwrap().len(), before);
 }
 
 #[tokio::test]

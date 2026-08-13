@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use zuihitsu::{
-    ConversationId, EntryId, Event, EventPayload, Initiation, MemoryId, RelationName, Seq, Teller,
-    TemporalRef, TurnRole, Visibility,
+    Attachment, ConversationId, EntryId, Event, EventPayload, Initiation, MemoryId, RelationName,
+    Seq, Teller, TemporalRef, TurnRole, Visibility,
 };
 
 use crate::analysis::EntryFacts;
@@ -112,6 +112,25 @@ pub fn participant_turn_seq(events: &[Event], text: &str) -> Option<Seq> {
 /// regardless of whether the turn it opened went on to be superseded.
 pub fn participant_turn_recorded(events: &[Event], text: &str) -> bool {
     participant_turn_seq(events, text).is_some()
+}
+
+/// The attachments recorded on the participant turn whose text is exactly `text` — the structural
+/// record of what a shared file reached the log as: its name, media type, size, and the kind that
+/// decides how the turn rendered it. Empty when the turn carried no files, and empty when no such
+/// turn was recorded at all.
+pub fn participant_turn_attachments<'a>(events: &'a [Event], text: &str) -> &'a [Attachment] {
+    events
+        .iter()
+        .find_map(|event| match &event.payload {
+            EventPayload::ConversationTurn {
+                role: TurnRole::Participant,
+                text: turn_text,
+                attachments,
+                ..
+            } if turn_text == text => Some(attachments.as_slice()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// The id of the memory created under the exact handle `name`, if the run created one — so an oracle

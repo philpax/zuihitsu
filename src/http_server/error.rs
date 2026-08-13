@@ -3,7 +3,7 @@
 
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
-use zuihitsu::ServerError;
+use zuihitsu::{BlobError, ServerError};
 
 /// An error rendered as an HTTP response. A [`ServerError`] is an infrastructure/processing failure →
 /// `500`; a `NotFound` is a named resource that does not exist → `404`. Malformed request bodies are
@@ -14,6 +14,9 @@ pub(super) enum ApiError {
     /// A request the handler rejected on its own terms — malformed or out-of-range operator input the
     /// axum extractor could not catch (e.g. an empty or over-long `self` edit).
     BadRequest(String),
+    /// The request conflicts with immutable state already recorded by the server, such as a blob's
+    /// existing media type.
+    Conflict(String),
     /// A conversing endpoint was called but no model is configured.
     NoModel,
     /// The snapshot endpoint was called but snapshotting is disabled (`[snapshots] enabled = false`).
@@ -34,6 +37,21 @@ impl From<ServerError> for ApiError {
     }
 }
 
+impl From<BlobError> for ApiError {
+    fn from(error: BlobError) -> Self {
+        match error {
+            BlobError::MimeConflict {
+                hash,
+                existing_mime,
+                requested_mime,
+            } => ApiError::Conflict(format!(
+                "platform: blob {hash} already uses MIME {existing_mime}, so it cannot be uploaded as {requested_mime}"
+            )),
+            other => ApiError::Internal(other.to_string()),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, message) = match self {
@@ -43,6 +61,7 @@ impl IntoResponse for ApiError {
             }
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
             ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
+            ApiError::Conflict(message) => (StatusCode::CONFLICT, message),
             ApiError::NoModel => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "no model endpoint is configured".to_owned(),

@@ -8,13 +8,18 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use parking_lot::Mutex;
 use serenity::model::id::ChannelId;
 use tokio::{task::JoinHandle, time::sleep};
+use zuihitsu_platform_connector_api::MessageAttachment;
 
 /// One queued message waiting for the debounce window to clear.
 pub struct PendingMessage {
-    /// The message text (with `[turn:<id>]` injected if applicable).
+    /// The message text (with `[turn:<id>]` injected if applicable, and a note appended for each
+    /// file that did not come through).
     pub text: String,
     /// The sender's Discord user id (as a string, for the platform API).
     pub sender: String,
+    /// The files the message carried, already uploaded to the server's blob store. A file that could
+    /// not be relayed is absent here and announced in `text` instead.
+    pub attachments: Vec<MessageAttachment>,
 }
 
 /// The fire callback for a channel's debounce. The latest one wins — each `submit` may

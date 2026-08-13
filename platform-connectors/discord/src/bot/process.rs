@@ -6,13 +6,18 @@ use std::sync::Arc;
 use parking_lot::Mutex as SyncMutex;
 use serenity::prelude::Context;
 
+use reqwest::StatusCode;
 use zuihitsu_core::{
     ids::{ConversationLocator, PersonId, TurnId},
     progress::{ProgressKind, TurnProgress},
 };
-use zuihitsu_platform_connector_api::{PlatformMessage, StreamOutcome, TurnOutcome};
+use zuihitsu_platform_connector_api::{Error, PlatformMessage, StreamOutcome, TurnOutcome};
 
-use crate::{bot::BotState, locator::DISCORD_PLATFORM, pacing::PendingMessage};
+use crate::{
+    bot::{BotState, attachments::append_notes},
+    locator::DISCORD_PLATFORM,
+    pacing::PendingMessage,
+};
 
 /// Process a debounced batch: send it to the platform, watch progress, post the outcome.
 pub(super) async fn process_message(
@@ -28,6 +33,7 @@ pub(super) async fn process_message(
         .map(|m| PlatformMessage {
             sender: PersonId::new(DISCORD_PLATFORM, &m.sender),
             text: m.text,
+            attachments: m.attachments,
         })
         .collect();
 
@@ -76,10 +82,34 @@ pub(super) async fn process_message(
     // Send via the streaming endpoint, processing progress as it arrives.
     let outcome = match state
         .platform
-        .send_message_stream(locator, &messages, present, on_progress)
+        .send_message_stream(locator, &messages, present, &on_progress)
         .await
     {
         Ok(outcome) => outcome,
+        // The agent refused the batch on its own terms — the request-wide attachment budgets, or a
+        // blob it does not hold. The files are what it refused, so send what was said without them
+        // and let the agent decide what to do about their absence, rather than dropping a batch the
+        // participants believe they sent.
+        Err(Error::Status { status, body, .. })
+            if status == StatusCode::BAD_REQUEST && carries_attachments(&messages) =>
+        {
+            tracing::warn!(
+                %status, %body,
+                "discord connector: the agent refused the batch's files; delivering the text alone"
+            );
+            let messages = without_attachments(messages);
+            match state
+                .platform
+                .send_message_stream(locator, &messages, present, &on_progress)
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    tracing::warn!(%error, "discord connector: platform stream failed");
+                    return;
+                }
+            }
+        }
         Err(error) => {
             tracing::warn!(%error, "discord connector: platform stream failed");
             return;
@@ -126,4 +156,39 @@ pub(super) async fn process_message(
             tracing::warn!(%error, "discord connector: turn error from platform");
         }
     }
+}
+
+/// Whether any message in the batch carries files.
+pub(super) fn carries_attachments(messages: &[PlatformMessage]) -> bool {
+    messages
+        .iter()
+        .any(|message| !message.attachments.is_empty())
+}
+
+/// The same batch with its files dropped and each affected message told so, in the language a file
+/// excluded before it was fetched already uses.
+pub(super) fn without_attachments(messages: Vec<PlatformMessage>) -> Vec<PlatformMessage> {
+    messages
+        .into_iter()
+        .map(|message| {
+            if message.attachments.is_empty() {
+                return message;
+            }
+            let notes: Vec<String> = message
+                .attachments
+                .iter()
+                .map(|attachment| {
+                    format!(
+                        "({} was shared, but it could not be delivered to you)",
+                        attachment.name
+                    )
+                })
+                .collect();
+            PlatformMessage {
+                text: append_notes(&message.text, &notes),
+                attachments: Vec::new(),
+                ..message
+            }
+        })
+        .collect()
 }

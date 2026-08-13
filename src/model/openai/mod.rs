@@ -9,7 +9,7 @@
 //! embeddings — uses async-openai's standard types. A tool's parameter schema travels on its
 //! `ToolSpec`. Sampling comes from configuration, not from hardcoded defaults.
 
-mod request;
+pub(crate) mod request;
 mod response;
 
 #[cfg(test)]

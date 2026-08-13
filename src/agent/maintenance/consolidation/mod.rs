@@ -52,7 +52,7 @@ use crate::{
     ids::{MemoryId, Seq, TurnId},
     memory::memory_block::{Authority, MemoryBlock},
     model::ModelClient,
-    settings::{CaptureLevel, Settings},
+    settings::Settings,
 };
 
 mod clustering;
@@ -115,7 +115,7 @@ pub(crate) async fn catch_up(
         });
     }
 
-    let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
+    let recording = Recording::background(TurnId::generate());
     let settings = Settings::from_store(engine.store.lock().as_ref()).unwrap_or_default();
     let produced_by = ProducedBy {
         model_id: model.model_id().into(),

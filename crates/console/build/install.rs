@@ -159,20 +159,26 @@ mod tests {
         );
     }
 
-    fn pidfile_path() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("zuihitsu-console-test-{}.pid", std::process::id()))
+    /// A pidfile path of this test's own. The tests in this module run concurrently in one process,
+    /// so a path keyed only on the process id is shared between them: one test's live pid would land
+    /// under another's feet mid-assertion. Keying on the caller's name as well keeps them apart.
+    fn pidfile_path(test: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "zuihitsu-console-test-{}-{test}.pid",
+            std::process::id()
+        ))
     }
 
     /// Absent pidfile — no dev server.
     #[test]
     fn absent_pidfile_is_inactive() {
-        assert!(!dev_server_active(&pidfile_path()));
+        assert!(!dev_server_active(&pidfile_path("absent")));
     }
 
     /// A pidfile naming a live process — active (unix; the Windows branch is compile-only here).
     #[test]
     fn live_pid_is_active() {
-        let path = pidfile_path();
+        let path = pidfile_path("live");
         let mut child = std::process::Command::new("sleep")
             .arg("60")
             .spawn()
@@ -187,7 +193,7 @@ mod tests {
     /// A pidfile naming a dead process is inactive and removed — self-healing.
     #[test]
     fn dead_pid_is_inactive_and_removed() {
-        let path = pidfile_path();
+        let path = pidfile_path("dead");
         std::fs::write(&path, "999999999").unwrap();
         assert!(!dev_server_active(&path));
         assert!(!path.exists(), "stale pidfile should be removed");

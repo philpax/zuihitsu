@@ -11,6 +11,7 @@ path = "src/main.rs"
 jiff = { workspace = true }
 zuihitsu = { workspace = true }
 zuihitsu-console = { workspace = true }
+base64 = { workspace = true }
 zuihitsu-frontend-types = { workspace = true, features = ["ts"] }
 anstream = { workspace = true }
 anstyle = { workspace = true }

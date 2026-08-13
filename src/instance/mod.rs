@@ -49,7 +49,7 @@ use crate::{
     clock::Clock,
     engine::Engine,
     graph::Graph,
-    ids::{ConversationId, MemoryId, Seq},
+    ids::{BlobHash, ConversationId, MemoryId, Seq},
     instance::workers::MaintenanceStart,
     mcp::{McpHost, McpServerConfig},
     memory::search::{SearchHit, SearchQuery, search as rank_search},
@@ -57,7 +57,7 @@ use crate::{
     model::{ModelClient, embed::Embedder, index::IndexError},
     settings::{ConcurrencySettings, Settings},
     snapshot,
-    store::{MemoryStore, Store},
+    store::{Blob, BlobError, BlobMeta, BlobRange, BlobStore, MemoryStore, Store},
     vector::VectorIndex,
     web::{WebClient, WebFetcher},
 };
@@ -253,6 +253,45 @@ impl Instance {
     /// re-wiring is fine; the last fetcher set wins.
     pub fn connect_web(&mut self, fetcher: Arc<dyn WebFetcher>, max_markdown_chars: usize) {
         self.web = Some(WebClient::new(fetcher, max_markdown_chars));
+    }
+
+    /// Attach the instance's attachment bytes, replacing the ephemeral in-memory store a fresh engine
+    /// is built with. Called once after construction by whoever drives serving — the serving host
+    /// opens the one at [`StorageConfig::blobs`](crate::config::StorageConfig::blobs), tests and the
+    /// eval keep the in-memory default. Takes `&self`: the store sits behind the engine's own mutex,
+    /// and the guard is dropped before this returns.
+    pub fn connect_blobs(&self, blobs: BlobStore) {
+        *self.engine.blobs.lock() = blobs;
+    }
+
+    /// Store `bytes` under their content address, returning it — a connector's attachment upload.
+    /// Re-uploading identical bytes is idempotent only when the MIME matches the existing blob; a
+    /// different MIME returns a conflict so historical attachment metadata remains stable.
+    pub fn put_blob(&self, bytes: &[u8], mime: &str) -> Result<BlobHash, BlobError> {
+        self.engine.blobs.lock().put(bytes, mime)
+    }
+
+    /// The blob stored under `hash`, or `None` when none is. The read behind the unauthenticated
+    /// blob route: the content address is the capability, so this neither knows nor cares who asks.
+    pub fn blob(&self, hash: &BlobHash) -> Result<Option<Blob>, BlobError> {
+        self.engine.blobs.lock().get(hash)
+    }
+
+    /// At most `len` bytes of the blob stored under `hash`, from `start` — the read behind a ranged
+    /// request for part of an attachment, such as a reader opening the head of a text file.
+    pub fn blob_range(
+        &self,
+        hash: &BlobHash,
+        start: u64,
+        len: u64,
+    ) -> Result<Option<BlobRange>, BlobError> {
+        self.engine.blobs.lock().get_range(hash, start, len)
+    }
+
+    /// The metadata of the blob stored under `hash`, without loading its bytes — how an inbound
+    /// message's attachment record is checked against what was actually uploaded.
+    pub fn blob_meta(&self, hash: &BlobHash) -> Result<Option<BlobMeta>, BlobError> {
+        self.engine.blobs.lock().head(hash)
     }
 
     /// Subscribe to committed events — the store's live feed, which the control surface's push

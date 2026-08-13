@@ -19,6 +19,8 @@ pub struct DiscordConfig {
     pub behavior: BehaviorConfig,
     #[serde(default)]
     pub pacing: PacingConfig,
+    #[serde(default)]
+    pub attachments: AttachmentConfig,
     pub storage: StorageConfig,
 }
 
@@ -114,6 +116,36 @@ impl Default for PacingConfig {
     }
 }
 
+/// Attachment relay tunables: whether the files a message carries are relayed at all, and the caps
+/// that bound what one message may cost. A file the caps exclude is still announced to the agent in
+/// plain language, so the message never silently loses what it carried.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AttachmentConfig {
+    /// Whether the files a message carries are fetched and relayed. Off relays nothing and announces
+    /// nothing — the operator has taken the connector out of the file business.
+    #[serde(default = "default_attachments_enabled")]
+    pub enabled: bool,
+    /// The largest file relayed, in bytes. Keep it at or below the server's `[serving]
+    /// max_attachment_bytes` (16 MiB by default): the server refuses a larger upload outright, so a
+    /// higher cap here only spends a download to earn the same announcement.
+    #[serde(default = "default_max_attachment_bytes")]
+    pub max_bytes: u64,
+    /// How many of one message's files are relayed. The rest are announced rather than fetched, so a
+    /// message carrying a folder's worth of files costs a bounded number of downloads.
+    #[serde(default = "default_max_attachments_per_message")]
+    pub max_per_message: usize,
+}
+
+impl Default for AttachmentConfig {
+    fn default() -> Self {
+        AttachmentConfig {
+            enabled: default_attachments_enabled(),
+            max_bytes: default_max_attachment_bytes(),
+            max_per_message: default_max_attachments_per_message(),
+        }
+    }
+}
+
 fn default_see_other_bots() -> bool {
     true
 }
@@ -128,6 +160,19 @@ fn default_debounce_ms() -> u64 {
 
 fn default_typing_refresh_secs() -> u64 {
     8
+}
+
+fn default_attachments_enabled() -> bool {
+    true
+}
+
+/// 16 MiB, matching the server's own `[serving] max_attachment_bytes` default.
+fn default_max_attachment_bytes() -> u64 {
+    16 * 1024 * 1024
+}
+
+fn default_max_attachments_per_message() -> usize {
+    4
 }
 
 impl DiscordConfig {
@@ -181,6 +226,9 @@ db_path = "discord.db"
         assert!(config.behavior.allowed_channels.is_empty());
         assert!(config.behavior.see_other_bots);
         assert_eq!(config.behavior.max_consecutive_bot_turns, 10);
+        assert!(config.attachments.enabled);
+        assert_eq!(config.attachments.max_bytes, 16 * 1024 * 1024);
+        assert_eq!(config.attachments.max_per_message, 4);
         assert_eq!(config.storage.db_path, PathBuf::from("discord.db"));
     }
 

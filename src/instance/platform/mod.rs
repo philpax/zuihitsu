@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agent::TurnView,
+    attachment::Attachment,
     graph::GraphError,
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     instance::{Instance, InstanceError},
@@ -27,6 +27,11 @@ pub struct MessageInput {
     pub sender: PersonId,
     /// The message text.
     pub text: String,
+    /// The files the message carried, each already resolved against the blob store by the transport
+    /// that accepted it. Empty for a message without files, and defaulted so a caller that predates
+    /// attachments deserialises unchanged.
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
 }
 
 /// One attribute projected onto a scoped memory via [`Platform::project`] — a participant's username,
@@ -188,21 +193,3 @@ pub(super) fn retract_if_live(
         Err(e) => Err(InstanceError::Memory(e)),
     }
 }
-
-/// A deterministic `chars / 4` estimate of the prompt's token count over the buffer plus the inbound
-/// message — the compaction-trigger fallback when the backend reports no usage. Coarse and an
-/// under-count (it omits the frozen prefix); only the real client's `prompt_tokens` is authoritative.
-pub(super) fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
-    let chars: usize = buffer
-        .iter()
-        .map(|turn| turn.text.chars().count())
-        .sum::<usize>()
-        + messages
-            .iter()
-            .map(|m| m.text.chars().count())
-            .sum::<usize>();
-    (chars / 4) as i64
-}
-
-#[cfg(test)]
-mod tests;

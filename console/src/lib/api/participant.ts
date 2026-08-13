@@ -1,3 +1,4 @@
+import type { BlobHash } from "@zuihitsu/wire/types/BlobHash.ts";
 import type { ConversationLocator } from "@zuihitsu/wire/types/ConversationLocator.ts";
 import type { PlatformResponse } from "@zuihitsu/wire/types/PlatformResponse.ts";
 import type { LiveConnection } from "./live.ts";
@@ -19,6 +20,15 @@ export interface OutboundMessage {
   sender: string;
   text: string;
   present: string[];
+  attachments: OutboundAttachment[];
+}
+
+/// One stored file a message names: the sender's name for it and the content address its bytes were
+/// uploaded to. The bytes must already be in the store — a message naming a blob the agent has never
+/// held is refused whole — so [`uploadBlob`] runs as the file is attached, not at send.
+export interface OutboundAttachment {
+  name: string;
+  blob: BlobHash;
 }
 
 /// Deliver a participant message and run the agent's response cycle — the console acting as a
@@ -39,7 +49,19 @@ export async function sendMessage(
     headers: authHeaders(connection),
     body: JSON.stringify({
       scope_path: message.locator.scope_path,
-      messages: [{ sender: message.sender, text: message.text }],
+      messages: [
+        {
+          sender: message.sender,
+          text: message.text,
+          // Only the name and the address: the media type, the length, and the classification are
+          // all read back from the stored blob, so there is no field here in which to describe a
+          // file as something it is not.
+          attachments: message.attachments.map((attachment) => ({
+            name: attachment.name,
+            blob: attachment.blob,
+          })),
+        },
+      ],
       present: message.present,
     }),
   });

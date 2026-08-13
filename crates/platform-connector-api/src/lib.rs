@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use reqwest::{Client as HttpClient, StatusCode};
 use serde::{Deserialize, Serialize};
 use zuihitsu_core::{
-    ids::{ConversationLocator, EntryId, MemoryId, PersonId},
+    ids::{BlobHash, ConversationLocator, EntryId, MemoryId, PersonId},
     progress::TurnProgress,
 };
 
@@ -52,6 +52,8 @@ pub enum Operation {
     SelfMemory,
     /// `POST /platform/link` — asserting or retracting a structural link.
     Link,
+    /// `POST /platform/blobs` — uploading an attachment's bytes.
+    UploadBlob,
 }
 
 impl fmt::Display for Operation {
@@ -63,6 +65,7 @@ impl fmt::Display for Operation {
             Operation::Project => write!(f, "project"),
             Operation::SelfMemory => write!(f, "self memory"),
             Operation::Link => write!(f, "link"),
+            Operation::UploadBlob => write!(f, "upload blob"),
         }
     }
 }
@@ -154,11 +157,31 @@ pub struct SelfMemoryResponse {
     pub memory_id: MemoryId,
 }
 
-/// One inbound message to submit to the platform API.
+/// The response to `POST /platform/blobs`: the content address the uploaded bytes are stored at. A
+/// connector names it in the [`MessageAttachment`] that rides the message the file came with.
+#[derive(Deserialize)]
+pub struct BlobResponse {
+    pub hash: BlobHash,
+}
+
+/// One inbound message to submit to the platform API. `attachments` names the files the message
+/// carried, each already uploaded to `POST /platform/blobs` — the server refuses a message naming a
+/// blob it does not hold, so the bytes go up before the message that carries them.
 #[derive(Serialize)]
 pub struct PlatformMessage {
     pub sender: PersonId,
     pub text: String,
+    pub attachments: Vec<MessageAttachment>,
+}
+
+/// One stored file a message names: the sender's name for it, and the address its bytes were
+/// uploaded to. Deliberately only these two — the media type, the length, and the classification are
+/// the store's to state, read back from the blob the address names, so a connector has no field in
+/// which to describe a file as something it is not.
+#[derive(Clone, Debug, Serialize)]
+pub struct MessageAttachment {
+    pub name: String,
+    pub blob: BlobHash,
 }
 
 /// A scoped memory named on the wire — a participant or a context. It is the endpoint of a structural
@@ -230,6 +253,7 @@ impl PlatformClient {
         struct WireMessage<'a> {
             sender: &'a str,
             text: &'a str,
+            attachments: &'a [MessageAttachment],
         }
 
         /// The request body for `POST /platform/messages` and `/platform/messages/stream`. No platform: the
@@ -248,6 +272,7 @@ impl PlatformClient {
                 .map(|message| WireMessage {
                     sender: message.sender.id.as_str(),
                     text: &message.text,
+                    attachments: &message.attachments,
                 })
                 .collect(),
             present: present.iter().map(|person| person.id.as_str()).collect(),
@@ -502,6 +527,46 @@ impl PlatformClient {
             .await
             .map_err(|e| Error::Http {
                 operation: Operation::SelfMemory,
+                source: e,
+            })
+    }
+
+    /// `POST /platform/blobs` — store an attachment's bytes, returning the content address they are
+    /// stored at. The bytes are the whole request body and `mime` is its `Content-Type`, so a
+    /// download streams straight through. The server refuses a message naming a blob it does not
+    /// hold, so a connector uploads a file's bytes before naming them in the message that carried it.
+    /// Re-uploading identical bytes is idempotent only when the MIME matches the existing blob; a
+    /// different MIME returns a conflict so historical attachment metadata remains stable.
+    pub async fn upload_blob(&self, bytes: Vec<u8>, mime: &str) -> Result<BlobHash> {
+        let url = format!("{}/platform/blobs", self.base_url);
+        let response = self
+            .http
+            .post(&url)
+            .bearer_auth(&self.platform_key)
+            .header(reqwest::header::CONTENT_TYPE, mime)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| Error::Http {
+                operation: Operation::UploadBlob,
+                source: e,
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(Error::Status {
+                operation: Operation::UploadBlob,
+                status,
+                body,
+            });
+        }
+        response
+            .json::<BlobResponse>()
+            .await
+            .map(|body| body.hash)
+            .map_err(|e| Error::Http {
+                operation: Operation::UploadBlob,
                 source: e,
             })
     }

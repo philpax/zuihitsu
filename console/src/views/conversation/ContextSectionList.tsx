@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from "react";
 
 import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
+import type { ImagePart } from "@zuihitsu/wire/types/ImagePart.ts";
 import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
 import type { ToolCall } from "@zuihitsu/wire/types/ToolCall.ts";
@@ -11,10 +12,14 @@ import { type Warmth, causeLabel } from "./turnUtilities.ts";
 import {
   type AttributedRow,
   type CallAttribution,
+  type RowCost,
   type TokenProvenance,
   estimateTokens,
+  rowProvenance,
+  rowWeight,
 } from "../../lib/model/tokenAttribution.ts";
 import { resolveSections } from "../../lib/model/promptSections.ts";
+import { useBlobSource } from "../../lib/view/blobSource.ts";
 import { formatTokens } from "../../lib/format/format.ts";
 import { Excerpt } from "../../components/primitives.tsx";
 import { Lua } from "../../components/Lua.tsx";
@@ -58,7 +63,7 @@ export function ContextSectionList({
   const systemRows = attribution.rows.filter((row) => row.sectionKind !== undefined);
   const toolsRow = attribution.rows.find((row) => row.key === "tools");
   const messageRows = attribution.rows.filter((row) => row.messageIndex !== undefined);
-  const historyTokens = messageRows.reduce((sum, row) => sum + row.tokens, 0);
+  const historyTokens = messageRows.reduce((sum, row) => sum + rowWeight(row.cost), 0);
   // The bar and the percents normalize against the denominator when known, else the call's own
   // total — the parts stay proportionate either way.
   const scale = denominator.value ?? attribution.total;
@@ -87,8 +92,8 @@ export function ContextSectionList({
     ...systemRows.map((row) => ({
       key: row.key,
       label: row.label,
-      tokens: row.tokens,
-      provenance: row.provenance,
+      cost: row.cost,
+      provenance: rowProvenance(row.cost, attribution.totalProvenance),
       swatch: sectionSwatch(row.sectionKind),
       cold: row.key === coldAt,
       coldTitle,
@@ -99,8 +104,8 @@ export function ContextSectionList({
           {
             key: "tools",
             label: "tools",
-            tokens: toolsRow.tokens,
-            provenance: toolsRow.provenance,
+            cost: toolsRow.cost,
+            provenance: rowProvenance(toolsRow.cost, attribution.totalProvenance),
             swatch: "bg-clay",
             cold: coldAt === "tools",
             coldTitle,
@@ -113,8 +118,8 @@ export function ContextSectionList({
           {
             key: "history",
             label: `history · ${messageRows.length} message${messageRows.length === 1 ? "" : "s"}`,
-            tokens: historyTokens,
-            provenance: rollupProvenance(messageRows),
+            cost: { kind: "measured" as const, tokens: historyTokens },
+            provenance: rollupProvenance(messageRows, attribution.totalProvenance),
             swatch: "bg-ink-faint",
             cold: coldAt === "history",
             coldTitle,
@@ -123,31 +128,59 @@ export function ContextSectionList({
       : []),
   ];
 
-  // The rows below the bar: the parts, history's messages inlined beneath its rollup when open,
-  // then the completion and the remaining free space.
-  const rows: RowSpec[] = [
-    ...parts.flatMap((part): RowSpec[] => [
-      { ...part, toggles: part.detail !== undefined || part.key === "history" },
-      ...(part.key === "history" && isOpen("history")
-        ? messageRows.map((row) => ({
-            key: row.key,
+  // The rows below the bar are grouped by measured block: each block states what the provider
+  // charged for it, and its members state their own measurement or their share of it.
+  const rowByKey = new Map(attribution.rows.map((row) => [row.key, row]));
+  const blockRows: RowSpec[] = attribution.blocks.flatMap((block): RowSpec[] => {
+    const members = block.rows
+      .map((key) => rowByKey.get(key))
+      .filter((row): row is AttributedRow => row !== undefined);
+    const open = isOpen(block.key);
+    return [
+      {
+        key: block.key,
+        label: `${block.label} · ${members.length} part${members.length === 1 ? "" : "s"}`,
+        cost: { kind: "measured", tokens: block.tokens },
+        provenance: attribution.totalProvenance === "estimated" ? "estimated" : "measured",
+        swatch: "bg-ink-faint",
+        toggles: true,
+        hint: "What the provider charged for this region of the prompt.",
+      },
+      ...(open
+        ? members.map((row) => ({
+            key: `${block.key}/${row.key}`,
             label: row.label,
-            tokens: row.tokens,
-            provenance: row.provenance,
-            swatch: "bg-ink-faint opacity-50",
+            cost: row.cost,
+            provenance: rowProvenance(row.cost, attribution.totalProvenance),
+            swatch:
+              row.sectionKind !== undefined
+                ? sectionSwatch(row.sectionKind)
+                : row.key === "tools"
+                  ? "bg-clay"
+                  : "bg-ink-faint opacity-50",
             child: true,
+            cold: row.key === coldAt,
+            coldTitle,
             detail:
               row.messageIndex !== undefined
                 ? () => <MessageDetail message={interaction.messages[row.messageIndex ?? -1]} />
-                : undefined,
-            alwaysDetailed: true,
+                : row.sectionKind !== undefined
+                  ? () => sectionText(row.sectionKind)
+                  : row.key === "tools"
+                    ? () => JSON.stringify(interaction.tools, null, 2)
+                    : undefined,
+            alwaysDetailed: row.messageIndex !== undefined,
           }))
         : []),
-    ]),
+    ];
+  });
+
+  const rows: RowSpec[] = [
+    ...blockRows,
     {
       key: "completion",
       label: "completion",
-      tokens: completionTokens,
+      cost: { kind: "measured" as const, tokens: completionTokens },
       provenance: interaction.usage.completion_tokens !== null ? "measured" : "estimated",
       swatch: "bg-sage",
       toggles: true,
@@ -161,7 +194,7 @@ export function ContextSectionList({
           {
             key: "free",
             label: `free space (${denominator.label})`,
-            tokens: freeTokens,
+            cost: { kind: "measured" as const, tokens: freeTokens },
             swatch: "border border-line",
             faint: true,
           },
@@ -199,7 +232,9 @@ export function ContextSectionList({
 interface Part {
   key: string;
   label: string;
-  tokens: number;
+  /// What this part costs: a measurement, or a share of the block it sits in. The bar sizes by
+  /// [`rowWeight`] either way — a bar is a shape — while only a measurement prints a token count.
+  cost: RowCost;
   swatch: string;
   provenance?: TokenProvenance;
   cold?: boolean;
@@ -350,7 +385,7 @@ function StackedBar({
   return (
     <div className="flex h-3.5 w-full border border-line bg-oat/40">
       {segments
-        .filter((segment) => segment.tokens > 0)
+        .filter((segment) => rowWeight(segment.cost) > 0)
         .map((segment) => (
           <div
             key={segment.key}
@@ -358,9 +393,9 @@ function StackedBar({
               `min-w-0.5 border-r border-paper/60 last:border-r-0 ${segment.swatch}` +
               (segment.cold ? " ring-1 ring-clay ring-inset" : "")
             }
-            style={{ flexBasis: `${(segment.tokens / scale) * 100}%` }}
+            style={{ flexBasis: `${(rowWeight(segment.cost) / scale) * 100}%` }}
             title={
-              `${segment.label}: ${segment.tokens.toLocaleString()} tokens (${((segment.tokens / scale) * 100).toFixed(1)}%)` +
+              `${segment.label}: ${segmentSize(segment.cost, scale)}` +
               (segment.cold ? " — the cache broke here" : "")
             }
           />
@@ -412,16 +447,20 @@ function Row({
           </span>
         )}
       </span>
-      {spec.provenance && (
+      {spec.provenance === "estimated" && (
         <span className={badgeClass(spec.provenance)} title={badgeTitle(spec.provenance)}>
-          {spec.provenance}
+          estimated
         </span>
       )}
       <span className="w-14 text-right text-ink-soft tabular-nums">
-        {formatTokens(spec.tokens)}
+        {spec.cost.kind === "measured" ? formatTokens(spec.cost.tokens) : ""}
       </span>
       <span className="w-12 text-right text-ink-faint tabular-nums" title={spec.hint}>
-        {scale > 0 ? `${((spec.tokens / scale) * 100).toFixed(1)}%` : ""}
+        {spec.cost.kind === "share"
+          ? `${spec.cost.percent.toFixed(1)}%`
+          : scale > 0
+            ? `${((spec.cost.tokens / scale) * 100).toFixed(1)}%`
+            : ""}
       </span>
     </>
   );
@@ -447,20 +486,56 @@ function Row({
   );
 }
 
-/// A history message, pretty-printed: the content as the same Markdown the transcript renders, and
-/// each tool call's Lua script highlighted (falling back to the raw arguments when a call carries
-/// no script). Set off like an excerpt so it reads as quoted material.
+/// A history message, pretty-printed: its content as the transcript's Markdown, the images it showed
+/// the model, and each tool call's Lua (falling back to raw arguments when a call carries no script).
+/// Set off like an excerpt so it reads as quoted material.
+///
+/// The images are the point of this view: the text says only that a file was attached, and the
+/// recorded request carries each image's address.
 function MessageDetail({ message }: { message: Message | undefined }) {
   if (!message) return null;
+  const images = message.images ?? [];
   return (
     <div className="my-1.5 flex flex-col gap-2 border-l border-line bg-oat/40 px-3 py-2">
       {message.content && <TurnMarkdown text={message.content} />}
+      {images.length > 0 && <MessageImages images={images} />}
       {message.tool_calls.map((call) => (
         <ToolCallDetail key={call.id} call={call} />
       ))}
-      {!message.content && message.tool_calls.length === 0 && (
+      {!message.content && images.length === 0 && message.tool_calls.length === 0 && (
         <p className="font-mono text-xs text-ink-faint">(empty)</p>
       )}
+    </div>
+  );
+}
+
+/// The images one message showed the model. One whose bytes this frame cannot reach states its
+/// address instead, so the reader still learns a picture was there.
+function MessageImages({ images }: { images: ImagePart[] }) {
+  const source = useBlobSource();
+  return (
+    <div className="flex flex-wrap items-start gap-2">
+      {images.map((image, index) => {
+        const url = source.urlFor(image);
+        // Keyed by position: identical bytes share an address, and may ride a message twice.
+        if (url === null) {
+          return (
+            <span key={index} className="font-mono text-2xs text-ink-faint">
+              image · {image.mime} · {image.blob.slice(0, 12)}…
+            </span>
+          );
+        }
+        return (
+          <a key={index} href={url} target="_blank" rel="noreferrer" className="block">
+            <img
+              src={url}
+              alt={`image shown to the model (${image.mime})`}
+              loading="lazy"
+              className="max-h-40 max-w-full rounded-xs border border-line object-contain"
+            />
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -532,17 +607,27 @@ function completionText(completion: Completion): string {
   return completion.ToolCalls.map((call) => call.arguments).join("");
 }
 
-function rollupProvenance(rows: AttributedRow[]): TokenProvenance {
-  if (rows.every((row) => row.provenance === "measured")) return "measured";
-  if (rows.some((row) => row.provenance === "estimated")) return "estimated";
-  return "apportioned";
+/// A bar segment's tooltip: tokens for a measurement, a share of its block otherwise — the bar's
+/// geometry is proportionate either way, but only a measured segment names a number.
+function segmentSize(cost: RowCost, scale: number): string {
+  if (cost.kind === "measured") {
+    return `${cost.tokens.toLocaleString()} tokens (${((cost.tokens / scale) * 100).toFixed(1)}% of the window)`;
+  }
+  return `${cost.percent.toFixed(1)}% of the measured block it sits in`;
+}
+
+function rollupProvenance(rows: AttributedRow[], total: TokenProvenance): TokenProvenance {
+  const each = rows.map((row) => rowProvenance(row.cost, total));
+  if (each.every((provenance) => provenance === "measured")) return "measured";
+  if (each.some((provenance) => provenance === "estimated")) return "estimated";
+  return "share";
 }
 
 function badgeClass(provenance: TokenProvenance): string {
   switch (provenance) {
     case "measured":
       return "text-2xs text-sage";
-    case "apportioned":
+    case "share":
       return "text-2xs text-ink-faint";
     case "estimated":
       return "text-2xs italic text-ink-faint";
@@ -553,8 +638,8 @@ function badgeTitle(provenance: TokenProvenance): string {
   switch (provenance) {
     case "measured":
       return "Measured from the provider's reported token counts.";
-    case "apportioned":
-      return "Split from a measured total by character share; the rows sum exactly to it.";
+    case "share":
+      return "A share of the measured block it sits in, by character. Nothing measured this row on its own, so it states a ratio rather than a token count.";
     case "estimated":
       return "Estimated at four characters per token; the provider reported no usage here.";
   }

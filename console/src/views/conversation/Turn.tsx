@@ -19,6 +19,7 @@ import {
   Names,
 } from "./conversationContexts.ts";
 import { turnTokens, linkedClass } from "./turnUtilities.ts";
+import { AttachmentStrip } from "./Attachments.tsx";
 import { JoinBriefTurn } from "./JoinBrief.tsx";
 import { Deliberation } from "./Deliberation.tsx";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
@@ -179,6 +180,9 @@ export function TurnItem({
           stayed silent
         </p>
       )}
+      {/* What the message brought with it, below what it said — the order the turn itself assembles
+          them in. */}
+      <AttachmentStrip attachments={turn.attachments} />
       {turn.outcomes.length > 0 && <Outcomes outcomes={turn.outcomes} />}
       <TurnDebug seq={turn.seq} lastCallSeq={lastCallSeq} tokensOut={tokens.output} />
     </motion.li>

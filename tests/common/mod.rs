@@ -128,11 +128,11 @@ mod harness {
     use std::{cell::Cell, sync::Arc, time::Duration};
 
     use zuihitsu::{
-        AmbientSettings, Authority, BlockContext, BlockOutcome, CaptureLevel, ConversationId,
-        Embedder, Engine, Event, EventPayload, EventSource, Graph, InMemoryVectorIndex,
-        InboundMessage, Initiation, InstanceFeatures, ManualClock, MemoryId, MemoryStore,
-        ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId, TurnRecord, TurnRole,
-        TurnView, VectorIndex, append_turn,
+        AmbientSettings, Attachment, AttachmentKind, Authority, BlockContext, BlockOutcome,
+        ConversationId, Embedder, Engine, Event, EventPayload, EventSource, Graph,
+        InMemoryVectorIndex, InboundMessage, Initiation, InstanceFeatures, ManualClock, MemoryId,
+        MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId,
+        TurnRecord, TurnRole, TurnView, VectorIndex, append_turn,
         model::index::{apply_batch, embed_batch},
         run_describe_catch_up, run_link_inference_catch_up,
     };
@@ -147,6 +147,9 @@ mod harness {
     /// The memory entry character limit for tests — generous enough that existing test content
     /// passes, while still exercising the limit in the dedicated oversized-content tests.
     const TEST_MAX_ENTRY_CHARS: usize = 10_000;
+    /// The attachment-text inline cap the harness runs under: generous enough that no fixture is
+    /// clipped unless the test is about clipping.
+    const TEST_MAX_ATTACHMENT_TEXT_CHARS: usize = 8_000;
 
     /// A complete agent backed entirely in memory: an in-memory event log, an in-memory graph, a
     /// manual clock, and one Lua session. The `engine` is the same shared handle the turn writes
@@ -163,6 +166,9 @@ mod harness {
         /// `as_turn` can borrow them. Each `as_turn` call replaces these.
         inbound_batch: Vec<InboundMessage>,
         participant_turn_ids: Vec<TurnId>,
+        /// Attachments staged by [`Harness::with_attachments`] for the next inbound message, taken
+        /// when that message is prepared so they never ride a later turn.
+        pending_attachments: Vec<Attachment>,
         /// The describer's per-memory serialization guard, mirroring the server's. The describer keeps
         /// no cursor — its backlog is the graph's log-derived stale set — so [`Harness::describe`]
         /// catches every stale memory up, and [`Harness::baseline_descriptions`] marks the current
@@ -187,6 +193,7 @@ mod harness {
                 ),
                 participant: MemoryId::generate(),
                 inbound_batch: Vec::new(),
+                pending_attachments: Vec::new(),
                 participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
                 link_inference_cursor: Cell::new(Seq::ZERO),
@@ -224,6 +231,7 @@ mod harness {
                 ),
                 participant: MemoryId::generate(),
                 inbound_batch: Vec::new(),
+                pending_attachments: Vec::new(),
                 participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
                 link_inference_cursor: Cell::new(Seq::ZERO),
@@ -245,6 +253,7 @@ mod harness {
                 session: Session::new(Some(ConversationId::generate()), features),
                 participant: MemoryId::generate(),
                 inbound_batch: Vec::new(),
+                pending_attachments: Vec::new(),
                 participant_turn_ids: Vec::new(),
                 describe_guard: tokio::sync::Mutex::new(()),
                 link_inference_cursor: Cell::new(Seq::ZERO),
@@ -318,26 +327,34 @@ mod harness {
             self.link_inference_cursor.set(advanced);
         }
 
+        /// Store `bytes` in the harness's blob store and describe them the way the platform handler
+        /// does, so a test can hand an attachment to the next [`Harness::as_turn`].
+        pub fn attach(&self, name: &str, mime: &str, bytes: &[u8]) -> Attachment {
+            let blob = self.engine.blobs.lock().put(bytes, mime).unwrap();
+            Attachment {
+                name: name.to_owned(),
+                mime: mime.into(),
+                blob,
+                byte_len: bytes.len() as u64,
+                kind: AttachmentKind::of_mime(mime),
+            }
+        }
+
+        /// Queue the attachments the next [`Harness::as_turn`]'s inbound message carries. Consumed by
+        /// that call, so it never leaks into a later turn.
+        pub fn with_attachments(&mut self, attachments: Vec<Attachment>) -> &mut Harness {
+            self.pending_attachments = attachments;
+            self
+        }
+
         /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
-        /// Captures the full model-interaction record, the production default. Records the
-        /// participant turn in the event log before returning, mirroring `route_messages`.
+        /// Records the participant turn in the event log before returning, mirroring
+        /// `route_messages`.
         pub fn as_turn<'a>(
             &'a mut self,
             model: &'a dyn ModelClient,
             inbound: &'a str,
             max_steps: usize,
-        ) -> Turn<'a> {
-            self.as_turn_capturing(model, inbound, max_steps, CaptureLevel::Full)
-        }
-
-        /// As [`Harness::as_turn`], but with an explicit model-interaction capture level — for tests
-        /// that exercise the `Digest`/`Off` paths.
-        pub fn as_turn_capturing<'a>(
-            &'a mut self,
-            model: &'a dyn ModelClient,
-            inbound: &'a str,
-            max_steps: usize,
-            capture: CaptureLevel,
         ) -> Turn<'a> {
             self.prepare_inbound(inbound);
             Turn {
@@ -363,7 +380,7 @@ mod harness {
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
-                capture,
+                max_attachment_text_chars: TEST_MAX_ATTACHMENT_TEXT_CHARS,
                 supersession: None,
             }
         }
@@ -400,7 +417,7 @@ mod harness {
                 block_timeout: TEST_BLOCK_TIMEOUT,
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
-                capture: CaptureLevel::Full,
+                max_attachment_text_chars: TEST_MAX_ATTACHMENT_TEXT_CHARS,
                 supersession: None,
             }
         }
@@ -409,6 +426,7 @@ mod harness {
         /// what `route_messages` does before calling `run_session_turn`.
         fn prepare_inbound(&mut self, inbound: &str) {
             let turn_id = TurnId::generate();
+            let attachments = std::mem::take(&mut self.pending_attachments);
             append_turn(
                 self.engine.store.lock().as_mut(),
                 self.engine.clock.as_ref(),
@@ -420,12 +438,14 @@ mod harness {
                     participant: Some(self.participant),
                     initiation: Initiation::Responding,
                     produced_by: None,
+                    attachments: attachments.clone(),
                 },
             )
             .unwrap();
             self.inbound_batch = vec![InboundMessage {
                 participant: self.participant,
                 text: inbound.to_owned(),
+                attachments,
             }];
             self.participant_turn_ids = vec![turn_id];
         }

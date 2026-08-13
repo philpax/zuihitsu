@@ -5820,6 +5820,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "clap",
  "dom_smoothie",
  "fastembed",
@@ -5893,8 +5894,10 @@ dependencies = [
 name = "zuihitsu-discord"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "parking_lot",
+ "reqwest 0.13.4",
  "rusqlite",
  "serde",
  "serenity",
@@ -5918,6 +5921,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "clap",
  "futures-util",
  "jiff",

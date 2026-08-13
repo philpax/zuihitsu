@@ -91,6 +91,7 @@ fn package(scenarios: Vec<ScenarioReport>) -> EvalPackage {
             resumed_from: None,
         },
         scenarios,
+        blobs: Vec::new(),
     }
 }
 

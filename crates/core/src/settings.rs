@@ -39,7 +39,6 @@ pub struct Settings {
     pub search: SearchSettings,
     pub scheduler: SchedulerSettings,
     pub concurrency: ConcurrencySettings,
-    pub observability: ObservabilitySettings,
     pub memory: MemorySettings,
     pub web: WebSettings,
     pub ambient: AmbientSettings,
@@ -48,7 +47,7 @@ pub struct Settings {
 
 /// Session segmentation and the carryover across a compaction seam.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, from = "CompactionSettingsSnapshot")]
 #[cfg_attr(
     feature = "ts",
     derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
@@ -61,9 +60,11 @@ pub struct CompactionSettings {
     /// Quiet period that ends a session.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub idle_gap_seconds: i64,
-    /// How much raw transcript crosses a compaction boundary.
+    /// How much raw transcript crosses a compaction boundary, priced in the prompt tokens the backend
+    /// reported for it rather than in characters — so the replayed tool steps and image parts a
+    /// character count cannot see are charged for what they actually cost.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
-    pub carryover_char_budget: i64,
+    pub carryover_token_budget: i64,
     /// Minimum number of turns in the ending session for the pre-compaction flush to run — the
     /// flush-gating threshold. A low-activity session (e.g. one that crossed the budget via a single
     /// large paste) falls below it and skips the flush, so the hot-path model call is paid only when
@@ -74,6 +75,63 @@ pub struct CompactionSettings {
     /// budget to the true window. `None` when the instance was created without a configured model.
     #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub context_length: Option<i64>,
+}
+
+/// A recorded [`CompactionSettings`] in any spelling a snapshot holds.
+///
+/// `carryover_char_budget` is the deprecated character-stated carryover budget. The same number read
+/// as tokens would mean four times the transcript, so it converts at the fallback estimator's rate.
+/// The token field wins wherever both appear.
+#[derive(Deserialize)]
+#[serde(default)]
+struct CompactionSettingsSnapshot {
+    token_budget: i64,
+    idle_gap_seconds: i64,
+    carryover_token_budget: Option<i64>,
+    /// Read only when `carryover_token_budget` is absent.
+    carryover_char_budget: Option<i64>,
+    flush_min_turns: i64,
+    context_length: Option<i64>,
+}
+
+impl Default for CompactionSettingsSnapshot {
+    fn default() -> Self {
+        let CompactionSettings {
+            token_budget,
+            idle_gap_seconds,
+            carryover_token_budget: _,
+            flush_min_turns,
+            context_length,
+        } = CompactionSettings::default();
+        CompactionSettingsSnapshot {
+            token_budget,
+            idle_gap_seconds,
+            carryover_token_budget: None,
+            carryover_char_budget: None,
+            flush_min_turns,
+            context_length,
+        }
+    }
+}
+
+impl From<CompactionSettingsSnapshot> for CompactionSettings {
+    fn from(snapshot: CompactionSettingsSnapshot) -> CompactionSettings {
+        let carryover_token_budget = snapshot
+            .carryover_token_budget
+            .or_else(|| {
+                snapshot.carryover_char_budget.map(|chars| {
+                    crate::model::estimated_tokens_from_chars(chars.max(0) as usize) as i64
+                })
+            })
+            .unwrap_or(CompactionSettings::default().carryover_token_budget);
+        CompactionSettings {
+            token_budget: snapshot.token_budget,
+            idle_gap_seconds: snapshot.idle_gap_seconds,
+            carryover_token_budget,
+            flush_min_turns: snapshot.flush_min_turns,
+            context_length: snapshot.context_length,
+        }
+    }
 }
 
 /// The mid-session checkpoint flush (spec §Compaction → checkpoint flush): a flush turn run while the
@@ -214,6 +272,12 @@ pub struct TurnSettings {
     /// per-conversation serialization stays on regardless.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub supersede_window_seconds: i64,
+    /// How much text one message's attachments inline into it, in total. A longer file is inlined up
+    /// to the budget and marked as clipped, so a large paste informs the turn without displacing the
+    /// conversation around it; several files spend the same budget between them, in the order they
+    /// were carried, rather than each being allowed the whole of it.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub max_attachment_text_chars: i64,
 }
 
 /// Concurrency limits (spec §Concurrency): how many conversation streams may run at once. The shared
@@ -237,36 +301,6 @@ pub struct ConcurrencySettings {
     /// instead of yielding, keeping a persistent backlog from starving. Zero disables the escape.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub describe_staleness_escape_seconds: i64,
-}
-
-/// Observability (spec §Observability): how much of each model call the model-interaction record
-/// captures. The full request repeats the agent loop's growing buffer (delta-encoded, but still
-/// material at the `Base` of each turn), so the verbosity is operator-tunable at runtime.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-#[cfg_attr(
-    feature = "ts",
-    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
-    settings_metadata(parent = "observability")
-)]
-pub struct ObservabilitySettings {
-    /// How much of each model call to record (the deliberation is always captured; this governs the
-    /// request side).
-    pub capture_model_calls: CaptureLevel,
-}
-
-/// How much of a model call's request the model-interaction record stores (spec §Observability). The
-/// deliberation — reasoning, finish reason, usage, latency — is captured at every level above `Off`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub enum CaptureLevel {
-    /// The delta-encoded request plus a digest — full reconstruction of every prompt.
-    #[default]
-    Full,
-    /// Only the request digest (no message content), plus the full response.
-    Digest,
-    /// No model-interaction record at all.
-    Off,
 }
 
 /// Memory write limits — guards against oversized entries that bloat the event log and pollute briefs
@@ -455,7 +489,7 @@ impl Default for CompactionSettings {
         CompactionSettings {
             token_budget: 24_000,
             idle_gap_seconds: 30 * MINUTE,
-            carryover_char_budget: 4_000,
+            carryover_token_budget: 4_000,
             flush_min_turns: 4,
             context_length: None,
         }
@@ -504,6 +538,7 @@ impl Default for TurnSettings {
             block_timeout_seconds: 3 * MINUTE,
             max_block_attempts: 3,
             supersede_window_seconds: MINUTE,
+            max_attachment_text_chars: 8_000,
         }
     }
 }
@@ -513,14 +548,6 @@ impl Default for ConcurrencySettings {
         ConcurrencySettings {
             max_concurrent_streams: 4,
             describe_staleness_escape_seconds: 5 * MINUTE,
-        }
-    }
-}
-
-impl Default for ObservabilitySettings {
-    fn default() -> Self {
-        ObservabilitySettings {
-            capture_model_calls: CaptureLevel::Full,
         }
     }
 }
@@ -620,8 +647,8 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{
-        AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, ConcurrencySettings,
-        MemorySettings, ObservabilitySettings, SchedulerSettings, Settings, TurnSettings,
+        AmbientSettings, BriefSettings, CheckpointSettings, CompactionSettings,
+        ConcurrencySettings, MemorySettings, SchedulerSettings, Settings, TurnSettings,
         WebSettings,
     };
 
@@ -644,14 +671,6 @@ mod tests {
         let scheduler = SchedulerSettings::default();
         assert_eq!(scheduler.max_wakeups_per_session, 5);
         assert_eq!(scheduler.tick_seconds, 60);
-    }
-
-    #[test]
-    fn observability_defaults_to_full_capture() {
-        assert_eq!(
-            ObservabilitySettings::default().capture_model_calls,
-            CaptureLevel::Full
-        );
     }
 
     #[test]
@@ -679,11 +698,6 @@ mod tests {
         assert_eq!(
             settings.scheduler.tick_seconds,
             SchedulerSettings::default().tick_seconds
-        );
-        // A whole group added later (observability) adopts its default too.
-        assert_eq!(
-            settings.observability.capture_model_calls,
-            CaptureLevel::Full
         );
         // The checkpoint group postdates many logged snapshots; its absence must default with the
         // sweeper enabled.
@@ -738,5 +752,55 @@ mod tests {
             settings.brief.char_budget,
             BriefSettings::default().char_budget
         );
+    }
+
+    #[test]
+    fn a_snapshot_carrying_the_character_carryover_budget_keeps_the_budget_it_recorded() {
+        // The carryover budget moved from characters to reported tokens. An older `ConfigSet` states
+        // it in characters, and the same number as tokens would be four times the transcript, so the
+        // deprecated field converts at the estimator's rate rather than being read as-is or dropped.
+        let recorded = serde_json::json!({
+            "compaction": { "carryover_char_budget": 4_000, "idle_gap_seconds": 900 }
+        });
+        let settings: Settings = serde_json::from_value(recorded).unwrap();
+        assert_eq!(settings.compaction.carryover_token_budget, 1_000);
+        assert_eq!(settings.compaction.idle_gap_seconds, 900);
+
+        // A snapshot stating the budget in tokens is taken at its word, whatever else it carries.
+        let current = serde_json::json!({
+            "compaction": { "carryover_token_budget": 6_000, "carryover_char_budget": 4_000 }
+        });
+        let settings: Settings = serde_json::from_value(current).unwrap();
+        assert_eq!(settings.compaction.carryover_token_budget, 6_000);
+
+        // Neither field is the ordinary absent-field case: the build default.
+        let neither = serde_json::json!({ "compaction": { "idle_gap_seconds": 900 } });
+        let settings: Settings = serde_json::from_value(neither).unwrap();
+        assert_eq!(
+            settings.compaction.carryover_token_budget,
+            CompactionSettings::default().carryover_token_budget
+        );
+    }
+
+    #[test]
+    fn a_written_snapshot_states_the_budget_in_tokens_only() {
+        // The deprecated field is a read path, not a write one: a fresh snapshot must not reintroduce
+        // the character spelling for a later reader to prefer.
+        let written = serde_json::to_value(Settings::default()).unwrap();
+        assert!(written["compaction"]["carryover_token_budget"].is_number());
+        assert!(written["compaction"]["carryover_char_budget"].is_null());
+    }
+
+    #[test]
+    fn a_snapshot_carrying_the_retired_capture_setting_still_loads() {
+        // Model-call capture is no longer tunable: every conversation turn records its call in full,
+        // because the carryover trim reads what those records report. A snapshot still stating the
+        // old group is ignored like any unknown key rather than failing to deserialize.
+        let recorded = serde_json::json!({
+            "observability": { "capture_model_calls": "Off" },
+            "turn": { "max_steps": 7 }
+        });
+        let settings: Settings = serde_json::from_value(recorded).unwrap();
+        assert_eq!(settings.turn.max_steps, 7);
     }
 }
