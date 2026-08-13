@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    agent::{Flush, Pricing, TurnView, bounded_buffer_turns, flushed_up_to, run_flush},
+    agent::{Flush, TurnView, bounded_buffer_turns, flushed_up_to, run_flush},
     event::{SessionEndCause, TurnRole},
     ids::ConversationId,
     instance::{Instance, InstanceError, OpenSession, SnapshotSchedule},
@@ -170,7 +170,7 @@ impl Instance {
         let now = self.engine.clock.now();
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
         let compaction = settings.compaction.clone();
-        let pricing = Pricing::of(&settings);
+        let pricing = settings.compaction.carryover_token_budget;
         let idle_gap_ms = compaction.idle_gap_seconds.saturating_mul(1_000);
         let mut closed = 0;
         // Bind the list first so the graph guard drops before the per-session flush `.await` below.
@@ -444,7 +444,7 @@ impl Instance {
             conversation,
             open.start_seq,
             open.session_start_seq,
-            Pricing::of(settings),
+            settings.compaction.carryover_token_budget,
         )?;
         let watermark = flushed_up_to(&buffer, open.session_start_seq);
         // The watermark's wall-clock anchor: when the last flush turn was recorded, or the session's

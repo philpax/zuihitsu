@@ -6,8 +6,8 @@ use tracing::Instrument;
 
 use crate::{
     agent::{
-        Pricing, Supersession, Turn, TurnError, TurnOutcome, TurnRecord, TurnReport, TurnView,
-        append_turn, bounded_buffer_turns, run_turn,
+        Supersession, Turn, TurnError, TurnOutcome, TurnRecord, TurnReport, TurnView, append_turn,
+        bounded_buffer_turns, run_turn,
     },
     event::{Initiation, PromptTemplateName, TurnRole},
     ids::MemoryId,
@@ -152,7 +152,7 @@ impl Instance {
             routed.template
         };
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
-        let pricing = Pricing::of(&settings);
+        let pricing = settings.compaction.carryover_token_budget;
         let turn_settings = settings.turn;
         let max_steps = turn_settings.max_steps as usize;
         let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);

@@ -6,12 +6,12 @@ use std::collections::HashMap;
 use zuihitsu_platform_connector_types::PlatformResponse;
 
 use crate::{
-    agent::{InboundMessage, Pricing, TurnError, TurnOutcome},
+    agent::{InboundMessage, TurnError, TurnOutcome},
     event::{PromptTemplateName, SessionEndCause},
     ids::{ConversationId, ConversationLocator, MemoryId, PersonId, TurnId},
     instance::{
         InstanceError, RoutedTurn,
-        platform::{MessageInput, Platform, estimate_tokens},
+        platform::{MessageInput, Platform},
     },
     memory::memory_block::Authority,
     model::ModelClient,
@@ -131,7 +131,7 @@ impl Platform<'_> {
 
         // Open or continue the session and run the turn under ordinary platform authority, handing the
         // turn its supersession handle so a newer batch's arrival can cooperatively cancel it.
-        let (report, buffer) = self
+        let (report, _buffer) = self
             .server
             .run_session_turn(
                 model,
@@ -174,23 +174,23 @@ impl Platform<'_> {
 
         // Token-triggered compaction: if the turn's peak prompt crossed the budget, end the session
         // now so the next message re-segments with a fresh brief and a carried tail (spec
-        // §Compaction). The estimate fallback keeps the trigger meaningful when the backend reports
-        // no usage (the in-memory and no-openai builds).
+        // §Compaction).
         let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
         let token_budget = settings.compaction.token_budget;
-        let observed = report
-            .prompt_tokens
-            .map(i64::from)
-            .unwrap_or_else(|| estimate_tokens(&buffer, messages, Pricing::of(&settings)));
-        // `reported` distinguishes the authoritative real-usage path from the coarse estimate
-        // fallback: if the backend never reports `prompt_tokens`, the trigger is running on the
-        // (system-prefix-omitting) estimate, which is an operability signal worth seeing.
-        tracing::debug!(
-            observed,
-            token_budget,
-            reported = report.prompt_tokens.is_some(),
-            "compaction trigger check",
-        );
+        // No reported size means no call completed this turn — a deferral, say. Nothing grew the
+        // prompt through a call, so nothing can have crossed the budget, and inventing a number here
+        // would compact on a guess.
+        let Some(observed) = report.prompt_tokens.map(i64::from) else {
+            return Ok(PlatformResponse {
+                outcome: report.outcome,
+                participant_turn_ids: report
+                    .participant_turn_ids
+                    .iter()
+                    .map(|id| id.0.to_string())
+                    .collect(),
+            });
+        };
+        tracing::debug!(observed, token_budget, "compaction trigger check");
         if observed > token_budget
             && let Err(error) = self.end_session_for_compaction(conversation, model).await
         {

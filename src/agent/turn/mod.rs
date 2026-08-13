@@ -30,8 +30,8 @@ mod tools;
 pub use supersede::Supersession;
 
 pub use buffer::{
-    Pricing, ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start,
-    estimated_turn_tokens, flushed_up_to, recent_touched, session_touched,
+    ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, flushed_up_to,
+    recent_touched, session_touched,
 };
 pub use record::{TurnRecord, append_turn};
 pub use resolve::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn};
@@ -65,7 +65,7 @@ pub(super) use crate::{
     event::{EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole},
     ids::{ConversationId, MemoryId, MemoryName, Seq, SessionId, TurnId},
     memory::memory_block::Authority,
-    model::{Message, ModelClient, estimated_tokens_from_chars},
+    model::{Message, ModelClient},
     prompt::PromptSectionSpan,
     settings::AmbientSettings,
     store::{Store, StoreError},

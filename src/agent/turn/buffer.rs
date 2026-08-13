@@ -1,7 +1,7 @@
 //! The live conversational buffer: the turn views the next turn replays as the prompt suffix,
 //! and the reads that assemble and bound it (spec §Conversations → the live buffer).
 
-use crate::{agent::turn::*, settings::Settings};
+use crate::agent::turn::*;
 
 /// The seam note marking a non-empty flush reply as undelivered when it replays into a later turn's
 /// buffer. A checkpoint flush is internal bookkeeping — its reply reaches no participant — but a
@@ -225,144 +225,64 @@ pub fn bounded_buffer_turns(
     conversation: ConversationId,
     start_seq: Seq,
     session_start_seq: Seq,
-    pricing: Pricing,
+    token_budget: i64,
 ) -> Result<Vec<TurnView>, StoreError> {
     let mut turns = buffer_turns(store, conversation, start_seq)?;
     // The read is in seq order, so the carried tail is the prefix below this session's own start.
     let split = turns.partition_point(|turn| turn.seq < session_start_seq);
-    let keep_from = carryover_start(&turns[..split], pricing);
+    let keep_from = carryover_start(&turns[..split], token_budget);
     turns.drain(..keep_from);
     Ok(turns)
 }
-
-/// What the trim needs beyond the buffer: the budget it fills to, and the inlining budget a turn's
-/// text attachments were rendered under, since an estimate that ignored them would price a turn
-/// carrying a file as though it carried a sentence.
-#[derive(Clone, Copy, Debug)]
-pub struct Pricing {
-    pub carryover_token_budget: i64,
-    /// `TurnSettings::max_attachment_text_chars` — the whole message's inlining budget.
-    pub attachment_text_chars: usize,
-}
-
-impl Pricing {
-    /// The pricing an instance's current settings state.
-    pub fn of(settings: &Settings) -> Pricing {
-        Pricing {
-            carryover_token_budget: settings.compaction.carryover_token_budget,
-            attachment_text_chars: settings.turn.max_attachment_text_chars.max(0) as usize,
-        }
-    }
-}
-
-/// The estimated price of one turn, for the turns nothing measured.
-///
-/// Characters over the shared four-per-token rule, counting what the prompt carries rather than what
-/// the log records: the turn's text, the tool steps it replays, and what its attachments add. This is
-/// the only pricing in the module that guesses, and it exists because a turn that has not been
-/// followed by a model call has no reported cost to read.
-pub fn estimated_turn_tokens(turn: &TurnView, pricing: Pricing) -> usize {
-    let steps: usize = turn
-        .steps
-        .iter()
-        .map(|step| step.script.chars().count() + step.result.chars().count())
-        .sum();
-    let attachments: usize = turn
-        .attachments
-        .iter()
-        .map(|attachment| match attachment.kind {
-            // Inlined up to the message's budget, however long the file itself runs.
-            AttachmentKind::Text => {
-                (attachment.byte_len as usize).min(pricing.attachment_text_chars)
-            }
-            AttachmentKind::Image => IMAGE_ESTIMATE_CHARS,
-            // Announced by name, type, and size: a line, not a payload.
-            AttachmentKind::Opaque => ANNOUNCEMENT_CHARS,
-        })
-        .sum();
-    estimated_tokens_from_chars(turn.text.chars().count() + steps + attachments)
-}
-
-/// What one image is guessed at, in the characters this estimate is stated in. A vision backend bills
-/// an image at a few hundred to a couple of thousand tokens by its dimensions; this is the middle of
-/// that band. It applies only until the next model call reports the real number.
-const IMAGE_ESTIMATE_CHARS: usize = 4_000;
-
-/// The announcement line an attachment the model cannot read costs: its name, media type, and size.
-const ANNOUNCEMENT_CHARS: usize = 80;
 
 /// The index into `turns` of the oldest turn the carryover can afford, filling backward from the
 /// newest — the raw-transcript carryover trim (spec §Compaction → raw-transcript carryover). The
 /// newest turn is always kept, even alone over budget. Returns `turns.len()` for an empty slice.
 ///
-/// **The cost is the backend's own count, not a guess.** A turn's first model call records the prompt
-/// as it stood before that turn generated, and every prompt is assembled over the same frozen prefix,
-/// so the difference between two such counts is exactly what the buffer grew by between them —
-/// replayed tool steps, inlined attachments, and image parts included, each charged what the provider
-/// charged rather than what a character count imagines. The trim therefore cuts at a turn that made a
-/// model call, and asks one question per candidate: does the growth since that turn fit?
+/// **The cost is the backend's own count, and nothing else is priced.** A turn's first model call
+/// records the prompt as it stood before that turn generated, and every prompt is assembled over the
+/// same frozen prefix, so the difference between two such counts is exactly what the buffer grew by
+/// between them — replayed tool steps, inlined attachments, and image parts included, each charged
+/// what the provider charged.
 ///
-/// Two things are genuinely unknown and only there does an estimate appear. The newest exchange has no
-/// successor to bracket it, so what it costs is not yet reported; and turns before the oldest recorded
-/// call were never bracketed at all. A backend that reports no usage leaves the whole buffer unknown
-/// — [`estimated_start`] is that case.
-pub fn carryover_start(turns: &[TurnView], pricing: Pricing) -> usize {
-    let budget = pricing.carryover_token_budget.max(0) as usize;
+/// The cut lands just after a call, so the messages that call answered ride with its answer: a tail
+/// beginning with a reply whose question was dropped is worse context than a slightly shorter one.
+/// The granularity is therefore one exchange.
+///
+/// What no call has bracketed is not charged, because nothing measured it and this module does not
+/// guess. Two ends are unbracketed: the newest exchange, unreported until the next call prices it,
+/// and whatever precedes the oldest recorded call, which sits inside that call's total alongside the
+/// frozen prefix and cannot be separated from it. Both ride free, so the buffer is `budget` plus
+/// those ends — the `budget + one session's turns` bound the compaction design already states. A
+/// buffer with no recorded call at all carries its newest turn, which it carries regardless.
+pub fn carryover_start(turns: &[TurnView], token_budget: i64) -> usize {
+    let budget = token_budget.max(0) as usize;
     let newest = turns.len().saturating_sub(1);
     let measured: Vec<(usize, u32)> = turns
         .iter()
         .enumerate()
         .filter_map(|(idx, turn)| turn.prompt_tokens.map(|tokens| (idx, tokens)))
         .collect();
-    let Some(&(last, last_tokens)) = measured.last() else {
-        return estimated_start(turns, pricing);
+    let Some(&(_, last_tokens)) = measured.last() else {
+        return newest;
     };
 
-    // Everything from the newest recorded call onward — that turn's own generation and any turn after
-    // it — is unreported until the next call, and rides along whatever else is carried.
-    let tail: usize = turns[last..]
-        .iter()
-        .map(|turn| estimated_turn_tokens(turn, pricing))
-        .sum();
     // The newest turn always rides, even alone over budget.
     let mut start = newest;
-    // Carrying from a recorded call costs the growth since it, exactly: both prompts were measured
-    // over the same frozen prefix, so their difference is the buffer content between them.
-    for &(idx, tokens) in measured.iter().rev() {
-        if last_tokens.saturating_sub(tokens) as usize + tail > budget {
+    let mut admitted_oldest = false;
+    for (position, &(idx, tokens)) in measured.iter().enumerate().rev() {
+        // Carrying from just after a call costs the growth since it, exactly: both prompts were
+        // measured over the same frozen prefix, so their difference is the buffer content between.
+        if last_tokens.saturating_sub(tokens) as usize > budget {
             break;
         }
-        start = idx.min(start);
+        start = (idx + 1).min(start);
+        admitted_oldest = position == 0;
     }
-    // Reaching past the oldest recorded call means paying for turns nothing bracketed.
-    if let Some(&(oldest, oldest_tokens)) = measured.first()
-        && start == oldest
-        && oldest > 0
-    {
-        let unbracketed: usize = turns[..oldest]
-            .iter()
-            .map(|turn| estimated_turn_tokens(turn, pricing))
-            .sum();
-        if last_tokens.saturating_sub(oldest_tokens) as usize + tail + unbracketed <= budget {
-            start = 0;
-        }
-    }
-    start
-}
-
-/// The trim with nothing measured to go on: the newest-first fill over [`estimated_turn_tokens`], for
-/// a buffer whose turns recorded no model call at all.
-fn estimated_start(turns: &[TurnView], pricing: Pricing) -> usize {
-    let budget = pricing.carryover_token_budget.max(0) as usize;
-    let mut total = 0usize;
-    let mut start = turns.len();
-    for (idx, turn) in turns.iter().enumerate().rev() {
-        let next = total.saturating_add(estimated_turn_tokens(turn, pricing));
-        if start != turns.len() && next > budget {
-            break;
-        }
-        total = next;
-        start = idx;
+    // Reaching the oldest recorded call means the turns before it ride too: they are unbracketed, so
+    // nothing prices them, and dropping content for want of a number it cannot have is not a trim.
+    if admitted_oldest {
+        start = 0;
     }
     start
 }

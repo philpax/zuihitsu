@@ -224,6 +224,12 @@ fn fragmented_tool_call_arguments_reassemble() {
             {"index": 0, "function": {"arguments": "ipt\":\"return 1\"}"}}
         ]}}]}),
         serde_json::json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
+        // The usage chunk `stream_options.include_usage` asks for, without which the assembler
+        // refuses the stream.
+        serde_json::json!({
+            "choices": [],
+            "usage": {"prompt_tokens": 9, "completion_tokens": 6, "total_tokens": 15}
+        }),
     ];
     let mut assembler = StreamAssembler::default();
     for chunk in chunks {
@@ -415,4 +421,26 @@ fn a_user_message_with_images_becomes_text_then_one_part_per_image() {
     assert_eq!(parts[1]["type"], "image_url");
     assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,AAAA");
     assert_eq!(parts[2]["image_url"]["url"], "data:image/jpeg;base64,BBBB");
+}
+
+/// A stream that never reports usage is refused. The prompt size is asked for on every request and
+/// read by the carryover trim, so a backend that omits it is unusable rather than merely quieter.
+#[test]
+fn a_stream_without_usage_is_refused() {
+    use super::response::{ChatChunk, StreamAssembler};
+
+    let mut assembler = StreamAssembler::default();
+    let chunk: ChatChunk = serde_json::from_value(serde_json::json!({
+        "choices": [{"delta": {"content": "Hello."}, "finish_reason": "stop"}]
+    }))
+    .expect("chunk deserializes");
+    assembler.fold(chunk);
+
+    let error = assembler
+        .finish()
+        .expect_err("a stream without usage is refused");
+    assert!(
+        error.to_string().contains("prompt_tokens"),
+        "the error names what was missing: {error}"
+    );
 }

@@ -6,13 +6,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agent::{Pricing, TurnView, estimated_turn_tokens},
     attachment::Attachment,
     graph::GraphError,
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
     instance::{Instance, InstanceError},
     memory::memory_block::{MemoryBlock, MemoryError},
-    model::estimated_tokens_from_chars,
     store::StoreError,
     vocabulary::RelationName,
 };
@@ -195,24 +193,3 @@ pub(super) fn retract_if_live(
         Err(e) => Err(InstanceError::Memory(e)),
     }
 }
-
-/// A deterministic estimate of the prompt's token count over the buffer plus the inbound message — the
-/// compaction-trigger fallback when the backend reports no usage. Prices each carried turn with
-/// [`estimated_turn_tokens`], the same fallback the carryover trim uses, so the two budgets are read in
-/// one unit by one rule. Coarse and an under-count (it omits the frozen prefix); only the real client's
-/// `prompt_tokens` is authoritative.
-pub(super) fn estimate_tokens(
-    buffer: &[TurnView],
-    messages: &[MessageInput],
-    pricing: Pricing,
-) -> i64 {
-    let buffer_tokens: usize = buffer
-        .iter()
-        .map(|turn| estimated_turn_tokens(turn, pricing))
-        .sum();
-    let inbound_chars: usize = messages.iter().map(|m| m.text.chars().count()).sum();
-    (buffer_tokens + estimated_tokens_from_chars(inbound_chars)) as i64
-}
-
-#[cfg(test)]
-mod tests;
