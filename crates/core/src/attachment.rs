@@ -76,12 +76,51 @@ impl AttachmentKind {
     }
 }
 
+/// The media type an attachment's bytes are *presented* under, which is not always the one they were
+/// stored under.
+///
+/// The bytes are whatever a sender uploaded, and every viewer presents them somewhere a sender must
+/// not reach: the server's read route is same-origin with the console, and the eval viewer builds an
+/// object URL on its own origin. A stored `text/html` presented as itself would run its script in
+/// either. The content address governs who can read a blob, not what a sender puts in one.
+///
+/// Anything the system already treats as text is therefore presented as `text/plain`, which a browser
+/// renders inline as text: the reader opens the file in place and sees exactly what it says, with no
+/// markup to execute. It is the closest thing the web has to a view-source media type — HTML has no
+/// inline-as-source rendering the way XML has its tree viewer, so the choice is between rendering it
+/// as a document, forcing a download, and this.
+///
+/// An image type is presented verbatim: the four [`AttachmentKind::Image`] types are inert raster
+/// formats, and downgrading them would leave a viewer nothing to put in an `<img>`. Anything else
+/// keeps its stored type too — the executable-in-a-browser types (`text/html`,
+/// `application/xhtml+xml`, `image/svg+xml`) all classify as text and are covered above — so a PDF
+/// still opens in the viewer. A presenter pairs this with `nosniff`, or the equivalent guarantee that
+/// its own transport cannot re-sniff the body, since a `text/plain` body opening with `<html>` is
+/// otherwise a candidate for exactly the sniffing this prevents.
+///
+/// The stored metadata is untouched: this decides one presentation, and the attachment record the log
+/// holds still says what was uploaded.
+pub fn served_media_type(mime: &str) -> &str {
+    match AttachmentKind::of_mime(mime) {
+        AttachmentKind::Text => PLAIN_TEXT,
+        AttachmentKind::Image | AttachmentKind::Opaque => mime,
+    }
+}
+
+/// The media type every text-classified attachment is presented under. The charset is stated because
+/// a browser left to guess one may pick a legacy encoding, and the agent's own inlining already reads
+/// these bytes as UTF-8.
+const PLAIN_TEXT: &str = "text/plain; charset=utf-8";
+
 #[cfg(test)]
 mod tests {
     //! The classification contract the connector, the server, and the console all read: which media
     //! types the model can perceive, which are text, and that anything unrecognised stays opaque.
 
-    use super::AttachmentKind::{self, Image, Opaque, Text};
+    use super::{
+        AttachmentKind::{self, Image, Opaque, Text},
+        served_media_type,
+    };
 
     #[test]
     fn a_media_type_classifies() {
@@ -132,5 +171,22 @@ mod tests {
             AttachmentKind::of_mime("Application/LD+JSON"),
             AttachmentKind::Text
         );
+    }
+
+    #[test]
+    fn a_text_type_is_presented_as_plain_text_and_everything_else_as_itself() {
+        // Every type a browser would execute classifies as text, so the downgrade covers them all.
+        for executable in ["text/html", "application/xhtml+xml", "image/svg+xml"] {
+            assert_eq!(
+                served_media_type(executable),
+                "text/plain; charset=utf-8",
+                "presenting {executable}"
+            );
+        }
+        assert_eq!(served_media_type("text/plain"), "text/plain; charset=utf-8");
+        // A perceivable image stays itself, or a viewer has nothing to put in an `<img>`; so does an
+        // opaque type, which is inert once it cannot be sniffed into markup.
+        assert_eq!(served_media_type("image/png"), "image/png");
+        assert_eq!(served_media_type("application/pdf"), "application/pdf");
     }
 }

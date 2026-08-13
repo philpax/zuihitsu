@@ -20,7 +20,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use zuihitsu::{AttachmentKind, BlobError, BlobHash};
+use zuihitsu::{BlobError, BlobHash, attachment::served_media_type};
 
 use crate::http_server::{AppState, error::ApiError};
 
@@ -162,37 +162,6 @@ fn common_headers(mime: &str) -> [(header::HeaderName, HeaderValue); 4] {
         ),
     ]
 }
-
-/// The media type a blob is *served* under, which is not always the one it was stored under.
-///
-/// The bytes are uploader-controlled and this route is same-origin with the console, so a stored
-/// `text/html` served as itself would run script on the console's origin — the address being
-/// unguessable stops a stranger reading a blob, not a sender choosing what their own blob contains.
-/// Anything the system already treats as text is therefore served as `text/plain`, which a browser
-/// renders inline as text: the reader still opens the file in place and sees exactly what it says,
-/// and there is no markup for the browser to execute. It is the closest thing the web has to a
-/// view-source media type — HTML has no inline-as-source rendering the way XML has its tree viewer,
-/// so the choice is between rendering it as a document, forcing a download, and this.
-///
-/// An image type is served verbatim: the four [`AttachmentKind::Image`] types are inert raster
-/// formats, and downgrading them would leave the console with nothing to put in an `<img>`. Anything
-/// else keeps its stored type too — the executable-in-a-browser types (`text/html`,
-/// `application/xhtml+xml`, `image/svg+xml`) all classify as text and are covered above, and
-/// `nosniff` stops the rest from being sniffed into one — so a PDF still opens in the viewer.
-///
-/// The stored metadata is untouched: this is a decision about one response, and the attachment record
-/// the log holds still says what was uploaded.
-fn served_media_type(mime: &str) -> &str {
-    match AttachmentKind::of_mime(mime) {
-        AttachmentKind::Text => PLAIN_TEXT,
-        AttachmentKind::Image | AttachmentKind::Opaque => mime,
-    }
-}
-
-/// The media type every text-classified attachment is served under. The charset is stated because a
-/// browser left to guess one may pick a legacy encoding, and the agent's own inlining already reads
-/// these bytes as UTF-8.
-const PLAIN_TEXT: &str = "text/plain; charset=utf-8";
 
 /// One byte range as the request asked for it, before the stored length is known.
 #[derive(Debug, PartialEq, Eq)]
