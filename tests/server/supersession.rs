@@ -175,6 +175,7 @@ fn spawn_batch(
                 &[MessageInput {
                     sender: dave.clone(),
                     text: text.to_owned(),
+                    attachments: Vec::new(),
                 }],
                 std::slice::from_ref(&dave),
             )

@@ -168,7 +168,9 @@ impl Instance {
         model: &dyn ModelClient,
     ) -> Result<usize, InstanceError> {
         let now = self.engine.clock.now();
-        let compaction = Settings::from_store(self.engine.store.lock().as_ref())?.compaction;
+        let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
+        let compaction = settings.compaction.clone();
+        let pricing = settings.compaction.carryover_token_budget;
         let idle_gap_ms = compaction.idle_gap_seconds.saturating_mul(1_000);
         let mut closed = 0;
         // Bind the list first so the graph guard drops before the per-session flush `.await` below.
@@ -187,7 +189,7 @@ impl Instance {
                     conversation,
                     recovered.start_seq,
                     recovered.start_seq,
-                    compaction.carryover_char_budget,
+                    pricing,
                 )?
                 .last()
                 .map_or(recovered.started_at, |turn| turn.recorded_at)
@@ -362,7 +364,7 @@ impl Instance {
                 ),
                 max_block_attempts: settings.turn.max_block_attempts.max(1) as u32,
                 max_entry_chars: settings.memory.max_entry_chars.max(1) as usize,
-                capture: settings.observability.capture_model_calls,
+                max_attachment_text_chars: settings.turn.max_attachment_text_chars.max(0) as usize,
             })
             .await
             .map_err(|error| InstanceError::Turn {
@@ -442,7 +444,7 @@ impl Instance {
             conversation,
             open.start_seq,
             open.session_start_seq,
-            settings.compaction.carryover_char_budget,
+            settings.compaction.carryover_token_budget,
         )?;
         let watermark = flushed_up_to(&buffer, open.session_start_seq);
         // The watermark's wall-clock anchor: when the last flush turn was recorded, or the session's

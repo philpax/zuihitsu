@@ -1,14 +1,16 @@
 //! The custom byot response type must deserialize the serving layer's `reasoning_content` and
 //! the full token usage that the standard `async-openai` type drops — the deliberation the
 //! model-interaction record captures (spec §Observability) — and the backend-error
-//! classification must mark exactly the transport/overload failures transient.
+//! classification must mark exactly the transport/overload failures transient. The request side's
+//! one branch — a user message with images becoming a content-part array — is covered here too.
 use async_openai::error::{ApiError, ApiErrorResponse, OpenAIError};
 use reqwest::StatusCode;
 
 use crate::model::{
-    Completion, Usage,
+    Completion, GenerateRequest, ImagePart, Message, Usage,
     openai::{
         is_transient,
+        request::to_messages,
         response::{ChatResponse, into_response},
     },
 };
@@ -222,6 +224,12 @@ fn fragmented_tool_call_arguments_reassemble() {
             {"index": 0, "function": {"arguments": "ipt\":\"return 1\"}"}}
         ]}}]}),
         serde_json::json!({"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}),
+        // The usage chunk `stream_options.include_usage` asks for, without which the assembler
+        // refuses the stream.
+        serde_json::json!({
+            "choices": [],
+            "usage": {"prompt_tokens": 9, "completion_tokens": 6, "total_tokens": 15}
+        }),
     ];
     let mut assembler = StreamAssembler::default();
     for chunk in chunks {
@@ -369,4 +377,70 @@ mod embed_truncation {
         assert!(!is_length_overflow(&backend("invalid api key")));
         assert!(!is_length_overflow(&ModelError::Exhausted));
     }
+}
+
+/// The serialised user message `to_messages` produces for `messages`.
+fn user_message_json(messages: Vec<Message>) -> serde_json::Value {
+    let request = GenerateRequest {
+        messages,
+        ..GenerateRequest::default()
+    };
+    let converted = to_messages(&request).expect("the conversion succeeds");
+    serde_json::to_value(&converted[0]).expect("the message serialises")
+}
+
+#[test]
+fn a_user_message_with_no_images_stays_a_plain_string() {
+    // The text-only path must not change shape, or every cached prefix is invalidated for nothing.
+    let json = user_message_json(vec![Message::user("hello")]);
+    assert_eq!(json["content"], serde_json::json!("hello"));
+}
+
+#[test]
+fn a_user_message_with_images_becomes_text_then_one_part_per_image() {
+    let json = user_message_json(vec![Message {
+        images: vec![
+            ImagePart {
+                blob: zuihitsu_core::ids::BlobHash::of(b"first"),
+                mime: "image/png".into(),
+                data: "AAAA".into(),
+            },
+            ImagePart {
+                blob: zuihitsu_core::ids::BlobHash::of(b"second"),
+                mime: "image/jpeg".into(),
+                data: "BBBB".into(),
+            },
+        ],
+        ..Message::user("what are these")
+    }]);
+
+    let parts = json["content"].as_array().expect("a content-part array");
+    assert_eq!(parts.len(), 3);
+    assert_eq!(parts[0]["type"], "text");
+    assert_eq!(parts[0]["text"], "what are these");
+    assert_eq!(parts[1]["type"], "image_url");
+    assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,AAAA");
+    assert_eq!(parts[2]["image_url"]["url"], "data:image/jpeg;base64,BBBB");
+}
+
+/// A stream that never reports usage is refused. The prompt size is asked for on every request and
+/// read by the carryover trim, so a backend that omits it is unusable rather than merely quieter.
+#[test]
+fn a_stream_without_usage_is_refused() {
+    use super::response::{ChatChunk, StreamAssembler};
+
+    let mut assembler = StreamAssembler::default();
+    let chunk: ChatChunk = serde_json::from_value(serde_json::json!({
+        "choices": [{"delta": {"content": "Hello."}, "finish_reason": "stop"}]
+    }))
+    .expect("chunk deserializes");
+    assembler.fold(chunk);
+
+    let error = assembler
+        .finish()
+        .expect_err("a stream without usage is refused");
+    assert!(
+        error.to_string().contains("prompt_tokens"),
+        "the error names what was missing: {error}"
+    );
 }

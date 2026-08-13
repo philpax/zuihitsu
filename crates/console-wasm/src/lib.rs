@@ -25,11 +25,15 @@ use sha2::{Digest, Sha256};
 use ulid::Ulid;
 use wasm_bindgen::prelude::*;
 use zuihitsu_core::{
+    attachment::served_media_type as core_served_media_type,
     brief::{BriefRequest, compose_traced},
     event::{Event, EventPayload, MergeProposalSource, RequestRecord},
     graph::Graph,
     ids::{MemoryId, MemoryName, Namespace, Seq},
-    model::{Message, ToolChoice, ToolSpec},
+    model::{
+        Message, ToolChoice, ToolSpec, estimated_tokens as core_estimated_tokens,
+        estimated_tokens_from_chars as core_estimated_tokens_from_chars,
+    },
     settings::BriefSettings,
     time::{MILLIS_PER_DAY, Timestamp},
 };
@@ -52,6 +56,25 @@ const MAX_RECURRING_INSTANCES: usize = 20;
 /// A month grid spans six weeks (42 days), so a daily rule fills every cell and this bound leaves
 /// headroom above that without letting a malformed rule loop unbounded.
 const MAX_CALENDAR_INSTANCES: usize = 50;
+
+/// Apply the same coarse fallback used by the agent when a model provider omits token usage.
+#[wasm_bindgen(js_name = estimatedTokensFromChars)]
+pub fn estimated_tokens_from_chars(chars: usize) -> usize {
+    core_estimated_tokens_from_chars(chars)
+}
+
+/// Count Unicode scalar values and apply the shared coarse token fallback.
+#[wasm_bindgen(js_name = estimatedTokens)]
+pub fn estimated_tokens(text: &str) -> usize {
+    core_estimated_tokens(text)
+}
+
+/// The media type an attachment's bytes are presented under, so a viewer minting its own URL for them
+/// declares exactly what the agent's read route would.
+#[wasm_bindgen(js_name = servedMediaType)]
+pub fn served_media_type(mime: &str) -> String {
+    core_served_media_type(mime).to_owned()
+}
 
 #[wasm_bindgen]
 impl Replica {

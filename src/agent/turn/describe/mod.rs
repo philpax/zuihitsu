@@ -22,7 +22,6 @@ use crate::{
     graph::EntryView,
     ids::{EntryId, MemoryId, Seq, TurnId},
     model::ModelClient,
-    settings::Settings,
     time::TemporalRef,
 };
 use templates::PromptTemplate;
@@ -98,13 +97,9 @@ async fn describe_memories(
     let Some(templates) = load_synthesis_templates(engine)? else {
         return Ok(0);
     };
-    // Record the pass's model calls at the configured capture level, exactly like a turn's: an
-    // off-hot-path call is deliberation too, and hiding it leaves the pass invisible to the
-    // model-interaction record.
-    let capture = Settings::from_store(engine.store.lock().as_ref())?
-        .observability
-        .capture_model_calls;
-    let recording = Recording::new(None, TurnId::generate(), capture);
+    // The pass has no conversation to file its calls under, so it records none; its product carries
+    // its own provenance instead.
+    let recording = Recording::background(TurnId::generate());
     let mut considered = 0;
     for &id in candidates {
         let _guard = guard.lock().await;

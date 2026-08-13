@@ -1,3 +1,4 @@
+import type { Attachment } from "@zuihitsu/wire/types/Attachment.ts";
 import type { Event } from "@zuihitsu/wire/types/Event.ts";
 import type { Brief } from "@zuihitsu/wire/types/Brief.ts";
 import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
@@ -97,6 +98,9 @@ export interface TurnModel {
   /// view canonicalizes it to the class primary for display, dimming this actually-used handle.
   speakerId: string | null;
   initiation: Initiation;
+  /// The files the message carried, as the turn recorded them. Empty for every turn that carried
+  /// none — the agent's own, a system turn, an ordinary message.
+  attachments: Attachment[];
   deliberation: DeliberationStep[];
   /// What the turn produced: the graph-mutating events its Lua committed (writes, links, tags,
   /// arbitrations), in order — the consequence of the deliberation above.
@@ -196,6 +200,7 @@ export function emptyTurn(turnId: string, seq: number): TurnModel {
     speaker: null,
     speakerId: null,
     initiation: "Responding",
+    attachments: [],
     deliberation: [],
     outcomes: [],
     entrance: false,
@@ -314,6 +319,8 @@ export function buildConversations(
         model.speaker = name(payload.participant);
         model.speakerId = payload.participant;
         model.initiation = payload.initiation;
+        // Loose ?? []: a payload recorded before attachments existed has no key at all.
+        model.attachments = payload.attachments ?? [];
         model.brief = payload.brief;
         model.checkpoint = payload.produced_by?.template_name === "flush";
         // Outcomes belong to the agent's response cycle; an inbound or system turn closes the prior

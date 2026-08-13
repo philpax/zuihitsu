@@ -8,6 +8,7 @@ import { Excerpt } from "../components/primitives.tsx";
 import { TurnRefs } from "../lib/view/turnRefs.ts";
 import { MemRefs } from "../lib/view/memRefs.ts";
 import { EntryEvents } from "../lib/view/entryEvents.ts";
+import { useBlobSource } from "../lib/view/blobSource.ts";
 import { TurnRefChip } from "../views/conversation/TurnRefs.tsx";
 
 // The shared reference family for event details — one component per referent kind, so every raw id an
@@ -15,7 +16,8 @@ import { TurnRefChip } from "../views/conversation/TurnRefs.tsx";
 //   - memory by id: [`Ref`] / [`RefList`]; memory by name: [`MemoryNameLink`],
 //   - content entry: [`EntryRef`] (snippet-labelled, into State with the entry highlighted),
 //   - conversation or turn: [`ConversationRefLink`] (delegating to the transcript's chip in-view),
-//   - log event by seq: [`EventRef`] (into the Events view, that event pinned).
+//   - log event by seq: [`EventRef`] (into the Events view, that event pinned),
+//   - attachment bytes by content address: [`BlobRef`] (to the bytes, through the frame's source).
 // Each resolves against the folded log the console holds and degrades to plain text — never a broken
 // link — outside a stream frame or when the referent is not in the loaded window. [`Mono`] and
 // [`Prose`] are the primitive companions the same detail renderers reach for.
@@ -210,6 +212,39 @@ export function EventRef({ seq }: { seq: number }) {
     </Link>
   );
 }
+
+/// An attachment: the sender's name for the file, linked to the bytes, with the head of the content
+/// address beside it. Resolves through the frame's [`BlobSource`], and renders as plain text when
+/// that reaches nothing.
+export function BlobRef({ blob, name }: { blob: string; name: string }) {
+  const url = useBlobSource().urlFor({ blob });
+  const address = <Mono>{blob.slice(0, ADDRESS_HEAD)}…</Mono>;
+  if (url === null) {
+    return (
+      <>
+        {name} {address}
+      </>
+    );
+  }
+  return (
+    <>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title={`Open ${name} (${blob})`}
+        className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+      >
+        {name}
+      </a>{" "}
+      {address}
+    </>
+  );
+}
+
+/// How much of a content address a detail row shows: enough to tell two apart, where the whole 64
+/// characters push the fields they label off the line. The `title` carries the rest.
+const ADDRESS_HEAD = 12;
 
 export function Mono({ children }: { children: ReactNode }) {
   return <span className="break-all text-ink-soft">{children}</span>;

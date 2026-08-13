@@ -84,6 +84,39 @@ fn serving_bind_defaults_to_loopback_and_parses_an_override() {
 }
 
 #[test]
+fn serving_config_defaults_and_overrides_include_message_attachment_budgets() {
+    let defaults = EnvConfig::default().serving;
+    assert_eq!(defaults.max_message_attachment_count, 32);
+    assert_eq!(defaults.max_message_attachment_bytes, 64 * 1024 * 1024);
+
+    let config = EnvConfig::load_from_string(
+        "[serving]\nmax_message_attachment_count = 3\nmax_message_attachment_bytes = 99\n",
+        base(),
+    )
+    .unwrap();
+    assert_eq!(config.serving.max_message_attachment_count, 3);
+    assert_eq!(config.serving.max_message_attachment_bytes, 99);
+
+    let json = serde_json::to_value(config.serving).unwrap();
+    assert_eq!(json["max_message_attachment_count"], 3);
+    assert_eq!(json["max_message_attachment_bytes"], 99);
+}
+
+#[test]
+fn the_readme_example_carries_every_serving_attachment_field() {
+    // The example config is the copy-pasteable reference for the environmental config, so a field
+    // added here must appear there. The prose around each field is the README's own business.
+    let readme = include_str!("../../README.md");
+    for field in [
+        "max_attachment_bytes",
+        "max_message_attachment_count",
+        "max_message_attachment_bytes",
+    ] {
+        assert!(readme.contains(field), "the README example names {field}");
+    }
+}
+
+#[test]
 fn control_keys_default_empty_and_parse_as_arrays() {
     // No keys by default — a loopback-only, no-remote-access posture.
     assert!(EnvConfig::default().serving.control_keys.is_empty());

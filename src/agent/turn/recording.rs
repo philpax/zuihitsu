@@ -29,7 +29,6 @@ use crate::{
         ModelError, ToolCall, ToolChoice,
     },
     prompt::PromptSectionSpan,
-    settings::CaptureLevel,
     store::Store,
 };
 
@@ -73,7 +72,6 @@ pub(crate) struct Recording {
     /// conversation to attribute it to — but the work's own events still carry their `produced_by`.
     pub(crate) conversation: Option<ConversationId>,
     pub(crate) turn_id: TurnId,
-    pub(crate) capture: CaptureLevel,
     /// How many model calls this recording has started, counted so a progress frame names which
     /// generation of the turn it belongs to (the console resets its accumulated text per step).
     /// Atomic only for `Sync`'s sake — a recording serves one sequential loop.
@@ -81,16 +79,17 @@ pub(crate) struct Recording {
 }
 
 impl Recording {
+    /// A recording for one background pass: no conversation to file its calls under, so it records
+    /// none of them and its product carries its own provenance instead.
+    pub(crate) fn background(turn_id: TurnId) -> Recording {
+        Recording::new(None, turn_id)
+    }
+
     /// A fresh recording for one turn (or one background pass), its step counter at zero.
-    pub(crate) fn new(
-        conversation: Option<ConversationId>,
-        turn_id: TurnId,
-        capture: CaptureLevel,
-    ) -> Recording {
+    pub(crate) fn new(conversation: Option<ConversationId>, turn_id: TurnId) -> Recording {
         Recording {
             conversation,
             turn_id,
-            capture,
             steps_started: AtomicU32::new(0),
         }
     }
@@ -133,9 +132,7 @@ impl Recording {
         let duration_ms = duration.as_millis() as u64;
         // Off-conversation background work (`conversation` is `None`) records no interaction event:
         // there is no conversation to file it under, and its product carries its own provenance.
-        if self.capture != CaptureLevel::Off
-            && let Some(conversation) = self.conversation
-        {
+        if let Some(conversation) = self.conversation {
             let event = EventPayload::ModelCalled {
                 conversation,
                 turn_id: self.turn_id,
@@ -231,9 +228,7 @@ impl Recording {
                     // breaks a turn), mirroring the `Restarted` path below; the attempt is the restarts
                     // seen this call plus one. Publish `Abandoned` so a viewer drops the dead
                     // generation, then return `Superseded`.
-                    if self.capture != CaptureLevel::Off
-                        && let Some(conversation) = self.conversation
-                    {
+                    if let Some(conversation) = self.conversation {
                         let aborted = EventPayload::ModelCallAborted {
                             conversation,
                             turn_id: self.turn_id,
@@ -275,11 +270,8 @@ impl Recording {
                 }
                 GenerateDelta::Restarted { attempt, cause } => {
                     restarts += 1;
-                    // Gated exactly like `ModelCalled`: at `CaptureLevel::Off` the log records no
-                    // deliberation text, discarded or not.
-                    if self.capture != CaptureLevel::Off
-                        && let Some(conversation) = self.conversation
-                    {
+                    // Gated exactly like `ModelCalled`: an off-conversation pass records neither.
+                    if let Some(conversation) = self.conversation {
                         let aborted = EventPayload::ModelCallAborted {
                             conversation,
                             turn_id: self.turn_id,
@@ -318,17 +310,13 @@ impl Recording {
 
     /// The delta record for a call: a [`RequestRecord::Base`] for the first call of a phase
     /// (`prev_sent_len` is `None`), otherwise a [`RequestRecord::Continuation`] of the messages
-    /// appended since the previous call. `None` unless capturing at [`CaptureLevel::Full`], so the
-    /// growing buffer is cloned only when it will be stored.
+    /// appended since the previous call.
     pub(crate) fn request_record(
         &self,
         request: &GenerateRequest,
         prev_sent_len: Option<usize>,
         system_sections: &[PromptSectionSpan],
     ) -> Option<RequestRecord> {
-        if self.capture != CaptureLevel::Full {
-            return None;
-        }
         Some(match prev_sent_len {
             None => RequestRecord::Base {
                 system: request.system.clone(),
@@ -386,13 +374,12 @@ pub(crate) async fn run_steps(
         initiation,
         provenance,
         max_steps,
-        capture,
         mut supersession,
     } = steps;
     let conversation = session
         .conversation()
         .expect("a recorded turn always runs in a conversation");
-    let recording = Recording::new(Some(conversation), context.turn_id, capture);
+    let recording = Recording::new(Some(conversation), context.turn_id);
     let tools = vec![run_lua_tool()];
 
     let record_agent_turn =
@@ -408,6 +395,8 @@ pub(crate) async fn run_steps(
                     participant: None,
                     initiation,
                     produced_by: provenance.clone(),
+                    // Attachments arrive with an inbound message; the agent's own turn carries none.
+                    attachments: Vec::new(),
                 },
             )
         };

@@ -31,7 +31,6 @@ use crate::{
     graph::EntryView,
     ids::{MemoryId, MemoryName, Seq, TurnId},
     model::ModelClient,
-    settings::Settings,
     vocabulary::RelationName,
 };
 
@@ -62,13 +61,9 @@ pub async fn run_link_inference_catch_up(
         return Ok((cursor, 0));
     }
     let written = collect_written_memories(engine.store.lock().as_ref(), cursor)?;
-    // Record the pass's model calls at the configured capture level, exactly like a turn's: an
-    // off-hot-path call is deliberation too, and hiding it leaves the pass invisible to the
-    // model-interaction record.
-    let capture = Settings::from_store(engine.store.lock().as_ref())?
-        .observability
-        .capture_model_calls;
-    let recording = Recording::new(None, TurnId::generate(), capture);
+    // The pass has no conversation to file its calls under, so it records none; the links it commits
+    // carry their own provenance instead.
+    let recording = Recording::background(TurnId::generate());
     infer_links(model, engine, &written, &recording).await?;
     Ok((head, written.len()))
 }

@@ -2,9 +2,10 @@
 //! graph. Two-tier identity (see spec §Data model): internal references use the immutable ULID,
 //! agent-facing references use the mutable name, so a memory can be renamed without breaking links.
 
-use std::fmt;
+use std::{fmt, fmt::Write};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use smol_str::SmolStr;
 use ulid::Ulid;
 
@@ -182,6 +183,86 @@ impl EntryId {
         EntryId(Ulid::new())
     }
 }
+
+/// The content address of a stored blob: the lowercase hex SHA-256 of its bytes. Content-addressed,
+/// so identical bytes always name the same blob and storing them twice is one blob. Every path into
+/// the type validates the shape — exactly 64 lowercase hex characters — so a value arriving from an
+/// untrusted source (an HTTP path parameter, say) can never be an unbounded or hostile string.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct BlobHash(#[cfg_attr(feature = "ts", ts(type = "string"))] SmolStr);
+
+impl BlobHash {
+    /// The number of hex characters a SHA-256 digest renders as.
+    const HEX_LEN: usize = 64;
+
+    /// The content address of `bytes`.
+    pub fn of(bytes: &[u8]) -> BlobHash {
+        let digest = Sha256::digest(bytes);
+        let mut hex = String::with_capacity(BlobHash::HEX_LEN);
+        for byte in digest {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        BlobHash(SmolStr::new(hex))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl fmt::Display for BlobHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for BlobHash {
+    type Err = InvalidBlobHash;
+
+    fn from_str(hash: &str) -> Result<BlobHash, InvalidBlobHash> {
+        let well_formed = hash.len() == BlobHash::HEX_LEN
+            && hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+        if well_formed {
+            Ok(BlobHash(SmolStr::new(hash)))
+        } else {
+            Err(InvalidBlobHash)
+        }
+    }
+}
+
+impl TryFrom<String> for BlobHash {
+    type Error = InvalidBlobHash;
+
+    fn try_from(hash: String) -> Result<BlobHash, InvalidBlobHash> {
+        hash.parse()
+    }
+}
+
+impl From<BlobHash> for String {
+    fn from(hash: BlobHash) -> String {
+        hash.0.into()
+    }
+}
+
+/// The parse error for a string that is not a well-formed content address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidBlobHash;
+
+impl fmt::Display for InvalidBlobHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "blob hash: expected {} lowercase hex characters",
+            BlobHash::HEX_LEN
+        )
+    }
+}
+
+impl std::error::Error for InvalidBlobHash {}
 
 /// A memory's agent-facing handle, namespaced by kind (e.g. `person/dave`, `topic/climbing`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

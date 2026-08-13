@@ -27,6 +27,7 @@ use tokio::sync::broadcast;
 use zuihitsu::{Event, progress::TurnProgress};
 
 use crate::{
+    attachment_fixture,
     error::EvalError,
     harness,
     package::{
@@ -95,6 +96,7 @@ impl EvalSink {
                     aggregate: harness::aggregate(&[]),
                 })
                 .collect(),
+            blobs: attachment_fixture::catalogue(),
         };
         let (events, _) = broadcast::channel(BROADCAST_CAPACITY);
         let sink = EvalSink {
@@ -292,6 +294,7 @@ impl EvalSink {
                     aggregate: harness::aggregate(&[]),
                 })
                 .collect(),
+            blobs: attachment_fixture::catalogue(),
         };
         for (scenario, record) in state.completed {
             package.scenarios[scenario as usize].runs.push(record);

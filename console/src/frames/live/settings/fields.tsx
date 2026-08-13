@@ -5,8 +5,6 @@ import { settingsMetadata } from "@zuihitsu/wire/types/settings-metadata.ts";
 import { Checkbox, Eyebrow } from "../../../components/primitives.tsx";
 import { type FieldRecord, type FieldValue, isNestedObject, label } from "./settingsUtilities.ts";
 
-const CAPTURE_LEVELS = ["Full", "Digest", "Off"];
-
 /// The display units a time-based field can be edited in. The wire value stays in the field's own
 /// unit (seconds or days); only what the input shows converts. Seconds round to whole on save (the
 /// wire fields are integers); days keep two decimals (the tau constants are fractional).
@@ -107,19 +105,7 @@ export function Leaf({
   }
 
   const input =
-    name === "capture_model_calls" ? (
-      <select
-        value={String(value)}
-        onChange={(event) => onChange(event.target.value)}
-        className="border-b border-line bg-transparent pb-1 font-mono text-sm text-ink focus:border-ink-faint focus:outline-none"
-      >
-        {CAPTURE_LEVELS.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    ) : typeof value === "boolean" ? (
+    typeof value === "boolean" ? (
       <Checkbox checked={value} onChange={onChange} />
     ) : (
       <input

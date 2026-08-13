@@ -2,180 +2,237 @@ import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
 import type { CacheVerdict } from "./cachePath.ts";
 import type { ModelInteraction } from "./interactions.ts";
+import { estimateTokensFromChars } from "../replica/replica.ts";
 import { resolveSections } from "./promptSections.ts";
 
-/// How a row's token count was obtained, most trusted first: measured from provider deltas,
-/// apportioned by char share inside a measured lump, or estimated when no measurement exists.
-export type TokenProvenance = "measured" | "apportioned" | "estimated";
+/// What a row costs, and how firmly that is known.
+///
+/// `measured` is the provider's own arithmetic: a call's total, the growth between two calls, or the
+/// slice a cache boundary isolates. `share` is a row inside a measured block that no measurement
+/// separates — a system section, or one of several messages that entered together. Its percentage is
+/// by character, which is a ratio and is shown as one; the tokens it would imply are never stated.
+export type RowCost =
+  | { kind: "measured"; tokens: number }
+  | { kind: "share"; percent: number; block: string; blockTokens: number };
+
+/// How a row's cost was obtained, for the badge the view renders.
+export type TokenProvenance = "measured" | "share" | "estimated";
 
 export interface AttributedRow {
-  /// A stable identity for the row: `section:<kind>`, `tools`, `prefix`, or `message:<index>`.
+  /// A stable identity for the row: `section:<kind>`, `tools`, or `message:<index>`.
   key: string;
   label: string;
-  tokens: number;
-  provenance: TokenProvenance;
+  cost: RowCost;
+  /// The block this row sits inside.
+  block: string;
   /// Set on per-message rows: the index into the call's reconstructed `messages`.
   messageIndex?: number;
   /// Set on system-section rows.
   sectionKind?: PromptSectionKind;
 }
 
+/// One measured region of the prompt: what the provider charged for it, and the rows inside it.
+export interface AttributionBlock {
+  key: string;
+  label: string;
+  tokens: number;
+  rows: string[];
+}
+
 export interface CallAttribution {
   rows: AttributedRow[];
-  /// Equals `usage.prompt_tokens` whenever the provider reported it and the numbers were usable —
-  /// the reconciliation guarantee. On the estimated fallback (usage absent, or a provider-reported
-  /// total *smaller* than the prior call's), the total is the row sum instead, badged estimated.
+  /// The measured regions this call's rows sit in, in prompt order.
+  blocks: AttributionBlock[];
+  /// Equals `usage.prompt_tokens` whenever the provider reported it. Without a report the call falls
+  /// back to the character estimate, the one estimated path left.
   total: number;
   totalProvenance: TokenProvenance;
 }
 
-/// The `chars / 4` heuristic, the TS port of the compaction trigger's fallback estimator
-/// (`estimate_tokens` in the agent): code-point counting, deliberately coarse.
-export function estimateTokens(text: string): number {
-  return Math.ceil([...text].length / 4);
-}
+/// The shared fallback estimator used by the agent and the console's WASM boundary.
+export { estimateTokens } from "../replica/replica.ts";
 
-/// Attribute each call's prompt tokens to rows, one `CallAttribution` per call, using the
-/// measurement ladder: exact deltas within a warm chain, char-share apportionment inside a measured
-/// lump, and the `chars / 4` estimate when no measurement exists. The displayed total always equals
-/// the provider's `prompt_tokens` when reported.
+/// Attribute each call's prompt to rows, one `CallAttribution` per call.
+///
+/// A prompt is the opening block — the first call's whole prompt, which nothing separates into
+/// system, tools, and first messages — plus one measured block per later call, holding the messages
+/// that entered there. So a message is priced by the growth its own arrival caused, and only
+/// messages that arrived together share a block.
+///
+/// Two provider numbers bound a block: the prompt totals of the calls bracketing it, and the cache
+/// boundary. Where a server caches what it just generated, `cache_read - prior total` isolates the
+/// assistant message from whatever entered beside it. `completion_tokens` is deliberately not used
+/// for that: it counts reasoning the prompt never carries, so pinning to it overstates the reply and
+/// robs its neighbour.
 export function attributeTokens(
   calls: ModelInteraction[],
   verdicts: CacheVerdict[],
 ): CallAttribution[] {
+  const entries = bracketMessages(calls, verdicts);
   return calls.map((call, index) => {
-    const prior = index > 0 ? calls[index - 1] : null;
-    const verdict = verdicts[index];
     const total = call.usage.prompt_tokens;
+    if (total === null || total === undefined) return estimated(call);
+    return attributeCall(call, index, calls, entries[index] ?? new Map(), total);
+  });
+}
 
-    if (total === null || total === undefined) {
-      return estimated(call);
-    }
+/// Where one message entered the prompt, and what that entry cost when a boundary isolates it.
+interface MessageEntry {
+  block: number;
+  tokens: number | null;
+}
+
+/// Walk the chain, assigning every message to the block it entered in. A cold call restarts the
+/// walk: nothing brackets its prompt against a prefix the provider no longer shares.
+function bracketMessages(
+  calls: ModelInteraction[],
+  verdicts: CacheVerdict[],
+): Map<number, MessageEntry>[] {
+  const entries: Map<number, MessageEntry>[] = [];
+  let current = new Map<number, MessageEntry>();
+  calls.forEach((call, index) => {
+    const prior = index > 0 ? calls[index - 1] : null;
     const priorTotal = prior?.usage.prompt_tokens;
-    if (
-      verdict?.path === "warm" &&
+    const total = call.usage.prompt_tokens;
+    const warm =
+      verdicts[index]?.path === "warm" &&
       prior !== null &&
       priorTotal !== null &&
-      priorTotal !== undefined
-    ) {
-      // A negative delta is a provider inconsistency; estimates are honest, negative rows are not
-      // — and apportioning the prefix to more than the total would break the reconciliation
-      // guarantee. A zero delta stays measured (an identical retry re-reads the same prompt).
-      const delta = total - priorTotal;
-      if (delta < 0) {
-        return estimated(call);
+      priorTotal !== undefined &&
+      total !== null &&
+      total !== undefined &&
+      total >= priorTotal &&
+      call.messages.length >= prior.messages.length;
+
+    if (!warm) {
+      current = new Map();
+      call.messages.forEach((_, messageIndex) =>
+        current.set(messageIndex, { block: index, tokens: null }),
+      );
+      entries.push(new Map(current));
+      return;
+    }
+
+    const delta = (total as number) - (priorTotal as number);
+    const appended = call.messages
+      .map((_, messageIndex) => messageIndex)
+      .filter((messageIndex) => !current.has(messageIndex));
+    // Tokens read from cache beyond the prior prompt are the ones the server generated and kept —
+    // the assistant message that entered, priced without touching `completion_tokens`.
+    const cached = call.usage.cache_read_tokens;
+    const generated =
+      cached === null || cached === undefined
+        ? 0
+        : Math.max(0, Math.min(cached - (priorTotal as number), delta));
+    const pinnedAt = generated > 0 ? appended[0] : undefined;
+    const rest = appended.filter((messageIndex) => messageIndex !== pinnedAt);
+    for (const messageIndex of appended) {
+      if (messageIndex === pinnedAt) {
+        current.set(messageIndex, { block: index, tokens: generated });
+      } else {
+        current.set(messageIndex, {
+          block: index,
+          tokens: rest.length === 1 ? delta - generated : null,
+        });
       }
-      return measuredDelta(call, prior, total, delta);
     }
-    return apportionedLump(call, total);
+    entries.push(new Map(current));
   });
+  return entries;
 }
 
-/// A warm call (a `Continuation`, or a `Base` re-sending a warm prefix): the full part list, in send
-/// order, with two measured lumps split within themselves — the shared prefix (the prior call's
-/// total) apportioned across the system sections, the tools, and the earlier messages by char share,
-/// and the appended slice (the delta) split over its messages with the prior completion pinning the
-/// assistant message.
-function measuredDelta(
+/// One call's rows: the opening block's parts as shares of it, then each later block's messages.
+function attributeCall(
   call: ModelInteraction,
-  prior: ModelInteraction,
+  index: number,
+  calls: ModelInteraction[],
+  entry: Map<number, MessageEntry>,
   total: number,
-  delta: number,
 ): CallAttribution {
-  // The index at and beyond which a message belongs to the appended slice. A warm verdict guarantees
-  // (via cachePath's `extendsMessages`) that the prior call's messages are a prefix of this call's,
-  // so the prior call's message count is exactly the prefix boundary. A `Continuation` records that
-  // boundary in `appendedFrom`; a warm `Base` re-sends the whole prompt in a single step and carries
-  // `appendedFrom = 0`, which would spray the delta across every message and collapse the ~28k prefix
-  // onto the system rows — so its boundary is the prior call's message count instead. If the messages
-  // somehow shrank (never on a warm verdict, but be honest), fall back to a plain apportioned lump.
-  if (call.record === "base" && call.messages.length < prior.messages.length) {
-    return apportionedLump(call, total);
-  }
-  const appendedFrom = call.record === "base" ? prior.messages.length : call.appendedFrom;
-  const parts = lumpParts(call);
-  const appendedPart = (part: { row: AttributedRow }) =>
-    part.row.messageIndex !== undefined && part.row.messageIndex >= appendedFrom;
-  const prefixParts = parts.filter((part) => !appendedPart(part));
-  const appendedParts = parts.filter(appendedPart);
+  const openingIndex = entry.get(0)?.block ?? index;
+  const openingTotal = calls[openingIndex]?.usage.prompt_tokens ?? total;
+  const blocks: AttributionBlock[] = [];
+  const rows: AttributedRow[] = [];
 
-  const prefixShares = apportion(
-    prefixParts.map((part) => part.chars),
-    total - delta,
-  );
-  const rows: AttributedRow[] = prefixParts.map((part, i) => ({
-    ...part.row,
-    tokens: prefixShares[i] ?? 0,
-  }));
-
-  const completion = prior.usage.completion_tokens;
-  const assistantAt = appendedParts.findIndex(
-    (part) =>
-      part.row.messageIndex !== undefined &&
-      call.messages[part.row.messageIndex]?.role === "assistant",
-  );
-  let remainder = delta;
-  let pinned: number | null = null;
-  if (assistantAt !== -1 && completion !== null && completion !== undefined) {
-    pinned = Math.min(completion, delta);
-    remainder = delta - pinned;
-  }
-  const others = appendedParts.filter((_, i) => i !== assistantAt || pinned === null);
-  const shares = apportion(
-    others.map((part) => part.chars),
-    remainder,
-  );
-  let shareIndex = 0;
-  appendedParts.forEach((part, i) => {
-    if (i === assistantAt && pinned !== null) {
-      rows.push({ ...part.row, tokens: pinned, provenance: "measured" });
-    } else {
-      rows.push({ ...part.row, tokens: shares[shareIndex] ?? 0 });
-      shareIndex += 1;
-    }
-  });
-  return { rows, total, totalProvenance: "measured" };
-}
-
-/// A base call's single measured lump, split over the system sections, the tools, and the initial
-/// messages by char share, scaled to sum exactly to the measured total.
-function apportionedLump(call: ModelInteraction, total: number): CallAttribution {
-  const parts = lumpParts(call);
-  const shares = apportion(
-    parts.map((part) => part.chars),
-    total,
-  );
-  const rows = parts.map((part, i) => ({ ...part.row, tokens: shares[i] ?? 0 }));
-  return { rows, total, totalProvenance: "measured" };
-}
-
-/// No measurement at all: every row is the raw `chars / 4` estimate, and so is the total.
-function estimated(call: ModelInteraction): CallAttribution {
-  const rows = lumpParts(call).map((part) => ({
-    ...part.row,
-    // The char counts are already counted, so the estimator's division applies directly.
-    tokens: Math.ceil(part.chars / 4),
-    provenance: "estimated" as const,
-  }));
-  return {
-    rows,
-    total: rows.reduce((sum, row) => sum + row.tokens, 0),
-    totalProvenance: "estimated",
+  const parts = openingParts(call, entry, openingIndex);
+  const openingChars = parts.reduce((sum, part) => sum + part.chars, 0);
+  const opening: AttributionBlock = {
+    key: "block:opening",
+    label: "opening prompt",
+    tokens: openingTotal,
+    rows: parts.map((part) => part.row.key),
   };
+  blocks.push(opening);
+  for (const part of parts) {
+    rows.push({
+      ...part.row,
+      block: opening.key,
+      cost: {
+        kind: "share",
+        percent: openingChars > 0 ? (part.chars / openingChars) * 100 : 0,
+        block: opening.key,
+        blockTokens: openingTotal,
+      },
+    });
+  }
+
+  const later = [...new Set([...entry.values()].map((value) => value.block))]
+    .filter((block) => block !== openingIndex)
+    .sort((a, b) => a - b);
+  for (const block of later) {
+    const priorTotal = calls[block - 1]?.usage.prompt_tokens ?? 0;
+    const blockTokens = (calls[block]?.usage.prompt_tokens ?? 0) - priorTotal;
+    const members = [...entry.entries()]
+      .filter(([, value]) => value.block === block)
+      .sort(([a], [b]) => a - b);
+    const chars = members.reduce(
+      (sum, [messageIndex]) => sum + messageChars(call.messages[messageIndex]),
+      0,
+    );
+    const definition: AttributionBlock = {
+      key: `block:${block}`,
+      label: "appended",
+      tokens: blockTokens,
+      rows: members.map(([messageIndex]) => `message:${messageIndex}`),
+    };
+    blocks.push(definition);
+    for (const [messageIndex, value] of members) {
+      const message = call.messages[messageIndex];
+      rows.push({
+        key: `message:${messageIndex}`,
+        label: messageLabel(message),
+        messageIndex,
+        block: definition.key,
+        cost:
+          value.tokens === null
+            ? {
+                kind: "share",
+                percent: chars > 0 ? (messageChars(message) / chars) * 100 : 0,
+                block: definition.key,
+                blockTokens,
+              }
+            : { kind: "measured", tokens: value.tokens },
+      });
+    }
+  }
+
+  return { rows, blocks, total, totalProvenance: "measured" };
 }
 
-/// The apportionable parts of a whole prompt: one row per resolved system section, a tools row when
-/// tools are present, and one row per message.
-function lumpParts(call: ModelInteraction): Array<{ chars: number; row: AttributedRow }> {
-  const parts: Array<{ chars: number; row: AttributedRow }> = [];
+/// The opening block's parts: the system sections, the tools, and the messages that entered with
+/// them.
+function openingParts(
+  call: ModelInteraction,
+  entry: Map<number, MessageEntry>,
+  openingIndex: number,
+): Array<{ chars: number; row: Omit<AttributedRow, "cost" | "block"> }> {
+  const parts: Array<{ chars: number; row: Omit<AttributedRow, "cost" | "block"> }> = [];
   for (const section of resolveSections(call.system, call.systemSections)) {
     parts.push({
       chars: section.end - section.start,
       row: {
         key: `section:${section.kind}`,
         label: sectionLabel(section.kind),
-        tokens: 0,
-        provenance: "apportioned",
         sectionKind: section.kind,
       },
     });
@@ -183,58 +240,89 @@ function lumpParts(call: ModelInteraction): Array<{ chars: number; row: Attribut
   if (call.tools.length > 0) {
     parts.push({
       chars: JSON.stringify(call.tools).length,
-      row: { key: "tools", label: "tools", tokens: 0, provenance: "apportioned" },
+      row: { key: "tools", label: "tools" },
     });
   }
-  call.messages.forEach((message, index) => {
+  call.messages.forEach((message, messageIndex) => {
+    if (entry.get(messageIndex)?.block !== openingIndex) return;
     parts.push({
       chars: messageChars(message),
-      row: {
-        key: `message:${index}`,
-        label: messageLabel(message),
-        tokens: 0,
-        provenance: "apportioned",
-        messageIndex: index,
-      },
+      row: { key: `message:${messageIndex}`, label: messageLabel(message), messageIndex },
     });
   });
   return parts;
 }
 
-/// Integer allocation of `total` across `weights`, largest-remainder adjusted on the last non-zero
-/// weight so the rows always sum exactly to the total.
-function apportion(weights: number[], total: number): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0);
-  if (sum === 0 || total <= 0) return weights.map(() => 0);
-  const shares = weights.map((weight) => Math.round((total * weight) / sum));
-  const drift = total - shares.reduce((a, b) => a + b, 0);
-  if (drift !== 0) {
-    // Land the rounding drift on the largest share, which absorbs it least visibly. Rounding
-    // bounds |drift| by half the row count, so the largest share only clamps at zero when the
-    // total is a handful of tokens spread over many rows — the exact-sum property can be off by
-    // at most that clamp in the degenerate case.
-    const largest = shares.indexOf(Math.max(...shares));
-    shares[largest] = Math.max(0, shares[largest] + drift);
-  }
-  return shares;
+/// No measurement at all: one estimated block over the whole prompt, its parts shares of it. The
+/// provider reported no usage, so this is the only place a token count is invented.
+function estimated(call: ModelInteraction): CallAttribution {
+  const entry = new Map<number, MessageEntry>();
+  call.messages.forEach((_, messageIndex) => entry.set(messageIndex, { block: 0, tokens: null }));
+  const parts = openingParts(call, entry, 0);
+  const chars = parts.reduce((sum, part) => sum + part.chars, 0);
+  const total = estimateTokensFromChars(chars);
+  const block: AttributionBlock = {
+    key: "block:opening",
+    label: "whole prompt",
+    tokens: total,
+    rows: parts.map((part) => part.row.key),
+  };
+  return {
+    rows: parts.map((part) => ({
+      ...part.row,
+      block: block.key,
+      cost: {
+        kind: "share" as const,
+        percent: chars > 0 ? (part.chars / chars) * 100 : 0,
+        block: block.key,
+        blockTokens: total,
+      },
+    })),
+    blocks: [block],
+    total,
+    totalProvenance: "estimated",
+  };
+}
+
+/// The tokens a row implies — its own measurement, or its share of its block. For the stacked bar,
+/// which is a shape rather than a claim: a share row's slice is proportionate, and the number behind
+/// it is never printed.
+export function rowWeight(cost: RowCost): number {
+  return cost.kind === "measured" ? cost.tokens : (cost.percent / 100) * cost.blockTokens;
+}
+
+/// A row's provenance badge.
+export function rowProvenance(cost: RowCost, totalProvenance: TokenProvenance): TokenProvenance {
+  if (cost.kind === "measured") return "measured";
+  return totalProvenance === "estimated" ? "estimated" : "share";
 }
 
 /// Message objects are shared along a group's reconstruction prefix, so the serialized size is
 /// computed once per distinct message rather than once per call that carries it.
 const messageCharsCache = new WeakMap<Message, number>();
 
-function messageChars(message: Message): number {
+/// How much of the prompt a message occupies, in characters — the weight a block's shares are cut
+/// by. An image part serialises to its address and media type, some ninety characters, where the
+/// model is billed for the picture; it is charged [`IMAGE_CHARS`] so it does not read as free.
+function messageChars(message: Message | undefined): number {
+  if (!message) return 0;
   const cached = messageCharsCache.get(message);
   if (cached !== undefined) return cached;
-  const chars = JSON.stringify(message).length;
+  const images = message.images ?? [];
+  const chars = JSON.stringify({ ...message, images: [] }).length + images.length * IMAGE_CHARS;
   messageCharsCache.set(message, chars);
   return chars;
 }
 
-function messageLabel(message: Message): string {
-  const head = message.content.split("\n")[0] ?? "";
-  const excerpt = head.length > 48 ? `${head.slice(0, 48)}…` : head;
-  return excerpt.length > 0 ? `${message.role}: ${excerpt}` : message.role;
+/// What one image is charged when cutting a block's shares. A vision backend bills an image at a few
+/// hundred to a couple of thousand tokens by its dimensions; this is the middle of that band at four
+/// characters per token.
+const IMAGE_CHARS = 4_000;
+
+/// A message row's label. The role alone: every message row renders its content immediately beneath
+/// itself, so an excerpt in the heading is the same text twice.
+function messageLabel(message: Message | undefined): string {
+  return message ? message.role : "message";
 }
 
 /// A section kind's display name, exhaustive over the typed enum — shared with the view layer so a

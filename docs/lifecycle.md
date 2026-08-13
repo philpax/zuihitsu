@@ -22,7 +22,7 @@ The schema is **append-only**: a field is deprecated, never removed, and every s
 
 - *Compaction token budget* — when the buffer triggers a re-segment (determined where session boundaries fell). Derived from the model's context window at genesis when one is configured (`compaction_budget_for`), else the built-in default.
 - *Idle-gap threshold* — the quiet period that ends a session (same: segmentation).
-- *Carryover character budget* — how much raw transcript crosses a compaction boundary (what the agent saw next).
+- *Carryover token budget* — how much raw transcript crosses a compaction boundary (what the agent saw next).
 - *Flush gating threshold* (`flush_min_turns`) — whether a session was substantive enough to flush.
 - *Checkpoint flush settings* — whether mid-session checkpoint flush is enabled, and its delta and cooldown gates.
 - *Brief token budget* and *`recent_facts` count* — what entered each brief.
@@ -30,7 +30,7 @@ The schema is **append-only**: a field is deprecated, never removed, and every s
 - *`max_steps`* — whether a turn terminated normally or hit the bound (a recorded outcome); plus the per-block timeout and attempt bound.
 - *Search scoring weights and recency-decay constants* — which memories retrieval surfaced.
 - *Concurrent-stream limit* (`concurrency.max_concurrent_streams`) — how many turns may crowd the shared model at once. Logged rather than environmental: it is read from the snapshot at construction and bounds the turn semaphore.
-- *Scheduler tick and per-session wake-up cap*, the *model-call capture level*, and the *maximum entry length*.
+- *Scheduler tick and per-session wake-up cap*, and the *maximum entry length*.
 
 **Environmental (operational file, `EnvConfig`):**
 

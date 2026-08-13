@@ -33,8 +33,8 @@ pub fn export_types(dir: &Path) -> Result<()> {
         progress::TurnProgress,
         settings::{
             AmbientSettings, BriefSettings, CheckpointSettings, CompactionSettings,
-            ConcurrencySettings, MaintenanceSettings, MemorySettings, ObservabilitySettings,
-            RecencySettings, SchedulerSettings, SearchSettings, TauDays, TurnSettings, WebSettings,
+            ConcurrencySettings, MaintenanceSettings, MemorySettings, RecencySettings,
+            SchedulerSettings, SearchSettings, TauDays, TurnSettings, WebSettings,
         },
     };
     use zuihitsu_platform_connector_types::{PlatformResponse, StreamFrame, TurnOutcome};
@@ -87,7 +87,6 @@ pub fn export_types(dir: &Path) -> Result<()> {
     entries.extend(BriefSettings::fields());
     entries.extend(TurnSettings::fields());
     entries.extend(ConcurrencySettings::fields());
-    entries.extend(ObservabilitySettings::fields());
     entries.extend(SearchSettings::fields());
     entries.extend(RecencySettings::fields());
     entries.extend(TauDays::fields());
@@ -153,7 +152,6 @@ const SUFFIX_UNITS: &[(&str, &str)] = &[
 const EXPLICIT_UNITS: &[(&str, &str)] = &[
     ("max_wakeups_per_session", "wake-ups"),
     ("max_concurrent_streams", "streams"),
-    ("capture_model_calls", ""),
     ("bonus", "weight"),
     ("cosine", "weight"),
     ("bm25", "weight"),

@@ -239,6 +239,7 @@ fn audience_turns(store: &dyn Store) -> Result<Vec<AudienceTurn>, StoreError> {
                 text,
                 participant,
                 produced_by,
+                attachments,
                 ..
             } => {
                 let (session, audience) = match open.get(&conversation) {
@@ -255,6 +256,8 @@ fn audience_turns(store: &dyn Store) -> Result<Vec<AudienceTurn>, StoreError> {
                         recorded_at: event.recorded_at,
                         steps: Vec::new(),
                         produced_by,
+                        prompt_tokens: None,
+                        attachments,
                     },
                     conversation,
                     session,

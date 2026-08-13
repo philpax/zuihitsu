@@ -28,7 +28,7 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
   "scope_path": "room/42",
   "messages": [
     { "sender": "dave", "text": "hello" },
-    { "sender": "dave", "text": "anyone there?" }
+    { "sender": "dave", "text": "anyone there?", "attachments": [{ "name": "build.log", "blob": "9f86d0…" }] }
   ],
   "present": ["dave", "erin"]
 }
@@ -36,6 +36,7 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
 
 - `scope_path` — the conversation's address within the connector's platform. The server pairs it with the request's platform, and resolves (or mints) a conversation and its context memory on first contact.
 - `messages` — the inbound batch. Each carries a `sender` — the bare id of the sender, resolved under the request's platform to `person/<id>@<platform>` — and `text`. A single message is a one-element batch.
+- `attachments` — optional, the files the message carried. Each names the sender's `name` for the file and the `blob` its bytes were uploaded to via [`POST /platform/blobs`](#post-platformblobs). Only those two: the media type, the length, and the classification are read back from the stored blob, so a connector has no field in which to describe a file as something it is not. A message naming a blob the store has never held is refused whole with a `400` — upload the bytes first, then send the message that names them. The complete `messages` batch is also bounded by `[serving] max_message_attachment_count` and `max_message_attachment_bytes`; repeated references count independently because each expands the model input.
 - `present` — the bare ids currently in the room, each resolved under the request's platform. The server resolves each to a participant stub (minting on first contact) and uses the set for the subject-guard and join-brief logic.
 
 **Response body (`200 OK`):**
@@ -50,7 +51,7 @@ Deliver a batch of participant turns and run one agent response cycle. Each mess
 - `outcome` — the turn's conversational outcome: `{"Reply": "…"}`, `"Silent"`, `"MaxStepsExceeded"`, `"Deferred"`, or `"Superseded"`. `"Superseded"` means a newer inbound batch arrived for the same conversation while this turn was generating: the newer batch's turn answers once with everything in context, so no reply comes via this request, and a platform connector treats it like `"Silent"`. The `participant_turn_ids` still carry this batch's recorded inbound turns, so the connector can map its message ids even though the messages were folded into the successor's answer.
 - `participant_turn_ids` — the durable turn ids (Crockford ULID strings), one per inbound message. A platform connector uses these to map its own message ids to zuihitsu turns, so it can inject a `[turn:<id>]` token when a user replies to one of those messages later.
 
-Returns `503` if no model is configured.
+Returns `503` if no model is configured. Attachment validation, including missing blobs and the request-wide count and byte budgets, runs before this model check, so invalid requests return `400` without creating a conversation or starting a turn.
 
 ### `POST /platform/messages/stream`
 
@@ -99,6 +100,24 @@ Resync the room's roster against a fresh member list. Each newly-arrived member 
 ```
 
 `joined` is the bare ids newly briefed in.
+
+## Uploading files
+
+### `POST /platform/blobs`
+
+Store the bytes of a file so a message may name it. The request body is the file itself, and its `Content-Type` header is the media type the bytes are stored under (`application/octet-stream` when absent). The response is the content address:
+
+```json
+{ "hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" }
+```
+
+Storage is content-addressed and idempotent when the MIME matches: the same bytes uploaded with the same media type yield the same address and leave the original metadata unchanged. The same bytes with a different MIME return `409 Conflict`; the server never rewrites metadata that an earlier attachment may rely on. A body over the server's `max_attachment_bytes` is refused whole with a `400` — a file is never truncated to fit. Upload the blob successfully before sending the message that names it.
+
+The bytes are read back at `GET /blobs/{hash}`, which sits outside `/platform` and takes no key: a console renders an image with an ordinary `<img>` tag, which cannot carry an `Authorization` header, so the 256-bit content address is itself the capability. A connector never needs this route; it is there for the viewers.
+
+A blob is served under its stored media type with one exception: anything the system classifies as text — `text/*`, the structured-text types, and the `+json`/`+xml` suffixes, which is where `text/html`, `application/xhtml+xml`, and `image/svg+xml` all land — is served as `text/plain; charset=utf-8`, with `X-Content-Type-Options: nosniff` on every response. The bytes are a sender's and the route is same-origin with the console, so markup served as itself would run there; served as text it still opens in place and reads as the file it is. The stored record keeps the media type it was uploaded under, and the bytes are served unchanged — only the declared type differs.
+
+That read accepts a single-range `Range: bytes=…` request, answering it with `206 Partial Content` and a `Content-Range`, so a viewer showing the head of a long text file transfers only what it shows. A range past the end is `416`, naming the stored size; a range header the server does not parse (several ranges, a unit other than `bytes`) is ignored and the whole blob is served, as HTTP permits. Every response carries `Accept-Ranges: bytes`.
 
 ## Writing context
 

@@ -1,5 +1,6 @@
 //! The shared backends a turn threads as a unit: the append-only event log (`store`), the graph
-//! projection it feeds (`graph`), and the clock that stamps writes (`clock`).
+//! projection it feeds (`graph`), the content-addressed attachment bytes (`blobs`), and the clock
+//! that stamps writes (`clock`).
 //!
 //! They always travel together, so they ride as one value rather than three parallel arguments — the
 //! shared shape behind [`crate::agent::Turn`], the pre-compaction flush, the step loop, and
@@ -11,6 +12,9 @@
 //! `.await`**. When two are needed at once — only `materialize_from`, which reads the store while
 //! writing the graph, and the scheduler's `fire_due` — the **graph is locked before the store**, the
 //! one ordering rule that keeps the (non-reentrant) locks deadlock-free once sessions run concurrently.
+//! `blobs` participates in no such pairing: an attachment read or write stands alone, so its guard is
+//! taken and dropped without either of the others in hand. A future caller that genuinely needs both
+//! takes `blobs` last, after the graph-before-store pair.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -19,7 +23,11 @@ use parking_lot::Mutex;
 use zuihitsu_core::progress::TurnProgress;
 
 use crate::{
-    clock::Clock, graph::Graph, ids::MemoryId, model::embed::Embedder, store::Store,
+    clock::Clock,
+    graph::Graph,
+    ids::MemoryId,
+    model::embed::Embedder,
+    store::{BlobStore, Store},
     vector::VectorIndex,
 };
 
@@ -28,6 +36,13 @@ use crate::{
 pub struct Engine {
     pub store: Mutex<Box<dyn Store>>,
     pub graph: Mutex<Graph>,
+    /// The bytes of the attachments the log names by [`BlobHash`](crate::ids::BlobHash) — written
+    /// when a connector uploads a file, read when a turn assembles the prompt or the console fetches
+    /// one. Every instance has one: a constructed engine starts with an ephemeral in-memory store,
+    /// which the serving host replaces with the configured file-backed one through
+    /// [`Instance::connect_blobs`](crate::Instance::connect_blobs), the way the web fetcher and the
+    /// MCP hosts are attached.
+    pub blobs: Mutex<BlobStore>,
     pub clock: Box<dyn Clock>,
     /// The per-memory lock registry the Lua block API acquires from: a block holds the lock on each
     /// memory it touches until block end, so a concurrent block in another conversation serializes on
@@ -86,6 +101,7 @@ impl Engine {
         Arc::new(Engine {
             store: Mutex::new(store),
             graph: Mutex::new(graph),
+            blobs: Mutex::new(ephemeral_blobs()),
             clock,
             memory_locks: Arc::new(MemoryLocks::new()),
             retrieval: None,
@@ -105,6 +121,7 @@ impl Engine {
         Arc::new(Engine {
             store: Mutex::new(store),
             graph: Mutex::new(graph),
+            blobs: Mutex::new(ephemeral_blobs()),
             clock,
             memory_locks: Arc::new(MemoryLocks::new()),
             progress: ProgressFeed::new(),
@@ -114,6 +131,14 @@ impl Engine {
             }),
         })
     }
+}
+
+/// The blob store a freshly constructed engine starts with: ephemeral, holding nothing, and replaced
+/// by the configured file-backed one when the serving host attaches it. Opening an in-memory SQLite
+/// database is a pure allocation with no filesystem or permission surface, so a failure here is a
+/// broken build rather than an operator's problem.
+fn ephemeral_blobs() -> BlobStore {
+    BlobStore::open_in_memory().expect("an in-memory blob store always opens")
 }
 
 /// The per-memory mutual-exclusion registry (spec §Concurrency → per-memory mutual exclusion): one

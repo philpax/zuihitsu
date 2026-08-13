@@ -252,6 +252,21 @@ impl StreamAssembler {
                 transient: true,
             });
         }
+        // The prompt size is asked for on every request (`stream_options.include_usage`) and is not
+        // decoration: the carryover trim cuts at the growth between two calls' reported sizes, and the
+        // console reconstructs the prompt against them. A backend that answers without one is not
+        // usable for this system, and saying so here beats every downstream reader inventing a number.
+        if usage.is_none() {
+            return Err(ModelError::Backend {
+                model: String::new(),
+                message: "the stream finished without reporting prompt_tokens, though the request \
+                          set stream_options.include_usage"
+                    .to_owned(),
+                // A compliant backend reports it on every call, so a retry of the identical request
+                // is worth one attempt before the turn defers.
+                transient: true,
+            });
+        }
         into_response(ChatResponse {
             choices: vec![ChatChoice {
                 message: ChatMessage {

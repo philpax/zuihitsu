@@ -39,6 +39,21 @@ export function formatTokenSplit(promptTokens: number, completionTokens: number)
   return `${formatTokens(promptTokens)} in · ${formatTokens(completionTokens)} out`;
 }
 
+/// A byte count in the largest binary unit that reads cleanly: `840` → `"840 B"`, `20480` →
+/// `"20.0 KB"`, `5242880` → `"5.0 MB"`. For an attachment's size, where the exact byte count is noise
+/// and the order of magnitude is the whole point.
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
 /// Epoch milliseconds as a short, calm date: `"13 Jun 2026"`.
 export function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString("en-GB", {

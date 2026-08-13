@@ -120,7 +120,11 @@ pub fn read_sidecar(path: &Path) -> Result<ResumeState, EvalError> {
 /// scenario's index. The runs come out in `(scenario, run)` order, matching what [`read_sidecar`]
 /// yields, because the package holds scenarios in order and each scenario's runs sorted by index.
 pub fn resume_state_from_package(package: EvalPackage) -> ResumeState {
-    let EvalPackage { meta, scenarios } = package;
+    // The blob catalogue is not resume state: it is seeded from the fixtures the binary holds, so a
+    // resumed suite rebuilds it rather than carrying an older package's copy forward.
+    let EvalPackage {
+        meta, scenarios, ..
+    } = package;
     let scenario_metas = scenarios.iter().map(|report| report.meta.clone()).collect();
     let completed = scenarios
         .into_iter()
@@ -642,6 +646,7 @@ mod tests {
                     }
                 })
                 .collect(),
+            blobs: Vec::new(),
         }
     }
 

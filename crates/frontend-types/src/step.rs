@@ -122,6 +122,12 @@ pub struct Turn {
     pub sender: String,
     pub text: StepText,
     pub present: Vec<String>,
+    /// The files the message carries. Each names a fixture the executor stores in the run's blob
+    /// store before delivering the message — the eval's stand-in for the connector upload a real
+    /// platform performs. Empty for an ordinary text message, and defaulted so a package recorded
+    /// before attachments existed deserializes unchanged.
+    #[serde(default)]
+    pub attachments: Vec<StepAttachment>,
 }
 
 impl Turn {
@@ -140,7 +146,18 @@ impl Turn {
             present: vec![sender.clone()],
             sender,
             text: text.into(),
+            attachments: Vec::new(),
         }
+    }
+
+    /// Attach a fixture file to this turn under the sender's name for it (`notes.txt`), as a
+    /// participant sharing a file mid-conversation. Several calls carry several files, in call order.
+    pub fn with_attachment(mut self, name: impl Into<String>, fixture: AttachmentFixture) -> Turn {
+        self.attachments.push(StepAttachment {
+            name: name.into(),
+            fixture,
+        });
+        self
     }
 
     /// Override who is present for this turn (the default is the sender alone). The sender is always
@@ -158,6 +175,36 @@ impl From<Turn> for EvalStep {
     fn from(turn: Turn) -> EvalStep {
         EvalStep::Turn(turn)
     }
+}
+
+/// One file a [`Turn`] carries: the sender's name for it, and the fixture whose bytes it is. The
+/// bytes themselves stay out of the script — the step names a fixture and the executor stores it,
+/// so a recorded journal holds a scenario beat rather than an inlined file, and a step still
+/// compares structurally against the current scenario's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct StepAttachment {
+    /// The name the message reports the file under — display text the agent reads, not a path.
+    pub name: String,
+    /// Which fixture's bytes and media type the executor delivers.
+    pub fixture: AttachmentFixture,
+}
+
+/// The files a scenario can share into a conversation. A closed set rather than a free-form path:
+/// the bytes live in the eval crate (`crate::attachment_fixture`), which resolves each variant to
+/// its content and media type, so a script cannot name a fixture that does not exist and a recorded
+/// step stays meaningful without carrying the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentFixture {
+    /// A short plain-text note typed up during a phone call with a venue — `text/plain`. It is the
+    /// only place its specific details appear, so a reply that reproduces one proves the file was
+    /// read.
+    VenueNote,
+    /// A small PNG mockup: a large solid yellow circle centred on a solid deep-blue ground —
+    /// `image/png`. Unmistakable and easily named, so a vision model's description is assessable.
+    CoverDraft,
 }
 
 /// A two-message burst delivered into one room where the second lands mid-generation — the payload of

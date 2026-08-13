@@ -37,7 +37,7 @@ export interface ModelInteraction {
 }
 
 /// The model calls up to the cursor, each with its full reconstructed prompt, in `seq` order. A call
-/// recorded under the `Off` capture level carries no request, so its prompt reconstructs as empty.
+/// predating the record's request capture carries none, so its prompt reconstructs as empty.
 export function buildInteractions(events: Event[], cursor: number): ModelInteraction[] {
   const groups = new Map<
     string,

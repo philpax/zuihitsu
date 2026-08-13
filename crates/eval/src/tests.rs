@@ -84,6 +84,7 @@ fn package(scenario_filter: Option<&str>, scenarios: Vec<ScenarioReport>) -> Eva
             resumed_from: None,
         },
         scenarios,
+        blobs: Vec::new(),
     }
 }
 

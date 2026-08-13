@@ -2,216 +2,160 @@ import { describe, expect, it } from "vitest";
 
 import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import { call, message } from "./callFixtures.ts";
-import type { CacheVerdict } from "./cachePath.ts";
 import { deriveCachePaths } from "./cachePath.ts";
 import type { ModelInteraction } from "./interactions.ts";
 import { attributeTokens, estimateTokens } from "./tokenAttribution.ts";
 
-function usage(prompt: number | null, completion: number | null = null) {
+function usage(
+  prompt: number | null,
+  completion: number | null = null,
+  cacheRead: number | null = null,
+) {
   return {
     prompt_tokens: prompt,
     completion_tokens: completion,
     total_tokens: null,
-    cache_read_tokens: null,
+    cache_read_tokens: cacheRead,
     cache_write_tokens: null,
   };
-}
-
-/// A base + continuation pair forming a warm chain: the continuation appends the prior assistant
-/// reply and a tool result.
-function warmChain(basePrompt: number, nextPrompt: number, completion: number | null) {
-  const toolCall: Message = {
-    role: "assistant",
-    content: "",
-    tool_calls: [{ id: "call_1", name: "run_lua", arguments: "{}" }],
-    tool_call_id: null,
-  };
-  const toolResult: Message = {
-    role: "tool",
-    content: "the block returned a value",
-    tool_calls: [],
-    tool_call_id: "call_1",
-  };
-  const base = call({
-    seq: 1,
-    messages: [message("user", "hello")],
-    usage: usage(basePrompt, completion),
-  });
-  const next = call({
-    seq: 2,
-    record: "continuation",
-    messages: [...base.messages, toolCall, toolResult],
-    appendedFrom: 1,
-    usage: usage(nextPrompt),
-  });
-  return [base, next];
-}
-
-/// A base call followed by a warm `Base` call: a single-step turn re-sends the full prompt (the prior
-/// call's messages verbatim, plus one appended user message), so it records as a `Base` with
-/// `appendedFrom = 0` yet derives a warm verdict — the case the message-count boundary must handle.
-function warmBaseChain(basePrompt: number, nextPrompt: number) {
-  const priorMessages: Message[] = [
-    message("user", "the quick brown fox jumps over the lazy dog again and again"),
-    message("assistant", "acknowledged, noted at length for the record and archives"),
-  ];
-  const base = call({
-    seq: 1,
-    messages: priorMessages,
-    usage: usage(basePrompt),
-  });
-  const next = call({
-    seq: 2,
-    record: "base",
-    // Warm: the prior messages are a verbatim prefix, with one short message appended.
-    messages: [...priorMessages, message("user", "ok")],
-    appendedFrom: 0,
-    usage: usage(nextPrompt),
-  });
-  return [base, next];
 }
 
 function attribution(calls: ModelInteraction[]) {
   return attributeTokens(calls, deriveCachePaths(calls, []));
 }
 
+const toolCall: Message = {
+  role: "assistant",
+  content: "",
+  tool_calls: [{ id: "call_1", name: "run_lua", arguments: "{}" }],
+  tool_call_id: null,
+};
+const toolResult: Message = {
+  role: "tool",
+  content: "the block returned a value",
+  tool_calls: [],
+  tool_call_id: "call_1",
+};
+
 describe("attributeTokens", () => {
-  it("measures a warm continuation's appended slice by the prompt delta (AC4.1)", () => {
-    const [, next] = attribution(warmChain(1000, 1180, 120));
-    expect(next.total).toBe(1180);
-    expect(next.totalProvenance).toBe("measured");
-
-    // The prior completion pins the assistant message; the residue lands on the tool result.
-    const assistant = next.rows.find((row) => row.label.startsWith("assistant"));
-    expect(assistant).toMatchObject({ tokens: 120, provenance: "measured" });
-    const toolResult = next.rows.filter(
-      (row) => row.messageIndex !== undefined && row.messageIndex >= 1 && row !== assistant,
-    );
-    expect(toolResult.reduce((sum, row) => sum + row.tokens, 0)).toBe(60);
-    expect(toolResult.every((row) => row.provenance === "apportioned")).toBe(true);
-
-    // The shared prefix is itemized like a base call — sections and earlier messages apportioned
-    // within the prior call's measured total, not hidden behind an opaque lump.
-    const prefix = next.rows.filter(
-      (row) => row.messageIndex === undefined || row.messageIndex < 1,
-    );
-    expect(prefix.length).toBeGreaterThan(1);
-    expect(prefix.reduce((sum, row) => sum + row.tokens, 0)).toBe(1000);
-    expect(prefix.every((row) => row.provenance === "apportioned")).toBe(true);
+  it("states the provider's total for the call", () => {
+    const calls = [call({ seq: 1, messages: [message("user", "hello")], usage: usage(12_880) })];
+    const [only] = attribution(calls);
+    expect(only.total).toBe(12_880);
+    expect(only.totalProvenance).toBe("measured");
   });
 
-  it("apportions a base lump by char share, summing exactly to the measurement (AC4.2)", () => {
+  it("makes the opening prompt one measured block whose parts are shares of it", () => {
+    // Nothing separates the system prompt, the tools, and the first message: they arrived together,
+    // so each states a ratio and the block states the tokens.
+    const calls = [call({ seq: 1, messages: [message("user", "hello")], usage: usage(12_880) })];
+    const [only] = attribution(calls);
+    const opening = only.blocks.find((block) => block.key === "block:opening");
+    expect(opening?.tokens).toBe(12_880);
+
+    for (const row of only.rows) {
+      expect(row.cost.kind).toBe("share");
+      if (row.cost.kind === "share") expect(row.cost.blockTokens).toBe(12_880);
+    }
+    const shares = only.rows.map((row) => (row.cost.kind === "share" ? row.cost.percent : 0));
+    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(100, 5);
+  });
+
+  it("prices a message that arrived alone by the growth it caused", () => {
+    // The real shape from an eval run: a turn's reply and the next participant message enter the
+    // prompt together, and the cache boundary says how much of the growth was the reply.
     const base = call({
       seq: 1,
-      messages: [message("user", "plan the migration")],
-      usage: usage(3112),
+      messages: [message("user", "hello")],
+      usage: usage(13_569, 36),
     });
-    const [only] = attribution([base]);
-    expect(only.total).toBe(3112);
-    expect(only.rows.reduce((sum, row) => sum + row.tokens, 0)).toBe(3112);
-    expect(only.rows.every((row) => row.provenance === "apportioned")).toBe(true);
-    // Proportions follow char share: the longer part gets more tokens.
-    const [a, b] = [...only.rows].sort((x, y) => y.tokens - x.tokens);
-    expect(a.tokens).toBeGreaterThanOrEqual(b.tokens);
-  });
-
-  it("falls back to chars/4 estimates when usage is absent (AC4.3)", () => {
-    const base = call({ seq: 1, messages: [message("user", "hello there")] });
-    const [only] = attribution([base]);
-    expect(only.totalProvenance).toBe("estimated");
-    expect(only.rows.every((row) => row.provenance === "estimated")).toBe(true);
-    expect(only.total).toBe(only.rows.reduce((sum, row) => sum + row.tokens, 0));
-  });
-
-  it("always displays the provider's total when reported (AC4.4)", () => {
-    const sequences = [
-      warmChain(1000, 1180, 120),
-      warmChain(50, 51, null),
-      [call({ seq: 1, usage: usage(7) })],
-      [call({ seq: 1, usage: usage(999) }), call({ seq: 2, system: "changed", usage: usage(3) })],
-    ];
-    for (const calls of sequences) {
-      const attributions = attribution(calls);
-      calls.forEach((one, i) => {
-        if (one.usage.prompt_tokens !== null) {
-          expect(attributions[i].total).toBe(one.usage.prompt_tokens);
-          expect(attributions[i].rows.reduce((sum, row) => sum + row.tokens, 0)).toBe(
-            one.usage.prompt_tokens,
-          );
-        }
-      });
-    }
-  });
-
-  it("routes a warm Base call's prefix mass to the prefix rows, not across every message", () => {
-    const [, next] = attribution(warmBaseChain(28000, 28200));
-    expect(next.total).toBe(28200);
-    expect(next.totalProvenance).toBe("measured");
-
-    // The prior messages and the system sections share the ~28k prefix; only the appended message
-    // carries the 200-token delta — the delta is not sprayed across all messages at 1–2 tokens each.
-    const prefix = next.rows.filter(
-      (row) => row.messageIndex === undefined || row.messageIndex < 2,
-    );
-    expect(prefix.reduce((sum, row) => sum + row.tokens, 0)).toBe(28000);
-    const priorMessages = next.rows.filter(
-      (row) => row.messageIndex !== undefined && row.messageIndex < 2,
-    );
-    expect(priorMessages.every((row) => row.tokens > 2)).toBe(true);
-
-    const appended = next.rows.filter(
-      (row) => row.messageIndex !== undefined && row.messageIndex >= 2,
-    );
-    expect(appended.reduce((sum, row) => sum + row.tokens, 0)).toBe(200);
-  });
-
-  it("keeps the warm Continuation path on its recorded appendedFrom boundary", () => {
-    const [, next] = attribution(warmChain(1000, 1180, 120));
-    // The Continuation branch is untouched by the Base fix: the prefix is the prior total and the
-    // delta lands on the appended messages (the assistant pinned by the prior completion).
-    const prefix = next.rows.filter(
-      (row) => row.messageIndex === undefined || row.messageIndex < 1,
-    );
-    expect(prefix.reduce((sum, row) => sum + row.tokens, 0)).toBe(1000);
-    const appended = next.rows.filter(
-      (row) => row.messageIndex !== undefined && row.messageIndex >= 1,
-    );
-    expect(appended.reduce((sum, row) => sum + row.tokens, 0)).toBe(180);
-  });
-
-  it("falls back to the lump path when a warm Base call's messages shrank", () => {
-    const prior = call({
-      seq: 1,
-      messages: [message("user", "a"), message("user", "b"), message("user", "c")],
-      usage: usage(1000),
-    });
-    const shrunk = call({
+    const next = call({
       seq: 2,
-      record: "base",
-      messages: [message("user", "a")],
-      appendedFrom: 0,
-      usage: usage(1100),
+      messages: [...base.messages, message("assistant", "a reply"), message("user", "and more")],
+      usage: usage(13_669, 118, 13_605),
     });
-    // A warm verdict the structural derivation would never emit for shrinking messages, forged to
-    // reach the defensive guard directly.
-    const verdicts: CacheVerdict[] = [{ path: "cold", cause: "first-call" }, { path: "warm" }];
-    const [, next] = attributeTokens([prior, shrunk], verdicts);
-    // The lump path apportions the full measured total across every row, rather than a prefix/appended
-    // split the shrunk messages cannot support (which would leave the rows summing to the prefix only).
-    expect(next.total).toBe(1100);
-    expect(next.totalProvenance).toBe("measured");
-    expect(next.rows.reduce((sum, row) => sum + row.tokens, 0)).toBe(1100);
-    expect(next.rows.every((row) => row.provenance === "apportioned")).toBe(true);
+    const [, second] = attribution([base, next]);
+
+    // 13,605 cached = the prior prompt plus the 36 tokens it generated, so the reply is measured …
+    const reply = second.rows.find((row) => row.messageIndex === 1);
+    expect(reply?.cost).toEqual({ kind: "measured", tokens: 36 });
+    // … and what is left of the 100-token growth is the new message, alone in the remainder.
+    const arrived = second.rows.find((row) => row.messageIndex === 2);
+    expect(arrived?.cost).toEqual({ kind: "measured", tokens: 64 });
   });
 
-  it("drops to estimates on a non-positive delta rather than showing negative rows", () => {
-    const [, next] = attribution(warmChain(1000, 900, 120));
-    expect(next.totalProvenance).toBe("estimated");
-    expect(next.rows.every((row) => row.tokens >= 0)).toBe(true);
+  it("shares a block between messages that arrived together", () => {
+    // Without a cache boundary isolating the reply, the growth covers both messages and nothing
+    // measures either alone — so the block states 186 and the rows state ratios.
+    const base = call({ seq: 1, messages: [message("user", "hello")], usage: usage(13_302, 117) });
+    const next = call({
+      seq: 2,
+      messages: [
+        ...base.messages,
+        message("assistant", "a reply the model reasoned its way to"),
+        message("user", "a message carrying a picture"),
+      ],
+      usage: usage(13_488, 183, 13_302),
+    });
+    const [, second] = attribution([base, next]);
+
+    const block = second.blocks.find((candidate) => candidate.key === "block:1");
+    expect(block?.tokens).toBe(186);
+    for (const index of [1, 2]) {
+      const row = second.rows.find((candidate) => candidate.messageIndex === index);
+      expect(row?.cost.kind).toBe("share");
+    }
+    // The completion of 117 tokens is never used to pin the reply: it counts reasoning the prompt
+    // does not carry, and pinning to it would rob the message beside it.
+    const reply = second.rows.find((row) => row.messageIndex === 1);
+    expect(reply?.cost).not.toEqual({ kind: "measured", tokens: 117 });
   });
 
-  it("estimates by code points, mirroring the agent's chars/4", () => {
+  it("prices an image when cutting a shared block", () => {
+    // The image part serialises to an address and a media type; the model is billed for the picture.
+    const shown: Message = {
+      ...message("user", "look at this"),
+      images: [{ blob: "a".repeat(64), mime: "image/png" }],
+    } as Message;
+    const base = call({ seq: 1, messages: [message("user", "hello")], usage: usage(1_000) });
+    const next = call({
+      seq: 2,
+      messages: [...base.messages, message("assistant", "a reply of some length here"), shown],
+      usage: usage(1_400, null, 1_000),
+    });
+    const [, second] = attribution([base, next]);
+    const image = second.rows.find((row) => row.messageIndex === 2);
+    const reply = second.rows.find((row) => row.messageIndex === 1);
+    if (image?.cost.kind !== "share" || reply?.cost.kind !== "share") throw new Error("shares");
+    expect(image.cost.percent).toBeGreaterThan(reply.cost.percent);
+  });
+
+  it("keeps a tool step's messages in the block they entered", () => {
+    const base = call({ seq: 1, messages: [message("user", "hello")], usage: usage(12_880) });
+    const next = call({
+      seq: 2,
+      record: "continuation",
+      messages: [...base.messages, toolCall, toolResult],
+      appendedFrom: 1,
+      usage: usage(13_044, null, 12_880),
+    });
+    const [, second] = attribution([base, next]);
+    expect(second.blocks.map((block) => block.tokens)).toEqual([12_880, 164]);
+    // The opening block still holds the first message; the appended pair holds the rest.
+    expect(second.blocks[0].rows).toContain("message:0");
+    expect(second.blocks[1].rows).toEqual(["message:1", "message:2"]);
+  });
+
+  it("estimates only when the provider reported no usage at all", () => {
+    const calls = [call({ seq: 1, messages: [message("user", "hello there")] })];
+    const [only] = attribution(calls);
+    expect(only.totalProvenance).toBe("estimated");
+    expect(only.total).toBeGreaterThan(0);
+  });
+
+  it("estimates by Unicode scalar values with the shared ceiling rule", () => {
     expect(estimateTokens("abcd")).toBe(1);
+    expect(estimateTokens("abc")).toBe(1);
     expect(estimateTokens("🐚🐚🐚🐚")).toBe(1);
     expect(estimateTokens("")).toBe(0);
   });

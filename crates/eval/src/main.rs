@@ -4,6 +4,7 @@
 
 mod analysis;
 mod analyze;
+mod attachment_fixture;
 mod context;
 mod drift;
 mod error;

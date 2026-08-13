@@ -4,9 +4,11 @@
 //! [`BotState`] holds the connector's shared state and opens its backing tables; [`Handler`] is the
 //! `EventHandler` that wires Discord events to the platform client (see [`handler`]). The supporting
 //! concerns live in sibling modules: [`identity`] projects sender, mention, and guild identity;
-//! [`mentions`] rewrites raw Discord mentions into memory tokens; and [`process`] drives a debounced
-//! batch through the platform stream and posts the outcome.
+//! [`mentions`] rewrites raw Discord mentions into memory tokens; [`attachments`] relays the files a
+//! message carried and announces the ones that did not come through; and [`process`] drives a
+//! debounced batch through the platform stream and posts the outcome.
 
+mod attachments;
 mod handler;
 mod identity;
 mod mentions;

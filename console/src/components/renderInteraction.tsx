@@ -9,12 +9,12 @@ import {
   visibilityLabel,
 } from "../lib/model/labels.ts";
 import { linkSourceLabel, sourceLabel } from "../lib/model/events.ts";
-import { formatMs } from "../lib/format/format.ts";
+import { formatBytes, formatMs } from "../lib/format/format.ts";
 import { relationColor } from "../lib/format/relationColor.ts";
 import { Lua } from "../components/Lua.tsx";
 import { ThinkingMarkdown } from "../components/ThinkingMarkdown.tsx";
 import { Fields, Field, Tree } from "./Tree.tsx";
-import { Mono, Prose, Ref, RefList, ConversationRefLink } from "./eventDetailParts.tsx";
+import { BlobRef, Mono, Prose, Ref, RefList, ConversationRefLink } from "./eventDetailParts.tsx";
 import type { RenderContext } from "./renderPayload.tsx";
 
 /// Render the second half of payload cases: tags, links, config, Lua, model calls, and conversation
@@ -259,6 +259,25 @@ export function renderInteractionPayload(ctx: RenderContext): ReactNode {
           <Field label="text">
             <span className="text-ink">{payload.text || "(silent)"}</span>
           </Field>
+          {/* Loose ?? []: a payload recorded before attachments existed has no key at all. Each file
+              is shown by what the record holds — its name (linking to the bytes, per the reference
+              family), the media type the bytes were stored under, their length, the classification
+              the turn branched on, and the head of the content address. */}
+          {(payload.attachments ?? []).length > 0 && (
+            <Field label="attachments">
+              <span className="flex flex-col gap-0.5">
+                {payload.attachments.map((attachment, index) => (
+                  <span key={index} className="text-ink-soft">
+                    <BlobRef blob={attachment.blob} name={attachment.name} />{" "}
+                    <span className="text-ink-faint">
+                      · {attachment.mime} · {formatBytes(attachment.byte_len)} ·{" "}
+                      {attachment.kind.toLowerCase()}
+                    </span>
+                  </span>
+                ))}
+              </span>
+            </Field>
+          )}
           {payload.initiation === "Initiated" && <Field label="initiation">unprompted</Field>}
         </Fields>
       );

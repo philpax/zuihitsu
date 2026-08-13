@@ -152,21 +152,22 @@ impl Instance {
             routed.template
         };
         let settings = Settings::from_store(self.engine.store.lock().as_ref())?;
+        let pricing = settings.compaction.carryover_token_budget;
         let turn_settings = settings.turn;
         let max_steps = turn_settings.max_steps as usize;
         let block_timeout = Duration::from_secs(turn_settings.block_timeout_seconds.max(0) as u64);
         let max_block_attempts = turn_settings.max_block_attempts.max(1) as u32;
         let max_entry_chars = settings.memory.max_entry_chars.max(1) as usize;
-        let capture = settings.observability.capture_model_calls;
+        let max_attachment_text_chars = turn_settings.max_attachment_text_chars.max(0) as usize;
         // The live buffer the model sees as the prompt suffix: the session's prior turns (or, across
         // a compaction seam, the carried tail plus this session's turns), read from `start_seq` with
-        // the carried tail bounded to the carryover char budget so it cannot grow across seams.
+        // the carried tail bounded to the carryover token budget so it cannot grow across seams.
         let buffer = bounded_buffer_turns(
             self.engine.store.lock().as_ref(),
             routed.conversation,
             open.start_seq,
             open.session_start_seq,
-            settings.compaction.carryover_char_budget,
+            pricing,
         )?;
         // Record each inbound participant turn after `ensure_session` opens the session (so the
         // session's `start_seq` precedes them) but after `bounded_buffer_turns` builds the buffer
@@ -187,6 +188,7 @@ impl Instance {
                     participant: Some(msg.participant),
                     initiation: Initiation::Responding,
                     produced_by: None,
+                    attachments: msg.attachments.clone(),
                 },
             )?;
         }
@@ -208,7 +210,7 @@ impl Instance {
             block_timeout,
             max_block_attempts,
             max_entry_chars,
-            capture,
+            max_attachment_text_chars,
             supersession,
         })
         .await

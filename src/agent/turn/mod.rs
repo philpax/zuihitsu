@@ -18,6 +18,7 @@ pub use link_inference::{
 };
 
 mod ambient;
+mod attachments;
 mod buffer;
 mod record;
 mod recording;
@@ -58,6 +59,7 @@ pub(super) use sha2::Digest;
 
 #[allow(unused_imports)]
 pub(super) use crate::{
+    attachment::{Attachment, AttachmentKind},
     clock::Clock,
     engine::Engine,
     event::{EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole},
@@ -65,7 +67,7 @@ pub(super) use crate::{
     memory::memory_block::Authority,
     model::{Message, ModelClient},
     prompt::PromptSectionSpan,
-    settings::{AmbientSettings, CaptureLevel},
+    settings::AmbientSettings,
     store::{Store, StoreError},
     time::Timestamp,
     turn_ref,
@@ -140,6 +142,9 @@ pub struct InboundMessage {
     pub participant: MemoryId,
     /// The message text.
     pub text: String,
+    /// The files the message carried, already resolved against the blob store by the transport that
+    /// accepted it. Empty for a message without files.
+    pub attachments: Vec<Attachment>,
 }
 
 /// Everything one turn needs: the conversation's `session`, the shared seams (`model` and the
@@ -193,8 +198,9 @@ pub struct Turn<'a> {
     /// The maximum character length of a single memory content entry. Threaded from
     /// `MemorySettings::max_entry_chars`.
     pub max_entry_chars: usize,
-    /// How much of each model call to capture in the model-interaction record (spec §Observability).
-    pub capture: CaptureLevel,
+    /// How much text one message's attachments inline into it, in total. Threaded from
+    /// `TurnSettings::max_attachment_text_chars`.
+    pub max_attachment_text_chars: usize,
     /// The cooperative-cancellation handle, when the turn runs under a supersession slot (spec
     /// §Concurrency → per-conversation supersession). `Some` for a platform or imprint turn admitted
     /// through the turn ledger; `None` for a turn with no newer-batch signal to watch. Checked at
@@ -227,8 +233,9 @@ pub(crate) struct Flush<'a> {
     /// The maximum character length of a single memory content entry. Threaded from
     /// `MemorySettings::max_entry_chars`.
     pub max_entry_chars: usize,
-    /// How much of each model call to capture in the model-interaction record (spec §Observability).
-    pub capture: CaptureLevel,
+    /// How much text one message's attachments inline into it, in total. Threaded from
+    /// `TurnSettings::max_attachment_text_chars`.
+    pub max_attachment_text_chars: usize,
 }
 
 /// The shared step loop a participant turn and a pre-compaction flush both run.
@@ -245,7 +252,6 @@ pub(super) struct Steps<'a> {
     pub(super) initiation: Initiation,
     pub(super) provenance: Option<ProducedBy>,
     pub(super) max_steps: usize,
-    pub(super) capture: CaptureLevel,
     /// The cooperative-cancellation handle threaded from the turn, or `None` for the flush and any
     /// turn with no supersession slot. Checked at each step-loop boundary and passed to each
     /// `generate` for the mid-stream check.

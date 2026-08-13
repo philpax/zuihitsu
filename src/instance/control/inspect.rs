@@ -126,7 +126,7 @@ impl Control<'_> {
     /// The model interactions recorded on the log, oldest first — each call's request (delta-encoded),
     /// deliberation, token usage, and latency. The console's deliberation surface and the answer to
     /// "where did the turn's time go" (spec §Observability); `ModelCalled` is log-only, so this reads
-    /// it from the log. Returns nothing under the `Off` capture level, since no events were written.
+    /// it from the log.
     pub fn model_calls(&self) -> Result<Vec<ModelCall>, InstanceError> {
         let mut out = Vec::new();
         for event in self.server.engine.store.lock().read_from(Seq::ZERO)? {

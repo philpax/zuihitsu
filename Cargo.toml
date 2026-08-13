@@ -10,6 +10,7 @@ async-stream = "0.3"
 async-trait = "0.1.89"
 axum = "0.8"
 anyhow = "1.0"
+base64 = "0.22"
 clap = { version = "4.6.1", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 jiff = { version = "0.2.28", features = ["serde"] }
@@ -25,7 +26,9 @@ rmcp = { version = "2.2", default-features = false, features = [
     "transport-streamable-http-client-reqwest",
     "reqwest",
 ] }
-rusqlite = { version = "0.40.0", features = ["bundled"] }
+# `blob` is SQLite's incremental blob I/O, which the blob store's ranged read uses to pull a window of
+# an attachment without loading the whole thing.
+rusqlite = { version = "0.40.0", features = ["bundled", "blob"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = "1.2.1"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -99,6 +102,7 @@ async-openai = { version = "0.40.2", default-features = false, features = [
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }
 dom_smoothie = "0.18"

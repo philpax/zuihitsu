@@ -1,6 +1,6 @@
 use crate::{
-    CaptureLevel, Completion, EntryId, EnvConfig, Event, EventPayload, Harness, InstanceFeatures,
-    Message, ModelPhase, OpenAiClient, PromptSectionKind, RequestRecord, ScriptedModel, Seq, Usage,
+    Completion, EntryId, EnvConfig, Event, EventPayload, Harness, InstanceFeatures, Message,
+    ModelPhase, OpenAiClient, PromptSectionKind, RequestRecord, ScriptedModel, Seq, Usage,
     buffer_turns, genesis, run_lua_call, run_turn, seed,
 };
 /// The `ModelCalled` events of a run, in `seq` order, projected to the fields the tests assert over.
@@ -241,34 +241,18 @@ async fn a_rerendered_buffer_reproduces_the_live_tool_call_ids() {
 }
 
 #[tokio::test]
-async fn digest_capture_keeps_the_digest_but_drops_the_request() {
+async fn a_conversation_turn_records_its_call_with_the_request() {
+    // Capture is not tunable: the carryover trim cuts at the growth between two calls' reported
+    // prompt sizes, and the console reconstructs the prompt from the request the record carries.
     let mut h = Harness::new();
     let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);
 
-    run_turn(h.as_turn_capturing(&model, "Hello", 8, CaptureLevel::Digest))
-        .await
-        .unwrap();
+    run_turn(h.as_turn(&model, "Hello", 8)).await.unwrap();
 
     let calls = model_calls(&h.events());
     assert_eq!(calls.len(), 1);
-    // The request is dropped, but the digest survives for an integrity check.
-    assert!(calls[0].1.is_none(), "Digest drops the request payload");
-    assert!(!calls[0].3.is_empty(), "Digest keeps the request digest");
-}
-
-#[tokio::test]
-async fn off_capture_records_no_model_interaction() {
-    let mut h = Harness::new();
-    let model = ScriptedModel::new([Completion::Reply("Hi.".to_owned())]);
-
-    run_turn(h.as_turn_capturing(&model, "Hello", 8, CaptureLevel::Off))
-        .await
-        .unwrap();
-
-    assert!(
-        model_calls(&h.events()).is_empty(),
-        "Off emits no ModelCalled events"
-    );
+    assert!(calls[0].1.is_some(), "the request rides along");
+    assert!(!calls[0].3.is_empty(), "so does its digest");
 }
 
 /// Supersession against the real model (model-gated, ignored). A realistic two-turn flow: the model

@@ -6,6 +6,7 @@ import { normalizeMemRefs } from "../../lib/view/memRefs.ts";
 import { imprint } from "../../lib/api/operator.ts";
 import { consoleOrigins } from "../../lib/api/http.ts";
 import { DIRECT_PLATFORM, sendMessage } from "../../lib/api/participant.ts";
+import { uploadBlob } from "../../lib/api/blobs.ts";
 import { formatTokens } from "../../lib/format/format.ts";
 import { Eyebrow } from "../../components/primitives.tsx";
 import { Composer } from "./Composer.tsx";
@@ -13,6 +14,8 @@ import { Docked } from "./Docked.tsx";
 import type { InFlightGeneration } from "../../lib/model/inflight.ts";
 import { Transcript } from "./Transcript.tsx";
 import { TurnMarkdown } from "./TurnMarkdown.tsx";
+import { SentAttachmentChips } from "./Attachments.tsx";
+import type { SentAttachment } from "./attachmentUtilities.ts";
 import { type Participation, ModelCalls } from "./conversationContexts.ts";
 import { warmthAggregate } from "../../lib/model/contextDebug.ts";
 import { type Channel, hasScopeChar } from "./channelUtilities.ts";
@@ -87,14 +90,18 @@ export function Room({
   // message appears the instant it is sent rather than after the round-trip, and the thinking pulse
   // never sits against a conversation that does not yet show what was said. `baseline` is the turn
   // count at send; once the conversation grows past it, the real turn has landed and this is dropped.
-  const [optimistic, setOptimistic] = useState<{ text: string; baseline: number } | null>(null);
+  const [optimistic, setOptimistic] = useState<{
+    text: string;
+    attachments: SentAttachment[];
+    baseline: number;
+  } | null>(null);
   // A send whose wire outcome was `Deferred`: the message was delivered and recorded, but the
   // agent's model was unreachable, so no reply is coming for it — a quiet state, not an error.
   // `baseline` is the turn count at send; the marker clears once an agent turn lands past it (the
   // catch-up turn covered the deferred inbound) or the next send replaces it.
   const [deferred, setDeferred] = useState<{ baseline: number } | null>(null);
 
-  async function onSend(text: string) {
+  async function onSend(text: string, attachments: SentAttachment[]) {
     if (!participate) return;
     // The platform connector contract: a console URL must never reach the agent. The console is a platform connector,
     // so it converts any pasted deep-link into its canonical reference token here, before the POST — a
@@ -110,9 +117,11 @@ export function Room({
     const origins = consoleOrigins(participate.connection);
     const message = normalizeMemRefs(normalizeTurnRefs(text, origins), replica, origins);
     const baseline = channel.conversation?.turns.length ?? 0;
-    setOptimistic({ text: message, baseline });
+    setOptimistic({ text: message, attachments, baseline });
     setDeferred(null);
     try {
+      // The imprint path carries no attachments — an operator note is not a message, and the composer
+      // offers no file affordances in that channel.
       const response = isOperator
         ? await imprint(participate.connection, message)
         : await sendMessage(participate.connection, {
@@ -120,6 +129,7 @@ export function Room({
             sender: handle,
             text: message,
             present: [handle],
+            attachments,
           });
       if (response.outcome === "Deferred") setDeferred({ baseline });
       // `Superseded` deliberately gets no marker: a newer batch's turn answers this one with
@@ -227,6 +237,7 @@ export function Room({
         <OptimisticTurn
           speaker={replica.participantName(channel.locator.platform, handle)}
           text={optimistic.text}
+          attachments={optimistic.attachments}
         />
       )}
 
@@ -246,6 +257,12 @@ export function Room({
               {atHead ? (
                 <Composer
                   onSend={onSend}
+                  // Files ride a participant message only: the operator channel writes an imprint,
+                  // which is a note to the agent rather than a message, so it is handed no uploader
+                  // and shows no file affordances at all.
+                  onUpload={
+                    isOperator ? undefined : (file) => uploadBlob(participate.connection, file)
+                  }
                   onPendingChange={setThinking}
                   disabled={
                     readOnly ||
@@ -350,7 +367,15 @@ function ThinkingIndicator() {
 /// The just-sent turn, echoed at the head of the transcript while it is in flight — dimmed and marked
 /// "sending" so it reads as not-yet-confirmed, matching a participant turn's shape so the live tail's
 /// real turn replaces it without a visible jump.
-function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
+function OptimisticTurn({
+  speaker,
+  text,
+  attachments,
+}: {
+  speaker: string;
+  text: string;
+  attachments: SentAttachment[];
+}) {
   return (
     <div className="border-t border-line/70 py-4 opacity-55 sm:py-5">
       <div className="mb-1.5 flex items-baseline gap-2">
@@ -360,6 +385,7 @@ function OptimisticTurn({ speaker, text }: { speaker: string; text: string }) {
         <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">sending…</span>
       </div>
       <TurnMarkdown text={text} softBreaks />
+      <SentAttachmentChips attachments={attachments} />
     </div>
   );
 }

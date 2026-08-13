@@ -28,14 +28,14 @@ pub(crate) struct TailSeed {
     pub from_seq: Seq,
 }
 
-/// The raw-transcript tail of `buffer`: the most recent turns that fit `char_budget`, filled backward
+/// The raw-transcript tail of `buffer`: the most recent turns that fit `token_budget`, filled backward
 /// from the end (spec §Compaction → raw-transcript carryover). The newest turn is always carried so the
 /// immediate conversational thread survives the seam, then older turns are added while they fit.
 /// Returns the oldest carried turn as the tail extent, or `None` for an empty buffer. Called at reopen
 /// against the previous session's own turns to derive the seed (see
 /// [`crate::instance::Instance::ensure_session`]).
-pub(crate) fn carryover_tail(buffer: &[TurnView], char_budget: i64) -> Option<TailSeed> {
-    let start = carryover_start(buffer, char_budget);
+pub(crate) fn carryover_tail(buffer: &[TurnView], token_budget: i64) -> Option<TailSeed> {
+    let start = carryover_start(buffer, token_budget);
     buffer.get(start).map(|turn| TailSeed {
         seeded_from_turn: turn.turn_id,
         from_seq: turn.seq,
@@ -68,7 +68,7 @@ pub(crate) struct OpenSession {
     pub start_seq: Seq,
     /// This session's own `SessionStarted` seq — where its own turns begin, at or after `start_seq`.
     /// It splits the buffer read at turn time (and at the flush): the carried tail below it is
-    /// re-trimmed to the carryover char budget, while this session's own turns ride whole, so the
+    /// re-trimmed to the carryover token budget, while this session's own turns ride whole, so the
     /// buffer stays bounded across compaction seams (see [`bounded_buffer_turns`]). Equal to
     /// `start_seq` for a fresh or idle-opened session (an empty tail).
     pub session_start_seq: Seq,
@@ -106,7 +106,11 @@ pub(crate) struct RoutedTurn<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::TurnRole;
+    use crate::{
+        agent::ToolStep,
+        attachment::{Attachment, AttachmentKind},
+        event::TurnRole,
+    };
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {
@@ -118,46 +122,113 @@ mod tests {
             recorded_at: Timestamp::from_millis(0),
             steps: Vec::new(),
             produced_by: None,
+            prompt_tokens: None,
+            attachments: Vec::new(),
+        }
+    }
+
+    /// An agent turn whose first model call reported `prompt_tokens`, carrying `steps` a character
+    /// count cannot see.
+    fn measured(seq: u64, text: &str, prompt_tokens: u32, step_chars: usize) -> TurnView {
+        TurnView {
+            role: TurnRole::Agent,
+            steps: vec![ToolStep {
+                script: "x".repeat(step_chars),
+                result: String::new(),
+            }],
+            prompt_tokens: Some(prompt_tokens),
+            ..turn(seq, text)
         }
     }
 
     #[test]
-    fn carryover_tail_admits_the_newest_turns_that_fit_the_budget() {
-        // Texts of 4, 4, and 2 chars, newest last.
-        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
-        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, but not the next "aaaa" — extent is seq 2.
-        let carry = carryover_tail(&buffer, 6).expect("a non-empty buffer carries a tail");
-        assert_eq!(carry.from_seq, Seq(2));
-        assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
-    }
-
-    #[test]
-    fn carryover_tail_always_keeps_the_newest_turn_even_over_budget() {
+    fn the_trim_carries_the_exchanges_whose_growth_fits() {
+        // Three calls bracket two spans of 1,000 tokens. The cut lands just after a call, so the
+        // messages it answered ride with its answer.
         let buffer = vec![
-            turn(1, "short"),
-            turn(2, "a long final turn that alone exceeds the budget"),
+            measured(1, "a", 1_000, 0),
+            turn(2, "the message the next call answered"),
+            measured(3, "b", 2_000, 0),
+            turn(4, "and the next"),
+            measured(5, "c", 3_000, 0),
         ];
-        // The immediate thread survives the seam: the newest turn is carried regardless.
-        let carry = carryover_tail(&buffer, 1).expect("the newest turn is always carried");
-        assert_eq!(carry.from_seq, Seq(2));
-        assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
+        // One span fits: everything after the middle call, which is the turn it answered and itself.
+        assert_eq!(carryover_start(&buffer, 1_000), 3);
+        // Both spans fit, and the turns before the oldest call ride free — nothing prices them.
+        assert_eq!(carryover_start(&buffer, 2_000), 0);
+        // Nothing fits: the newest turn is carried regardless.
+        assert_eq!(carryover_start(&buffer, 999), 4);
     }
 
     #[test]
-    fn carryover_tail_of_an_empty_buffer_is_none() {
-        assert!(carryover_tail(&[], 100).is_none());
-    }
-
-    #[test]
-    fn carryover_start_indexes_the_oldest_turn_that_fits() {
-        let buffer = vec![turn(1, "aaaa"), turn(2, "bbbb"), turn(3, "cc")];
-        // Budget 6 admits "cc" (2) + "bbbb" (4) = 6, not "aaaa" — the kept tail starts at index 1.
-        assert_eq!(carryover_start(&buffer, 6), 1);
-        // A budget below the newest turn still keeps it (index 2), never an empty tail.
-        assert_eq!(carryover_start(&buffer, 0), 2);
-        // A budget the whole buffer fits keeps everything (index 0).
+    fn the_newest_exchange_is_carried_without_being_charged() {
+        // Nothing has bracketed the newest call's own generation, so it is not priced — and it rides
+        // whatever else is carried rather than being guessed at.
+        let buffer = vec![
+            measured(1, "a", 1_000, 0),
+            measured(2, "b", 2_000, 0),
+            turn(3, &"an unreported turn after the newest call".repeat(50)),
+        ];
         assert_eq!(carryover_start(&buffer, 1_000), 0);
-        // An empty slice keeps nothing — the past-the-end index.
-        assert_eq!(carryover_start(&[], 100), 0);
+    }
+
+    #[test]
+    fn a_buffer_with_no_recorded_call_carries_its_newest_turn() {
+        // Every turn deferred, so no call ever completed. Nothing about this buffer is known, and the
+        // newest turn is carried regardless.
+        let buffer = vec![turn(1, "a"), turn(2, "b"), turn(3, "c")];
+        assert_eq!(carryover_start(&buffer, 10_000), 2);
+    }
+
+    #[test]
+    fn an_attachment_is_priced_by_the_backend_that_charged_for_it() {
+        // The file is inside the reported growth, so it needs no guessing at: the span between the
+        // two calls costs what the backend said, whatever the sharing turn's text length.
+        let mut sharing = turn(2, "have a look");
+        sharing.attachments = vec![Attachment {
+            name: "notes.txt".to_owned(),
+            mime: "text/plain".into(),
+            blob: crate::ids::BlobHash::of(b"notes"),
+            byte_len: 8_000,
+            kind: AttachmentKind::Text,
+        }];
+        let buffer = vec![
+            measured(1, "a", 1_000, 0),
+            sharing,
+            measured(3, "", 3_000, 0),
+        ];
+        // The sharing turn is inside the 2,000-token growth, so a budget under it keeps only the
+        // newest turn, and one over it reaches back past the file.
+        assert_eq!(carryover_start(&buffer, 1_999), 2);
+        assert_eq!(carryover_start(&buffer, 2_000), 0);
+    }
+
+    #[test]
+    fn a_prompt_that_shrank_across_the_span_does_not_evict_the_tail() {
+        // A tail spanning a seam is priced against a prefix re-frozen in between, so the growth can
+        // read negative. It must never wrap into an enormous cost that evicts everything.
+        let buffer = vec![measured(1, "aaaa", 5_000, 0), measured(2, "bbbb", 1_000, 0)];
+        assert_eq!(carryover_start(&buffer, 10), 0);
+    }
+
+    #[test]
+    fn carryover_tail_names_the_oldest_carried_turn() {
+        let buffer = vec![
+            measured(1, "a", 1_000, 0),
+            turn(2, "answered by the next call"),
+            measured(3, "b", 2_000, 0),
+        ];
+        // The whole buffer fits, and the turns before the oldest call ride free.
+        let carry = carryover_tail(&buffer, 1_000).expect("a non-empty buffer carries a tail");
+        assert_eq!(carry.from_seq, Seq(1));
+        assert_eq!(carry.seeded_from_turn, buffer[0].turn_id);
+
+        // Under the older span's cost, the tail starts after the newest call — which, with nothing
+        // recorded since, is the newest turn itself.
+        let carry = carryover_tail(&buffer, 999).expect("a non-empty buffer carries a tail");
+        assert_eq!(carry.from_seq, Seq(3));
+        assert_eq!(carry.seeded_from_turn, buffer[2].turn_id);
+
+        assert!(carryover_tail(&[], 100).is_none());
     }
 }

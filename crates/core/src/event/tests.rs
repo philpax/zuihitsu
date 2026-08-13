@@ -1,10 +1,13 @@
+use smol_str::SmolStr;
+
 use crate::{
+    attachment::{Attachment, AttachmentKind},
     brief::{Brief, BriefFact, BriefRelationship},
     event::{
         EntryId, Event, EventPayload, EventSource, Initiation, LinkSource, MaintenancePass,
         MemoryId, MergeProposalSource, ModelPhase, RequestRecord, Teller, TurnRole, Visibility,
     },
-    ids::{ConversationId, MemoryName, Seq, SessionId, TurnId},
+    ids::{BlobHash, ConversationId, MemoryName, Seq, SessionId, TurnId},
     model::{Completion, Message, ToolChoice, Usage},
     prompt::{PromptSectionKind, PromptSectionSpan},
     settings::Settings,
@@ -22,6 +25,28 @@ fn join_turn(brief: Option<Brief>) -> EventPayload {
         initiation: Initiation::Responding,
         produced_by: None,
         brief,
+        attachments: Vec::new(),
+    }
+}
+
+/// An inbound turn carrying one attachment — the shape a platform message records.
+fn message_turn_with_an_attachment() -> EventPayload {
+    EventPayload::ConversationTurn {
+        conversation: ConversationId::generate(),
+        turn_id: TurnId::generate(),
+        role: TurnRole::Participant,
+        text: "here is the plan".to_owned(),
+        participant: Some(MemoryId::generate()),
+        initiation: Initiation::Responding,
+        produced_by: None,
+        brief: None,
+        attachments: vec![Attachment {
+            name: "plan.png".to_owned(),
+            mime: SmolStr::new("image/png"),
+            blob: BlobHash::of(b"the plan, drawn"),
+            byte_len: 15,
+            kind: AttachmentKind::Image,
+        }],
     }
 }
 
@@ -60,6 +85,26 @@ fn conversation_turn_without_a_brief_replays_as_none() {
         replayed,
         EventPayload::ConversationTurn { brief: None, .. }
     ));
+}
+
+#[test]
+fn conversation_turn_round_trips_its_attachments() {
+    let event = message_turn_with_an_attachment();
+    let json = serde_json::to_string(&event).unwrap();
+    assert_eq!(serde_json::from_str::<EventPayload>(&json).unwrap(), event);
+}
+
+#[test]
+fn conversation_turn_without_attachments_replays_as_empty() {
+    // A `ConversationTurn` written before attachments existed has no such key; `serde(default)` must
+    // fill an empty list so every historical turn in a live log still replays.
+    let mut value = serde_json::to_value(message_turn_with_an_attachment()).unwrap();
+    value.as_object_mut().unwrap().remove("attachments");
+    let replayed: EventPayload = serde_json::from_value(value).unwrap();
+    let EventPayload::ConversationTurn { attachments, .. } = replayed else {
+        panic!("the payload is a conversation turn");
+    };
+    assert!(attachments.is_empty());
 }
 
 #[test]

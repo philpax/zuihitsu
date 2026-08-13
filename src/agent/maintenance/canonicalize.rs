@@ -51,7 +51,6 @@ use crate::{
     ids::{MemoryId, MemoryName, Namespace, Seq, TurnId},
     memory::memory_block::{Authority, LinkOptions, MemoryBlock, VisibilityChoice},
     model::{GenerateRequest, ModelClient},
-    settings::CaptureLevel,
     vocabulary::RelationName,
 };
 
@@ -88,7 +87,7 @@ pub(crate) async fn catch_up(
     // advances the log head without necessarily identifying a fresh stub.
     let stubs = collect_platform_stubs(engine.store.lock().as_ref(), cursor)?;
 
-    let recording = Recording::new(None, TurnId::generate(), CaptureLevel::Off);
+    let recording = Recording::background(TurnId::generate());
     let max_entry_chars = crate::settings::Settings::from_store(engine.store.lock().as_ref())
         .map(|s| s.memory.max_entry_chars.max(1) as usize)
         .unwrap_or(1);

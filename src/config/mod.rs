@@ -125,6 +125,18 @@ pub struct ServingConfig {
     /// the writer lock or running any background work. The `--read-only` CLI flag forces this on
     /// regardless of the config value.
     pub read_only: bool,
+    /// The largest attachment a connector may upload to `POST /platform/blobs`, in bytes. A body over
+    /// the cap is rejected whole (`400`) — an attachment is never truncated, since a half a file is
+    /// worse than none: its content address would name bytes nobody sent. Also the axum body limit
+    /// for the route, so an oversized upload is refused rather than buffered.
+    pub max_attachment_bytes: usize,
+    /// The maximum number of attachment references accepted in one complete `messages` batch. Every
+    /// reference counts, including repeated references to the same content address, because each one
+    /// expands the model input independently. Zero permits text-only batches but no attachment references.
+    pub max_message_attachment_count: usize,
+    /// The maximum aggregate stored byte length of attachment references in one complete `messages`
+    /// batch. Repeated references consume the budget repeatedly; zero permits text-only batches.
+    pub max_message_attachment_bytes: u64,
 }
 
 /// Serialize a list of API keys as its length — the count is informative ("two keys configured"); the
@@ -182,6 +194,12 @@ impl StorageConfig {
     /// configured (spec §Storage → vector store).
     pub fn vectors(&self) -> PathBuf {
         self.dir.join("vectors.sqlite")
+    }
+
+    /// The content-addressed blob store, holding the bytes of attachments the log refers to by
+    /// [`BlobHash`](crate::ids::BlobHash).
+    pub fn blobs(&self) -> PathBuf {
+        self.dir.join("blobs.sqlite")
     }
 }
 
