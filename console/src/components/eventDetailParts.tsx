@@ -8,6 +8,7 @@ import { Excerpt } from "../components/primitives.tsx";
 import { TurnRefs } from "../lib/view/turnRefs.ts";
 import { MemRefs } from "../lib/view/memRefs.ts";
 import { EntryEvents } from "../lib/view/entryEvents.ts";
+import { useBlobSource } from "../lib/view/blobSource.ts";
 import { TurnRefChip } from "../views/conversation/TurnRefs.tsx";
 
 // The shared reference family for event details — one component per referent kind, so every raw id an
@@ -15,7 +16,8 @@ import { TurnRefChip } from "../views/conversation/TurnRefs.tsx";
 //   - memory by id: [`Ref`] / [`RefList`]; memory by name: [`MemoryNameLink`],
 //   - content entry: [`EntryRef`] (snippet-labelled, into State with the entry highlighted),
 //   - conversation or turn: [`ConversationRefLink`] (delegating to the transcript's chip in-view),
-//   - log event by seq: [`EventRef`] (into the Events view, that event pinned).
+//   - log event by seq: [`EventRef`] (into the Events view, that event pinned),
+//   - attachment bytes by content address: [`BlobRef`] (to the bytes, through the frame's source).
 // Each resolves against the folded log the console holds and degrades to plain text — never a broken
 // link — outside a stream frame or when the referent is not in the loaded window. [`Mono`] and
 // [`Prose`] are the primitive companions the same detail renderers reach for.
@@ -210,6 +212,45 @@ export function EventRef({ seq }: { seq: number }) {
     </Link>
   );
 }
+
+/// An attachment's bytes: the sender's name for the file, linking to the bytes themselves, with the
+/// head of the content address beside it in the mono register so the address a payload actually
+/// records stays visible without a wall of hex.
+///
+/// The link resolves through the frame's [`BlobSource`] exactly as the transcript's strip does, so an
+/// event detail read beside a served agent and one read out of an eval package both reach the file.
+/// A source that cannot reach these bytes renders the name and address as plain text, matching how
+/// every reference here degrades rather than offering a link that goes nowhere.
+export function BlobRef({ blob, name }: { blob: string; name: string }) {
+  const url = useBlobSource().urlFor({ blob });
+  const address = <Mono>{blob.slice(0, ADDRESS_HEAD)}…</Mono>;
+  if (url === null) {
+    return (
+      <>
+        {name} {address}
+      </>
+    );
+  }
+  return (
+    <>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        title={`Open ${name} (${blob})`}
+        className="text-clay underline-offset-2 transition-colors hover:text-ink hover:underline"
+      >
+        {name}
+      </a>{" "}
+      {address}
+    </>
+  );
+}
+
+/// How much of a content address a detail row shows. Enough to recognise one address from another and
+/// to grep the log for it; the whole 64 characters is a wall of hex that pushes the fields it labels
+/// off the line. The `title` carries the full address for a reader who needs to copy it.
+const ADDRESS_HEAD = 12;
 
 export function Mono({ children }: { children: ReactNode }) {
   return <span className="break-all text-ink-soft">{children}</span>;

@@ -51,7 +51,7 @@ export function usePackageBlobs(blobs: readonly PackageBlob[] | undefined): Blob
   }, [catalogue]);
 
   if (minted === null || minted.catalogue !== catalogue) return NO_BLOBS;
-  return { urlFor: (attachment) => minted.urls.get(attachment.blob) ?? null };
+  return { urlFor: ({ blob }) => minted.urls.get(blob) ?? null };
 }
 
 const NO_CATALOGUE: readonly PackageBlob[] = [];

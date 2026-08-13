@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from "react";
 
 import type { Completion } from "@zuihitsu/wire/types/Completion.ts";
+import type { ImagePart } from "@zuihitsu/wire/types/ImagePart.ts";
 import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import type { PromptSectionKind } from "@zuihitsu/wire/types/PromptSectionKind.ts";
 import type { ToolCall } from "@zuihitsu/wire/types/ToolCall.ts";
@@ -15,6 +16,7 @@ import {
   estimateTokens,
 } from "../../lib/model/tokenAttribution.ts";
 import { resolveSections } from "../../lib/model/promptSections.ts";
+import { useBlobSource } from "../../lib/view/blobSource.ts";
 import { formatTokens } from "../../lib/format/format.ts";
 import { Excerpt } from "../../components/primitives.tsx";
 import { Lua } from "../../components/Lua.tsx";
@@ -447,20 +449,60 @@ function Row({
   );
 }
 
-/// A history message, pretty-printed: the content as the same Markdown the transcript renders, and
-/// each tool call's Lua script highlighted (falling back to the raw arguments when a call carries
-/// no script). Set off like an excerpt so it reads as quoted material.
+/// A history message, pretty-printed: the content as the same Markdown the transcript renders, the
+/// images it showed the model, and each tool call's Lua script highlighted (falling back to the raw
+/// arguments when a call carries no script). Set off like an excerpt so it reads as quoted material.
+///
+/// The images matter here more than anywhere else: this view answers "what did the model actually
+/// see", and a message's text says only that a file was attached. The recorded request carries each
+/// image's content address, so the picture the model was shown is recoverable — from the agent's read
+/// route, or from an eval package's own catalogue.
 function MessageDetail({ message }: { message: Message | undefined }) {
   if (!message) return null;
+  const images = message.images ?? [];
   return (
     <div className="my-1.5 flex flex-col gap-2 border-l border-line bg-oat/40 px-3 py-2">
       {message.content && <TurnMarkdown text={message.content} />}
+      {images.length > 0 && <MessageImages images={images} />}
       {message.tool_calls.map((call) => (
         <ToolCallDetail key={call.id} call={call} />
       ))}
-      {!message.content && message.tool_calls.length === 0 && (
+      {!message.content && images.length === 0 && message.tool_calls.length === 0 && (
         <p className="font-mono text-xs text-ink-faint">(empty)</p>
       )}
+    </div>
+  );
+}
+
+/// The images one message showed the model, as the model was shown them. An image whose bytes this
+/// frame cannot reach states its address instead, so the reader still learns that the message carried
+/// a picture rather than being shown nothing.
+function MessageImages({ images }: { images: ImagePart[] }) {
+  const source = useBlobSource();
+  return (
+    <div className="flex flex-wrap items-start gap-2">
+      {images.map((image, index) => {
+        const url = source.urlFor(image);
+        // Keyed by position: the same image may legitimately ride a message twice, and two images of
+        // identical bytes share a content address.
+        if (url === null) {
+          return (
+            <span key={index} className="font-mono text-2xs text-ink-faint">
+              image · {image.mime} · {image.blob.slice(0, 12)}…
+            </span>
+          );
+        }
+        return (
+          <a key={index} href={url} target="_blank" rel="noreferrer" className="block">
+            <img
+              src={url}
+              alt={`image shown to the model (${image.mime})`}
+              loading="lazy"
+              className="max-h-40 max-w-full rounded-xs border border-line object-contain"
+            />
+          </a>
+        );
+      })}
     </div>
   );
 }

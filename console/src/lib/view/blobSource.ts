@@ -1,7 +1,5 @@
 import { createContext, useContext } from "react";
 
-import type { Attachment } from "@zuihitsu/wire/types/Attachment.ts";
-
 /// How a view reaches an attachment's bytes, or `null` when nothing here can.
 ///
 /// The console is a read replica: it folds the log locally and asks no server for state. Bytes are not
@@ -18,8 +16,10 @@ import type { Attachment } from "@zuihitsu/wire/types/Attachment.ts";
 /// A context rather than a prop because the fact is the frame's and only the leaves act on it — the
 /// workspace and the transcript between them have nothing to say about it.
 export interface BlobSource {
-  /// The URL `attachment`'s bytes are reachable at, or `null` when they are not reachable here.
-  urlFor(attachment: Attachment): string | null;
+  /// The URL the bytes at this content address are reachable at, or `null` when they are not
+  /// reachable here. Takes the address alone, so an `Attachment` record and a prompt's `ImagePart`
+  /// — which carries no name, length, or classification — resolve through the same call.
+  urlFor(addressed: { blob: string }): string | null;
 }
 
 /// The source that reaches nothing: what a frame with no bytes behind it provides, and the default so
@@ -42,5 +42,5 @@ export function useBlobSource(): BlobSource {
 /// `404` and the image renders as broken rather than as the announcement. The agent is the authority
 /// on what it has, and asking is how this frame finds out.
 export function servedBlobs(baseUrl: string): BlobSource {
-  return { urlFor: (attachment) => `${baseUrl}/blobs/${attachment.blob}` };
+  return { urlFor: ({ blob }) => `${baseUrl}/blobs/${blob}` };
 }
