@@ -75,7 +75,7 @@ pub use settings::{
     ConcurrencySettings, MaintenanceSettings, ObservabilitySettings, RecencySettings,
     SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings, WebSettings,
 };
-pub use store::{Blob, BlobError, BlobMeta, BlobStore, MemoryStore, Store, StoreError};
+pub use store::{Blob, BlobError, BlobMeta, BlobRange, BlobStore, MemoryStore, Store, StoreError};
 pub use time::{
     BEFORE_AFTER_EPSILON_MILLIS, CivilDate, Direction, OccurrenceBounds, Rrule, TemporalRef,
     Timestamp, format_occurrence,

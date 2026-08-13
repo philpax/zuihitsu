@@ -115,6 +115,8 @@ Storage is content-addressed and idempotent when the MIME matches: the same byte
 
 The bytes are read back at `GET /blobs/{hash}`, which sits outside `/platform` and takes no key: a console renders an image with an ordinary `<img>` tag, which cannot carry an `Authorization` header, so the 256-bit content address is itself the capability. A connector never needs this route; it is there for the viewers.
 
+That read accepts a single-range `Range: bytes=…` request, answering it with `206 Partial Content` and a `Content-Range`, so a viewer showing the head of a long text file transfers only what it shows. A range past the end is `416`, naming the stored size; a range header the server does not parse (several ranges, a unit other than `bytes`) is ignored and the whole blob is served, as HTTP permits. Every response carries `Accept-Ranges: bytes`.
+
 ## Writing context
 
 ### `POST /platform/context`

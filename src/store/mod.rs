@@ -15,7 +15,7 @@ pub(crate) use zuihitsu_core::store::notify;
 mod blobs;
 mod sqlite;
 
-pub use blobs::{Blob, BlobError, BlobMeta, BlobStore};
+pub use blobs::{Blob, BlobError, BlobMeta, BlobRange, BlobStore};
 pub use sqlite::SqliteStore;
 
 #[cfg(test)]

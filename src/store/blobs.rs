@@ -9,7 +9,7 @@
 
 use std::{path::Path, sync::Arc};
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, MAIN_DB, OpenFlags, OptionalExtension, params};
 
 use crate::{
     clock::{Clock, SystemClock},
@@ -29,6 +29,16 @@ pub struct Blob {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlobMeta {
     pub mime: String,
+    pub byte_len: u64,
+}
+
+/// A window of a stored blob: the bytes asked for, the media type they belong to, and the length of
+/// the whole blob behind them — which a ranged HTTP response has to state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlobRange {
+    pub bytes: Vec<u8>,
+    pub mime: String,
+    /// The full stored length, not the window's.
     pub byte_len: u64,
 }
 
@@ -196,6 +206,61 @@ impl BlobStore {
         })
     }
 
+    /// At most `len` bytes of the blob stored under `hash`, starting at `start` — the read behind a
+    /// ranged HTTP request, where a reader wants a text file's opening lines rather than the file.
+    ///
+    /// The window is read through SQLite's incremental blob I/O, so a 4 KiB excerpt of a 16 MiB
+    /// attachment costs 4 KiB of memory here as well as on the wire; loading the row and slicing it
+    /// would spend the whole file to save none of it. A `start` at or past the end yields an empty
+    /// window rather than an error — the caller (which knows what an unsatisfiable range means over
+    /// its own protocol) decides how that reads.
+    pub fn get_range(
+        &self,
+        hash: &BlobHash,
+        start: u64,
+        len: u64,
+    ) -> Result<Option<BlobRange>, BlobError> {
+        let stmt = self
+            .conn
+            .prepare("SELECT rowid, mime, byte_len FROM blobs WHERE hash = ?1")?;
+        let located = query_opt_into(stmt, params![hash.as_str()], |row| {
+            let (rowid, mime, byte_len): (i64, String, i64) = row.try_into()?;
+            Ok::<_, BlobError>((rowid, mime, byte_len))
+        })?;
+        let Some((rowid, mime, byte_len)) = located else {
+            return Ok(None);
+        };
+        let byte_len = u64::try_from(byte_len).map_err(|_| {
+            BlobError::Malformed(format!("blob {hash} records a negative length {byte_len}"))
+        })?;
+
+        let available = byte_len.saturating_sub(start);
+        let window = usize::try_from(len.min(available)).map_err(|_| {
+            BlobError::Malformed(format!(
+                "blob {hash}: a {len}-byte window does not fit this platform's addressable range"
+            ))
+        })?;
+        let mut bytes = vec![0u8; window];
+        if window > 0 {
+            let blob = self
+                .conn
+                .blob_open(MAIN_DB, "blobs", "bytes", rowid, true)?;
+            // `start` is in range because `window` is non-zero, and the row's own length bounds it, so
+            // the cast is the platform's addressable range again rather than a fresh assumption.
+            let offset = usize::try_from(start).map_err(|_| {
+                BlobError::Malformed(format!(
+                    "blob {hash}: a {start}-byte offset does not fit this platform's addressable range"
+                ))
+            })?;
+            blob.read_at_exact(&mut bytes, offset)?;
+        }
+        Ok(Some(BlobRange {
+            bytes,
+            mime,
+            byte_len,
+        }))
+    }
+
     /// Every stored content address, for a GC sweep to reconcile against the log.
     pub fn hashes(&self) -> Result<Vec<BlobHash>, BlobError> {
         let stmt = self.conn.prepare("SELECT hash FROM blobs ORDER BY hash")?;
@@ -338,6 +403,40 @@ mod tests {
                 mime: "application/pdf".to_owned(),
                 byte_len: 10,
             })
+        );
+    }
+
+    #[test]
+    fn a_range_read_returns_the_window_and_the_whole_length_behind_it() {
+        let store = BlobStore::open_in_memory().unwrap();
+        let hash = store.put(b"0123456789", "text/plain").unwrap();
+
+        let head = store.get_range(&hash, 0, 4).unwrap().unwrap();
+        assert_eq!(head.bytes, b"0123");
+        assert_eq!(head.mime, "text/plain");
+        // The full stored length, not the window's — a ranged response has to state it.
+        assert_eq!(head.byte_len, 10);
+
+        // A window running past the end is clamped to what is there, and one starting past it is
+        // empty rather than an error: the caller decides what an unsatisfiable range means.
+        assert_eq!(
+            store.get_range(&hash, 8, 100).unwrap().unwrap().bytes,
+            b"89"
+        );
+        assert!(
+            store
+                .get_range(&hash, 10, 4)
+                .unwrap()
+                .unwrap()
+                .bytes
+                .is_empty()
+        );
+
+        assert_eq!(
+            store
+                .get_range(&BlobHash::of(b"never stored"), 0, 4)
+                .unwrap(),
+            None
         );
     }
 

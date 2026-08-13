@@ -57,7 +57,7 @@ use crate::{
     model::{ModelClient, embed::Embedder, index::IndexError},
     settings::{ConcurrencySettings, Settings},
     snapshot,
-    store::{Blob, BlobError, BlobMeta, BlobStore, MemoryStore, Store},
+    store::{Blob, BlobError, BlobMeta, BlobRange, BlobStore, MemoryStore, Store},
     vector::VectorIndex,
     web::{WebClient, WebFetcher},
 };
@@ -275,6 +275,17 @@ impl Instance {
     /// blob route: the content address is the capability, so this neither knows nor cares who asks.
     pub fn blob(&self, hash: &BlobHash) -> Result<Option<Blob>, BlobError> {
         self.engine.blobs.lock().get(hash)
+    }
+
+    /// At most `len` bytes of the blob stored under `hash`, from `start` — the read behind a ranged
+    /// request for part of an attachment, such as a reader opening the head of a text file.
+    pub fn blob_range(
+        &self,
+        hash: &BlobHash,
+        start: u64,
+        len: u64,
+    ) -> Result<Option<BlobRange>, BlobError> {
+        self.engine.blobs.lock().get_range(hash, start, len)
     }
 
     /// The metadata of the blob stored under `hash`, without loading its bytes — how an inbound

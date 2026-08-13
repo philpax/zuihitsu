@@ -16,7 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use zuihitsu::BlobHash;
+use zuihitsu::{BlobError, BlobHash};
 
 use crate::http_server::{AppState, error::ApiError};
 
@@ -58,41 +58,160 @@ pub(super) async fn upload_blob(
 /// `GET /blobs/{hash}` — the bytes stored under a content address, served with the media type they
 /// were uploaded under. Unauthenticated: see the module docs for why the hash is the capability.
 ///
-/// The response is immutably cacheable, which is exactly true rather than merely convenient — the
-/// address is the content, so what a given URL answers can never change.
-///
 /// A miss is an explicit `404`, and so is a path segment that is not a well-formed address. Both
 /// matter: the router's fallback serves the console's `index.html` for anything unmatched, so
 /// answering "not here" is what keeps a missing image from arriving as a page of HTML.
+///
+/// A `Range` header asking for one byte range is answered with that window as a `206`, read from
+/// SQLite without loading the rest — how the console excerpts the head of a text attachment without
+/// pulling a 16 MiB log down to show four thousand characters of it. Every response advertises
+/// `Accept-Ranges: bytes`, so a client knows the option is there.
 pub(super) async fn blob(
     State(state): State<AppState>,
     Path(hash): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let hash: BlobHash = hash
         .parse()
         .map_err(|_| ApiError::NotFound(format!("no blob is stored under {hash}")))?;
-    let blob = state
+    let missing = || ApiError::NotFound(format!("no blob is stored under {hash}"));
+    let internal = |error: BlobError| ApiError::Internal(error.to_string());
+
+    let Some(requested) = requested_range(&headers) else {
+        let blob = state
+            .server
+            .blob(&hash)
+            .map_err(internal)?
+            .ok_or_else(missing)?;
+        return Ok((StatusCode::OK, common_headers(&blob.mime), blob.bytes).into_response());
+    };
+
+    let meta = state
         .server
-        .blob(&hash)
-        .map_err(|error| ApiError::Internal(error.to_string()))?
-        .ok_or_else(|| ApiError::NotFound(format!("no blob is stored under {hash}")))?;
-    // A stored media type is whatever an uploading connector sent, so it is rendered through
-    // `HeaderValue` rather than trusted: a value carrying anything a header may not hold falls back
-    // to the generic type instead of reaching the response.
-    let content_type = HeaderValue::from_str(&blob.mime)
-        .unwrap_or_else(|_| HeaderValue::from_static(OCTET_STREAM));
+        .blob_meta(&hash)
+        .map_err(internal)?
+        .ok_or_else(missing)?;
+    // The stored length resolves a suffix range and bounds an open-ended one, so it is read before the
+    // bytes: a range is only meaningful against the size of what it addresses.
+    let Some((start, end)) = requested.resolve(meta.byte_len) else {
+        // Unsatisfiable, per RFC 9110 §15.5.17: the response states the size the client should have
+        // asked within, so a retry needs no extra round trip.
+        return Ok((
+            StatusCode::RANGE_NOT_SATISFIABLE,
+            [
+                (
+                    header::CONTENT_RANGE,
+                    HeaderValue::from_str(&format!("bytes */{}", meta.byte_len))
+                        .expect("a byte count renders as a header value"),
+                ),
+                (header::ACCEPT_RANGES, HeaderValue::from_static("bytes")),
+            ],
+        )
+            .into_response());
+    };
+    let range = state
+        .server
+        .blob_range(&hash, start, end - start + 1)
+        .map_err(internal)?
+        .ok_or_else(missing)?;
     Ok((
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, content_type),
-            (
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=31536000, immutable"),
-            ),
-        ],
-        blob.bytes,
+        StatusCode::PARTIAL_CONTENT,
+        common_headers(&range.mime),
+        [(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {start}-{end}/{}", range.byte_len))
+                .expect("a byte range renders as a header value"),
+        )],
+        range.bytes,
     )
         .into_response())
+}
+
+/// The headers every blob response carries, whole or partial.
+///
+/// The media type is a stored one — whatever an uploading connector sent — so it is rendered through
+/// `HeaderValue` rather than trusted: a value carrying anything a header may not hold falls back to
+/// the generic type instead of reaching the response.
+///
+/// The response is immutably cacheable, which is exactly true rather than merely convenient — the
+/// address is the content, so what a given URL answers can never change.
+fn common_headers(mime: &str) -> [(header::HeaderName, HeaderValue); 3] {
+    [
+        (
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(mime).unwrap_or_else(|_| HeaderValue::from_static(OCTET_STREAM)),
+        ),
+        (
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        ),
+        (header::ACCEPT_RANGES, HeaderValue::from_static("bytes")),
+    ]
+}
+
+/// One byte range as the request asked for it, before the stored length is known.
+#[derive(Debug, PartialEq, Eq)]
+enum RequestedRange {
+    /// `bytes=start-end` or `bytes=start-`, the end resolved against the stored length.
+    From { start: u64, end: Option<u64> },
+    /// `bytes=-suffix`: the last `suffix` bytes, however long the blob turns out to be.
+    Suffix(u64),
+}
+
+impl RequestedRange {
+    /// The inclusive `(start, end)` this range addresses in a blob of `byte_len` bytes, or `None`
+    /// when it addresses nothing there — a start at or past the end, or a zero-length suffix. An end
+    /// past the last byte is clamped rather than refused, which is what a client asking for "the
+    /// first 4 KiB" of a shorter file means.
+    fn resolve(&self, byte_len: u64) -> Option<(u64, u64)> {
+        if byte_len == 0 {
+            return None;
+        }
+        let last = byte_len - 1;
+        match *self {
+            RequestedRange::From { start, end } => {
+                (start <= last).then(|| (start, end.unwrap_or(last).min(last)))
+            }
+            RequestedRange::Suffix(suffix) => {
+                (suffix > 0).then(|| (byte_len.saturating_sub(suffix), last))
+            }
+        }
+    }
+}
+
+/// The single byte range a request asked for, or `None` when it asked for none.
+///
+/// Anything this does not understand — a unit other than `bytes`, several ranges, a malformed spec —
+/// reads as `None` and is answered with the whole blob, which RFC 9110 §14.2 permits ("a server MAY
+/// ignore the Range header field"). A partial reader that is not understood is better served the
+/// whole file than an error.
+fn requested_range(headers: &HeaderMap) -> Option<RequestedRange> {
+    let spec = headers
+        .get(header::RANGE)?
+        .to_str()
+        .ok()?
+        .trim()
+        .strip_prefix("bytes=")?
+        .trim();
+    if spec.contains(',') {
+        return None;
+    }
+    let (start, end) = spec.split_once('-')?;
+    let (start, end) = (start.trim(), end.trim());
+    if start.is_empty() {
+        return Some(RequestedRange::Suffix(end.parse().ok()?));
+    }
+    let start = start.parse().ok()?;
+    let end = if end.is_empty() {
+        None
+    } else {
+        let end: u64 = end.parse().ok()?;
+        if end < start {
+            return None;
+        }
+        Some(end)
+    };
+    Some(RequestedRange::From { start, end })
 }
 
 /// The media type an upload with no usable `Content-Type` is stored under — "some bytes", which is

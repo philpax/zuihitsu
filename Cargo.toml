@@ -26,7 +26,9 @@ rmcp = { version = "2.2", default-features = false, features = [
     "transport-streamable-http-client-reqwest",
     "reqwest",
 ] }
-rusqlite = { version = "0.40.0", features = ["bundled"] }
+# `blob` is SQLite's incremental blob I/O, which the blob store's ranged read uses to pull a window of
+# an attachment without loading the whole thing.
+rusqlite = { version = "0.40.0", features = ["bundled", "blob"] }
 rust-embed = { version = "8", features = ["mime-guess"] }
 schemars = "1.2.1"
 serde = { version = "1.0.228", features = ["derive"] }

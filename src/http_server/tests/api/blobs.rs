@@ -145,6 +145,88 @@ async fn an_uploaded_blob_is_fetched_back_by_its_address() {
     assert_eq!(fetched_bytes.as_ref(), PNG_BYTES);
 }
 
+/// Fetch `path` with an optional `Range` header, returning the status, the headers, and the body —
+/// the three a ranged read is judged on.
+async fn fetch_range(
+    app: axum::Router,
+    hash: &BlobHash,
+    range: Option<&str>,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let mut request = Request::builder().uri(format!("/blobs/{hash}"));
+    if let Some(range) = range {
+        request = request.header("range", range);
+    }
+    let response = app
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, headers, body.to_vec())
+}
+
+#[tokio::test]
+async fn a_ranged_read_answers_the_window_the_reader_asked_for() {
+    // The console excerpts the head of a long text attachment this way, so it renders the opening of
+    // a large file without pulling the whole thing down.
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    let app = router(test_state(server));
+    let text = b"0123456789abcdef";
+    upload(app.clone(), text, "text/plain").await;
+    let hash = BlobHash::of(text);
+
+    // A bounded window, an open-ended one, a suffix, and an end past the last byte (clamped, which is
+    // what "the first 4 KiB" of a shorter file means).
+    for (spec, expected, content_range) in [
+        ("bytes=0-3", &b"0123"[..], "bytes 0-3/16"),
+        ("bytes=4-", &b"456789abcdef"[..], "bytes 4-15/16"),
+        ("bytes=-4", &b"cdef"[..], "bytes 12-15/16"),
+        ("bytes=10-999", &b"abcdef"[..], "bytes 10-15/16"),
+    ] {
+        let (status, headers, body) = fetch_range(app.clone(), &hash, Some(spec)).await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT, "asking for {spec}");
+        assert_eq!(headers["content-range"], content_range, "asking for {spec}");
+        assert_eq!(headers["content-type"], "text/plain");
+        assert_eq!(headers["accept-ranges"], "bytes");
+        assert_eq!(body, expected, "asking for {spec}");
+    }
+
+    // No range at all is the whole blob, still advertising that ranges are available.
+    let (status, headers, body) = fetch_range(app.clone(), &hash, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers["accept-ranges"], "bytes");
+    assert_eq!(body, text);
+}
+
+#[tokio::test]
+async fn an_unsatisfiable_range_is_a_416_naming_the_size_and_an_unparsed_one_serves_the_whole_blob()
+{
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    let app = router(test_state(server));
+    let text = b"0123456789abcdef";
+    upload(app.clone(), text, "text/plain").await;
+    let hash = BlobHash::of(text);
+
+    // Past the end: the response states the size the client should have asked within.
+    let (status, headers, _) = fetch_range(app.clone(), &hash, Some("bytes=16-20")).await;
+    assert_eq!(status, StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(headers["content-range"], "bytes */16");
+
+    // A unit we do not speak, several ranges, a backwards range, and a malformed spec are all served
+    // whole — RFC 9110 §14.2 lets a server ignore a Range it does not understand, and a reader is
+    // better served the file than an error.
+    for spec in ["items=0-3", "bytes=0-3,8-9", "bytes=9-2", "bytes=abc"] {
+        let (status, _, body) = fetch_range(app.clone(), &hash, Some(spec)).await;
+        assert_eq!(status, StatusCode::OK, "asking for {spec}");
+        assert_eq!(body, text, "asking for {spec}");
+    }
+}
+
 #[tokio::test]
 async fn an_unknown_or_malformed_address_is_a_404() {
     // Both must be an explicit 404: the router's fallback serves the console's `index.html` for
