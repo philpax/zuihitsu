@@ -258,3 +258,35 @@ fn notes_ride_below_the_message_text() {
     assert_eq!(append_notes("   ", &notes), notes[0]);
     assert_eq!(append_notes("have a look", &[]), "have a look");
 }
+
+#[test]
+fn a_batch_whose_files_the_agent_refuses_is_delivered_as_text_with_a_note() {
+    use crate::bot::process::without_attachments;
+    use zuihitsu_core::ids::PersonId;
+    use zuihitsu_platform_connector_api::{MessageAttachment, PlatformMessage};
+
+    let carried = PlatformMessage {
+        sender: PersonId::new("discord", "rowan"),
+        text: "here it is".to_owned(),
+        attachments: vec![MessageAttachment {
+            name: "build.log".to_owned(),
+            blob: BlobHash::of(b"log bytes"),
+        }],
+    };
+    let plain = PlatformMessage {
+        sender: PersonId::new("discord", "rowan"),
+        text: "and a thought".to_owned(),
+        attachments: Vec::new(),
+    };
+
+    let [carried, plain] = &without_attachments(vec![carried, plain])[..] else {
+        panic!("the batch keeps its messages");
+    };
+    assert!(carried.attachments.is_empty());
+    assert_eq!(
+        carried.text,
+        "here it is\n\n(build.log was shared, but it could not be delivered to you)"
+    );
+    // A message that carried nothing is untouched.
+    assert_eq!(plain.text, "and a thought");
+}
