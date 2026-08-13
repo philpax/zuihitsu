@@ -12,6 +12,7 @@ use std::{path::Path, sync::Arc};
 use rusqlite::{Connection, MAIN_DB, OpenFlags, OptionalExtension, params};
 
 use crate::{
+    attachment::media_type_of,
     clock::{Clock, SystemClock},
     db::{self, query_map_into, query_opt_into},
     ids::BlobHash,
@@ -142,7 +143,10 @@ impl BlobStore {
                 )
                 .optional()?;
             if let Some(existing_mime) = existing_mime {
-                if existing_mime != mime {
+                // Compared by media type rather than by spelling: `text/plain` and
+                // `text/plain; charset=utf-8` are the same type, and one platform stating the
+                // parameter where another omits it must not make the same bytes unstorable.
+                if media_type_of(&existing_mime) != media_type_of(mime) {
                     return Err(BlobError::MimeConflict {
                         hash: hash.clone(),
                         existing_mime,
@@ -328,6 +332,19 @@ mod tests {
         // Different bytes are a different blob, so the store now holds two.
         store.put(b"other bytes", PNG).unwrap();
         assert_eq!(store.hashes().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn put_accepts_the_same_type_under_another_spelling() {
+        // The stored spelling is the first one recorded; a later upload stating the parameter is the
+        // same type and the same bytes, so it is the idempotent case rather than a conflict.
+        let store = BlobStore::open_in_memory().unwrap();
+        let first = store.put(b"same bytes", "text/plain").unwrap();
+        let second = store
+            .put(b"same bytes", "Text/Plain; charset=utf-8")
+            .unwrap();
+        assert_eq!(first, second);
+        assert_eq!(store.head(&first).unwrap().unwrap().mime, "text/plain");
     }
 
     #[test]

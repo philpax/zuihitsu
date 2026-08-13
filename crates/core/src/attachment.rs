@@ -49,16 +49,25 @@ pub enum AttachmentKind {
     Opaque,
 }
 
+/// A media type reduced to the type itself: parameters dropped, case folded, whitespace trimmed.
+///
+/// Two spellings that reduce alike name the same type — `text/plain` and `Text/Plain; charset=utf-8`
+/// — which is what a classification reads and what an equality check between a stored type and a
+/// fresh one should compare. Neither wants the parameters, and neither should treat their presence as
+/// a different type.
+pub fn media_type_of(mime: &str) -> String {
+    mime.split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+}
+
 impl AttachmentKind {
     /// Classify a media type. The comparison is over the type itself, so a `; charset=utf-8`
     /// parameter and an upper-case spelling classify as the bare lower-case type does.
     pub fn of_mime(mime: &str) -> AttachmentKind {
-        let media_type = mime
-            .split(';')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
+        let media_type = media_type_of(mime);
         match media_type.as_str() {
             // The web image types a vision model takes as an image content part. A type outside this
             // set is opaque even when it is an image: the model cannot decode it.
