@@ -6,9 +6,9 @@ import { createRoot } from "react-dom/client";
 import { BlobSourceContext, NO_BLOBS, servedBlobs } from "../lib/view/blobSource.ts";
 import { BlobRef } from "./eventDetailParts.tsx";
 
-// The reference family's rule is that every raw id an event payload carries renders as a link to
-// where that thing lives, and degrades to plain text rather than to a link that goes nowhere. A
-// content address is such an id, and it reached the detail rows as bare hex before this component.
+// The reference family's rule: every raw id an event payload carries links to where that thing
+// lives, and degrades to plain text rather than to a link that goes nowhere. A content address is
+// such an id.
 
 const ADDRESS = "a".repeat(64);
 

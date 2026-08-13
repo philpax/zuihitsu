@@ -449,14 +449,12 @@ function Row({
   );
 }
 
-/// A history message, pretty-printed: the content as the same Markdown the transcript renders, the
-/// images it showed the model, and each tool call's Lua script highlighted (falling back to the raw
-/// arguments when a call carries no script). Set off like an excerpt so it reads as quoted material.
+/// A history message, pretty-printed: its content as the transcript's Markdown, the images it showed
+/// the model, and each tool call's Lua (falling back to raw arguments when a call carries no script).
+/// Set off like an excerpt so it reads as quoted material.
 ///
-/// The images matter here more than anywhere else: this view answers "what did the model actually
-/// see", and a message's text says only that a file was attached. The recorded request carries each
-/// image's content address, so the picture the model was shown is recoverable — from the agent's read
-/// route, or from an eval package's own catalogue.
+/// The images are the point of this view: the text says only that a file was attached, and the
+/// recorded request carries each image's address.
 function MessageDetail({ message }: { message: Message | undefined }) {
   if (!message) return null;
   const images = message.images ?? [];
@@ -474,17 +472,15 @@ function MessageDetail({ message }: { message: Message | undefined }) {
   );
 }
 
-/// The images one message showed the model, as the model was shown them. An image whose bytes this
-/// frame cannot reach states its address instead, so the reader still learns that the message carried
-/// a picture rather than being shown nothing.
+/// The images one message showed the model. One whose bytes this frame cannot reach states its
+/// address instead, so the reader still learns a picture was there.
 function MessageImages({ images }: { images: ImagePart[] }) {
   const source = useBlobSource();
   return (
     <div className="flex flex-wrap items-start gap-2">
       {images.map((image, index) => {
         const url = source.urlFor(image);
-        // Keyed by position: the same image may legitimately ride a message twice, and two images of
-        // identical bytes share a content address.
+        // Keyed by position: identical bytes share an address, and may ride a message twice.
         if (url === null) {
           return (
             <span key={index} className="font-mono text-2xs text-ink-faint">

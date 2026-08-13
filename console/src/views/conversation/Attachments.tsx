@@ -37,7 +37,7 @@ export function PendingAttachmentChips({
   onRetry,
 }: {
   attachments: PendingAttachment[];
-  /// Drop the file from the message. Absent for the sent echo, which is no longer editable.
+  /// Drop the file from the message. Absent for the sent echo, which is not editable.
   onRemove?: (id: string) => void;
   /// Upload the file again after a failure. Absent for the sent echo.
   onRetry?: (id: string) => void;
@@ -138,20 +138,17 @@ function ImageAttachment({ attachment, url }: { attachment: Attachment; url: str
   );
 }
 
-/// A text file, disclosed in place: the excerpt is fetched only when the reader opens it, so a
-/// transcript of attachments costs nothing to scroll past. Long content is clipped with a note and a
-/// link to the whole thing, matching how the turn itself only ever inlined so much.
+/// A text file, disclosed in place: the excerpt is fetched only when opened, so a transcript of
+/// attachments costs nothing to scroll past. Long content is clipped, with a link to the whole file.
 ///
-/// Only the excerpt crosses the wire. A file bigger than the window is fetched as a byte range, so
-/// opening a 16 MiB log costs the few kilobytes actually shown rather than the whole download — the
-/// clipping was always going to throw the rest away.
+/// Only the excerpt crosses the wire — a file bigger than the window is fetched as a byte range,
+/// since the clipping throws the rest away anyway.
 function TextAttachment({ attachment, url }: { attachment: Attachment; url: string }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Whether the whole file was asked for, which decides how the clip is judged below: a windowed read
-  // is clipped by definition, where a whole one is clipped only if it overflows the excerpt.
+  // A windowed read is clipped by definition; a whole one only if it overflows the excerpt.
   const whole = attachment.byte_len <= EXCERPT_BYTES;
 
   useEffect(() => {
@@ -161,8 +158,7 @@ function TextAttachment({ attachment, url }: { attachment: Attachment; url: stri
     let cancelled = false;
     (async () => {
       try {
-        // `Range` is a request the server may decline (it answers `200` with the whole body), so the
-        // excerpt is clipped by character count below regardless of what came back.
+        // The server may decline the range and answer `200` whole, so the clip below is by character.
         const response = await fetch(url, whole ? {} : { headers: { Range: rangeHeader() } });
         if (!response.ok) throw new Error(await errorMessage(response));
         const body = await response.text();
@@ -250,8 +246,8 @@ const chipClass =
 /// read whole, short enough that a log dump does not become the transcript.
 const EXCERPT_CHARS = 4000;
 
-/// How many bytes are fetched for a file too big to read whole: four per excerpt character, the
-/// longest a UTF-8 scalar value runs to, so the window always holds at least the characters shown.
+/// Bytes fetched for a file too big to read whole: four per excerpt character, UTF-8's longest
+/// scalar, so the window always holds the characters shown.
 const EXCERPT_BYTES = EXCERPT_CHARS * 4;
 
 /// The `Range` header the excerpt asks for — the file's opening bytes, inclusive of both ends.
@@ -259,9 +255,8 @@ function rangeHeader(): string {
   return `bytes=0-${EXCERPT_BYTES - 1}`;
 }
 
-/// `body` without a trailing replacement character. A byte window can land inside a multi-byte
-/// character, which decodes to U+FFFD at the very end; the character is not the file's, so it is
-/// dropped rather than shown as a stray glyph in the excerpt.
+/// `body` without a trailing replacement character, which is where a byte window cut a multi-byte
+/// character rather than anything the file holds.
 function withoutPartialTail(body: string): string {
   return body.endsWith("\uFFFD") ? body.slice(0, -1) : body;
 }

@@ -8,9 +8,9 @@
 //! itself the capability — it is unguessable, and knowing it means having been told it by someone who
 //! had the bytes. Nothing else about the instance is reachable through it.
 //!
-//! That capability governs *reading* a blob, not what a blob contains: the bytes are whatever a
-//! sender uploaded, and the route is same-origin with the console. What a response may therefore
-//! declare itself to be is decided by [`served_media_type`], not by the uploader.
+//! That capability governs *reading* a blob, not what one contains: the bytes are a sender's, and the
+//! route is same-origin with the console, so what a response declares itself to be is
+//! [`served_media_type`]'s decision rather than the uploader's.
 
 use axum::{
     Json,
@@ -67,10 +67,8 @@ pub(super) async fn upload_blob(
 /// matter: the router's fallback serves the console's `index.html` for anything unmatched, so
 /// answering "not here" is what keeps a missing image from arriving as a page of HTML.
 ///
-/// A `Range` header asking for one byte range is answered with that window as a `206`, read from
-/// SQLite without loading the rest — how the console excerpts the head of a text attachment without
-/// pulling a 16 MiB log down to show four thousand characters of it. Every response advertises
-/// `Accept-Ranges: bytes`, so a client knows the option is there.
+/// A single-range `Range` is answered as a `206`, read from SQLite without loading the rest — how a
+/// viewer excerpts the head of a long text file. Every response advertises `Accept-Ranges: bytes`.
 pub(super) async fn blob(
     State(state): State<AppState>,
     Path(hash): Path<String>,
@@ -96,11 +94,9 @@ pub(super) async fn blob(
         .blob_meta(&hash)
         .map_err(internal)?
         .ok_or_else(missing)?;
-    // The stored length resolves a suffix range and bounds an open-ended one, so it is read before the
-    // bytes: a range is only meaningful against the size of what it addresses.
+    // A suffix range and an open-ended one both resolve against the stored length, so read it first.
     let Some((start, end)) = requested.resolve(meta.byte_len) else {
-        // Unsatisfiable, per RFC 9110 §15.5.17: the response states the size the client should have
-        // asked within, so a retry needs no extra round trip.
+        // Unsatisfiable (RFC 9110 §15.5.17): state the size, so a retry needs no extra round trip.
         return Ok((
             StatusCode::RANGE_NOT_SATISFIABLE,
             [
@@ -134,16 +130,10 @@ pub(super) async fn blob(
 
 /// The headers every blob response carries, whole or partial.
 ///
-/// The media type is [`served_media_type`]'s rather than the stored one, and it is rendered through
-/// `HeaderValue` rather than trusted: a stored value carrying anything a header may not hold falls
-/// back to the generic type instead of reaching the response.
-///
-/// `nosniff` is what makes that served type binding. Without it a browser may sniff a `text/plain`
-/// body that opens with `<html>` back into markup, which would undo the downgrade the served type
-/// exists to perform.
-///
-/// The response is immutably cacheable, which is exactly true rather than merely convenient — the
-/// address is the content, so what a given URL answers can never change.
+/// The media type is [`served_media_type`]'s, rendered through `HeaderValue` rather than trusted: a
+/// stored value a header may not hold falls back to the generic type. `nosniff` is what makes that
+/// type binding, since a `text/plain` body opening with `<html>` is otherwise a sniffing candidate.
+/// The immutable caching is exactly true: the address is the content.
 fn common_headers(mime: &str) -> [(header::HeaderName, HeaderValue); 4] {
     [
         (
@@ -195,10 +185,8 @@ impl RequestedRange {
 
 /// The single byte range a request asked for, or `None` when it asked for none.
 ///
-/// Anything this does not understand — a unit other than `bytes`, several ranges, a malformed spec —
-/// reads as `None` and is answered with the whole blob, which RFC 9110 §14.2 permits ("a server MAY
-/// ignore the Range header field"). A partial reader that is not understood is better served the
-/// whole file than an error.
+/// Anything unrecognised — another unit, several ranges, a malformed spec — reads as `None` and is
+/// served whole, which RFC 9110 §14.2 permits and which beats erroring at the reader.
 fn requested_range(headers: &HeaderMap) -> Option<RequestedRange> {
     let spec = headers
         .get(header::RANGE)?

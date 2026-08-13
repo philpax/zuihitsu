@@ -206,14 +206,12 @@ impl BlobStore {
         })
     }
 
-    /// At most `len` bytes of the blob stored under `hash`, starting at `start` — the read behind a
-    /// ranged HTTP request, where a reader wants a text file's opening lines rather than the file.
+    /// At most `len` bytes of the blob stored under `hash`, from `start` — the read behind a ranged
+    /// request.
     ///
-    /// The window is read through SQLite's incremental blob I/O, so a 4 KiB excerpt of a 16 MiB
-    /// attachment costs 4 KiB of memory here as well as on the wire; loading the row and slicing it
-    /// would spend the whole file to save none of it. A `start` at or past the end yields an empty
-    /// window rather than an error — the caller (which knows what an unsatisfiable range means over
-    /// its own protocol) decides how that reads.
+    /// Read through SQLite's incremental blob I/O, so an excerpt costs its own size in memory rather
+    /// than the whole row's. A `start` at or past the end yields an empty window rather than an
+    /// error, leaving the caller to say what an unsatisfiable range means over its own protocol.
     pub fn get_range(
         &self,
         hash: &BlobHash,
@@ -245,8 +243,7 @@ impl BlobStore {
             let blob = self
                 .conn
                 .blob_open(MAIN_DB, "blobs", "bytes", rowid, true)?;
-            // `start` is in range because `window` is non-zero, and the row's own length bounds it, so
-            // the cast is the platform's addressable range again rather than a fresh assumption.
+            // `window` is non-zero, so `start` is within the row; the cast is the addressable range.
             let offset = usize::try_from(start).map_err(|_| {
                 BlobError::Malformed(format!(
                     "blob {hash}: a {start}-byte offset does not fit this platform's addressable range"

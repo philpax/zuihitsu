@@ -213,14 +213,9 @@ export function EventRef({ seq }: { seq: number }) {
   );
 }
 
-/// An attachment's bytes: the sender's name for the file, linking to the bytes themselves, with the
-/// head of the content address beside it in the mono register so the address a payload actually
-/// records stays visible without a wall of hex.
-///
-/// The link resolves through the frame's [`BlobSource`] exactly as the transcript's strip does, so an
-/// event detail read beside a served agent and one read out of an eval package both reach the file.
-/// A source that cannot reach these bytes renders the name and address as plain text, matching how
-/// every reference here degrades rather than offering a link that goes nowhere.
+/// An attachment: the sender's name for the file, linked to the bytes, with the head of the content
+/// address beside it. Resolves through the frame's [`BlobSource`], and renders as plain text when
+/// that reaches nothing.
 export function BlobRef({ blob, name }: { blob: string; name: string }) {
   const url = useBlobSource().urlFor({ blob });
   const address = <Mono>{blob.slice(0, ADDRESS_HEAD)}…</Mono>;
@@ -247,9 +242,8 @@ export function BlobRef({ blob, name }: { blob: string; name: string }) {
   );
 }
 
-/// How much of a content address a detail row shows. Enough to recognise one address from another and
-/// to grep the log for it; the whole 64 characters is a wall of hex that pushes the fields it labels
-/// off the line. The `title` carries the full address for a reader who needs to copy it.
+/// How much of a content address a detail row shows: enough to tell two apart, where the whole 64
+/// characters push the fields they label off the line. The `title` carries the rest.
 const ADDRESS_HEAD = 12;
 
 export function Mono({ children }: { children: ReactNode }) {
