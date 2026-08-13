@@ -19,12 +19,11 @@ import { EvalRouteContext } from "./evalContext.ts";
 // Re-rendering with fresher events updates the same `RunFrame` instance in place (preserving its
 // disclosure state) rather than remounting it.
 
-// Only the wasm boundary is mocked: `Replica.fromEvents` yields a fresh query stub per call — a new
-// instance per refold, exactly as production behaves — and the ref scanner scans nothing. The rest
-// of the stack (`useReplica` included) is the real code under test.
+// Only the query surface is stubbed: `Replica.fromEvents` yields a fresh stub per call — a new
+// instance per refold, exactly as production behaves. The rest of the stack (`useReplica` and the
+// wasm-backed reference parser included) is the real code under test.
 vi.mock("../../lib/replica/replica.ts", async (importOriginal) => ({
   ...(await importOriginal<object>()),
-  scanRefs: (text: string) => [{ kind: "prose", text }],
   Replica: {
     fromEvents: (events: Event[]) =>
       Promise.resolve({

@@ -1,12 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-// The attribution tests are pure Node tests. Production uses the Rust estimator through this adapter;
-// the test replaces only the browser/WASM loading seam so the arithmetic paths remain deterministic.
-vi.mock("../replica/replica.ts", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  estimateTokens: (text: string) => Math.ceil([...text].length / 4),
-  estimateTokensFromChars: (chars: number) => Math.ceil(chars / 4),
-}));
+import { describe, expect, it } from "vitest";
 
 import type { Message } from "@zuihitsu/wire/types/Message.ts";
 import { call, message } from "./callFixtures.ts";
