@@ -7,7 +7,7 @@ import { useStream } from "../../lib/nav/useStreamLocation.ts";
 import { type GenesisStatus, genesisStatus } from "../../lib/api/operator.ts";
 import { isDegraded, useInstanceHealth } from "../../lib/api/health.ts";
 import { ReadOnly } from "../../lib/view/readOnly.ts";
-import { BlobBase } from "../../lib/view/blobBase.ts";
+import { BlobSourceContext, servedBlobs } from "../../lib/view/blobSource.ts";
 import { Dot } from "../../components/primitives.tsx";
 import { BackendBanner } from "./BackendBanner.tsx";
 import { ReadOnlyBanner } from "./ReadOnlyBanner.tsx";
@@ -61,10 +61,9 @@ export function LiveShell({
 
   return (
     <ReadOnly.Provider value={readOnly}>
-      {/* This frame has an agent behind it, so an attachment's bytes are reachable: the transcript
-          renders images and text excerpts against this origin. The eval frame provides nothing and
-          its attachments announce themselves instead. */}
-      <BlobBase.Provider value={connection.baseUrl}>
+      {/* This frame has an agent behind it, so an attachment's bytes are reachable over its read
+          route. The eval frame resolves the same views against the catalogue its package carries. */}
+      <BlobSourceContext.Provider value={servedBlobs(connection.baseUrl)}>
         <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
           <header className="shrink-0 pt-4 pb-2">
             <div className="flex items-baseline justify-between gap-3">
@@ -149,7 +148,7 @@ export function LiveShell({
             />
           )}
         </div>
-      </BlobBase.Provider>
+      </BlobSourceContext.Provider>
     </ReadOnly.Provider>
   );
 }

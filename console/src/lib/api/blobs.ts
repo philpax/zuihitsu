@@ -6,15 +6,6 @@ import { errorMessage } from "./http.ts";
 /// fallback: "some bytes", which is all the browser told us.
 export const OCTET_STREAM = "application/octet-stream";
 
-/// Where an attachment's bytes are served: `GET /blobs/{hash}` on the agent, which is top-level and
-/// unauthenticated because an `<img src>` cannot carry a bearer key and the content address is itself
-/// the capability. `baseUrl` is the connection's — `""` for a same-origin console, an absolute origin
-/// for the dev console proxying to the agent — so the URL is usable as an `src`, an `href`, or a
-/// `fetch` target alike.
-export function blobUrl(baseUrl: string, hash: BlobHash): string {
-  return `${baseUrl}/blobs/${hash}`;
-}
-
 /// Store a file's bytes and return their content address, the console acting as a platform connector
 /// (`POST /platform/blobs`). The body is the bytes themselves and the `Content-Type` is the media
 /// type they are stored under, so there is no envelope to build. Re-uploading the same bytes is

@@ -16,6 +16,8 @@ import { formatSpan, formatTime } from "../../lib/format/format.ts";
 import { useDocumentTitle } from "../../lib/nav/useDocumentTitle.ts";
 import { useLocation } from "../../lib/nav/historyContext.ts";
 import { EvalRouteContext } from "./evalContext.ts";
+import { BlobSourceContext } from "../../lib/view/blobSource.ts";
+import { usePackageBlobs } from "../../lib/view/packageBlobs.ts";
 import { Dot } from "../../components/primitives.tsx";
 import { FrameNav } from "../../components/FrameNav.tsx";
 
@@ -47,6 +49,7 @@ export function EvalFrame({
   children: ReactNode;
 }) {
   const location = useLocation();
+  const blobs = usePackageBlobs(pkg.blobs);
   const context: EvalContext = {
     pkg,
     liveRuns: liveRuns ?? NO_LIVE_RUNS,
@@ -63,69 +66,74 @@ export function EvalFrame({
   useDocumentTitle("eval", view);
 
   return (
-    <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
-      <header className="shrink-0 border-b border-line py-4 sm:py-6">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="flex min-w-0 items-baseline gap-3">
-            <span className="font-serif text-xl text-ink">zuihitsu</span>
-            <FrameNav current="eval" />
-          </div>
-          <div className="flex shrink-0 items-baseline gap-3 font-mono text-xs text-ink-soft">
-            <span className="hidden items-baseline gap-3 whitespace-nowrap sm:flex">
-              {live ? (
-                <>
-                  <LiveBadge status={live} />
-                  <Dot />
-                </>
-              ) : (
-                fileName && (
+    // No agent stands behind this frame — a package is a finished log, and a live harness serves no
+    // bytes — so an attachment resolves against the catalogue the package carries. See
+    // `lib/view/packageBlobs.ts` for why those are object URLs.
+    <BlobSourceContext.Provider value={blobs}>
+      <div className="mx-auto flex h-dvh max-w-304 flex-col overflow-hidden px-4 sm:px-8">
+        <header className="shrink-0 border-b border-line py-4 sm:py-6">
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="flex min-w-0 items-baseline gap-3">
+              <span className="font-serif text-xl text-ink">zuihitsu</span>
+              <FrameNav current="eval" />
+            </div>
+            <div className="flex shrink-0 items-baseline gap-3 font-mono text-xs text-ink-soft">
+              <span className="hidden items-baseline gap-3 whitespace-nowrap sm:flex">
+                {live ? (
                   <>
-                    <span className="max-w-56 truncate text-ink" title={fileName}>
-                      {fileName}
-                    </span>
+                    <LiveBadge status={live} />
                     <Dot />
                   </>
-                )
-              )}
-              <span className="max-w-[16rem] truncate">{pkg.meta.model_id}</span>
-              <Dot />
-              {pkg.meta.git_sha && (
-                <>
-                  <span>{pkg.meta.git_sha.slice(0, 7)}</span>
-                  <Dot />
-                </>
-              )}
-              {live ? (
-                <>
-                  <LiveProgress pkg={pkg} />
-                  <Dot />
-                  <LiveTiming pkg={pkg} status={live} />
-                </>
-              ) : (
-                <>
-                  <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
-                  <Provenance pkg={pkg} />
-                </>
-              )}
-            </span>
-            <button
-              onClick={onClose}
-              className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
-              title="Close this package"
-            >
-              ✕
-            </button>
+                ) : (
+                  fileName && (
+                    <>
+                      <span className="max-w-56 truncate text-ink" title={fileName}>
+                        {fileName}
+                      </span>
+                      <Dot />
+                    </>
+                  )
+                )}
+                <span className="max-w-[16rem] truncate">{pkg.meta.model_id}</span>
+                <Dot />
+                {pkg.meta.git_sha && (
+                  <>
+                    <span>{pkg.meta.git_sha.slice(0, 7)}</span>
+                    <Dot />
+                  </>
+                )}
+                {live ? (
+                  <>
+                    <LiveProgress pkg={pkg} />
+                    <Dot />
+                    <LiveTiming pkg={pkg} status={live} />
+                  </>
+                ) : (
+                  <>
+                    <span>{new Date(pkg.meta.finished_at_ms).toISOString()}</span>
+                    <Provenance pkg={pkg} />
+                  </>
+                )}
+              </span>
+              <button
+                onClick={onClose}
+                className="ml-1 shrink-0 text-ink-faint transition-colors hover:text-clay"
+                title="Close this package"
+              >
+                ✕
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* On mobile the source drops to a quieter second row. */}
-        <div className="mt-2 flex items-baseline justify-end font-mono text-2xs text-ink-soft sm:hidden">
-          <span className="truncate text-ink-faint">{fileName ?? pkg.meta.model_id}</span>
-        </div>
-      </header>
+          {/* On mobile the source drops to a quieter second row. */}
+          <div className="mt-2 flex items-baseline justify-end font-mono text-2xs text-ink-soft sm:hidden">
+            <span className="truncate text-ink-faint">{fileName ?? pkg.meta.model_id}</span>
+          </div>
+        </header>
 
-      <EvalRouteContext.Provider value={context}>{children}</EvalRouteContext.Provider>
-    </div>
+        <EvalRouteContext.Provider value={context}>{children}</EvalRouteContext.Provider>
+      </div>
+    </BlobSourceContext.Provider>
   );
 }
 

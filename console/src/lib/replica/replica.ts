@@ -5,6 +5,7 @@ import initWasm, {
   memRefConstruct,
   refNormalize,
   refScan,
+  servedMediaType as wasmServedMediaType,
   turnRefConstruct,
 } from "@zuihitsu/wire/wasm/console_wasm.js";
 import wasmUrl from "@zuihitsu/wire/wasm/console_wasm_bg.wasm?url";
@@ -66,6 +67,19 @@ export function constructTurnRef(id: string): string {
 /// The canonical memory-reference token for a memory id. Throws if `id` is not a valid id.
 export function constructMemRef(id: string): string {
   return memRefConstruct(id);
+}
+
+/// Await the wasm module, for a caller that reaches a pure function below without a `Replica` in hand
+/// — the eval frame minting object URLs before any run is folded. A caller rendering under a replica
+/// needs nothing: `fromEvents` has already awaited this.
+export function whenWasmReady(): Promise<unknown> {
+  return ensureWasm();
+}
+
+/// The media type an attachment's bytes are presented under — the rule the agent's own read route
+/// applies, so a viewer minting its own URL for a blob declares exactly what the server would.
+export function servedMediaType(mime: string): string {
+  return wasmServedMediaType(mime);
 }
 
 /// Estimate provider tokens from text using the core fallback rule. Callers run beneath a loaded

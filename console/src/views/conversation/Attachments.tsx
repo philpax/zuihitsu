@@ -1,19 +1,19 @@
 import { useEffect, useState } from "react";
 
 import type { Attachment } from "@zuihitsu/wire/types/Attachment.ts";
-import { blobUrl } from "../../lib/api/blobs.ts";
 import { errorMessage } from "../../lib/api/http.ts";
 import { formatBytes } from "../../lib/format/format.ts";
-import { useBlobBase } from "../../lib/view/blobBase.ts";
+import { useBlobSource } from "../../lib/view/blobSource.ts";
 import { Disclosure, Excerpt } from "../../components/primitives.tsx";
 import type { PendingAttachment, SentAttachment } from "./attachmentUtilities.ts";
 
 /// What a turn carried, below what it said: an image the reader can actually see, a text file they can
-/// open in place, and anything else announced by name, type, and size. The record is all the log holds
-/// — the bytes live in the agent's blob store — so every treatment degrades to the announcement when
-/// no agent stands behind this console (an eval package), rather than showing a broken image.
+/// open in place, and anything else announced by name, type, and size. The record is all the log holds,
+/// so the bytes come from whatever the frame's [`BlobSource`] can reach — the agent's read route, or an
+/// eval package's own catalogue. An attachment it cannot reach degrades to the announcement rather than
+/// showing a broken image.
 export function AttachmentStrip({ attachments }: { attachments: Attachment[] }) {
-  const base = useBlobBase();
+  const source = useBlobSource();
   if (attachments.length === 0) return null;
   return (
     <ul className="mt-3 flex min-w-0 flex-col items-start gap-2">
@@ -21,10 +21,7 @@ export function AttachmentStrip({ attachments }: { attachments: Attachment[] }) 
         // Keyed by position: the same file may legitimately ride a turn twice, and two attachments of
         // identical bytes share a content address, so neither the address nor the name is unique.
         <li key={index} className="max-w-full min-w-0">
-          <AttachmentItem
-            attachment={attachment}
-            url={base === null ? null : blobUrl(base, attachment.blob)}
-          />
+          <AttachmentItem attachment={attachment} url={source.urlFor(attachment)} />
         </li>
       ))}
     </ul>

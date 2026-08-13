@@ -31,5 +31,8 @@ export function summarizePackage(pkg: EvalPackage): PackageSummary {
       runs: scenario.runs.map(summarizeRun),
       aggregate: scenario.aggregate,
     })),
+    // Carried whole rather than summarised away: the attachments a run shared are rendered from it,
+    // and a file-loaded package has nothing else to resolve them against.
+    blobs: pkg.blobs,
   };
 }
