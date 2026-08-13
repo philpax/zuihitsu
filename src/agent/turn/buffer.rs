@@ -46,7 +46,7 @@ pub struct TurnView {
     /// The prompt size the backend reported at this turn's first model call — what the carryover trim
     /// prices the buffer with ([`carryover_start`]). `None` for participant and system turns (they run
     /// no model call), for an agent turn whose backend reported no usage, and under
-    /// `CaptureLevel::Off`, which records no `ModelCalled` at all.
+    /// a backend that reports no usage.
     pub prompt_tokens: Option<u32>,
     /// The files the turn's message carried, replayed from the payload so a later turn sees the same
     /// attachments the live one did. Empty for every turn that carried none.
@@ -304,8 +304,8 @@ const ANNOUNCEMENT_CHARS: usize = 80;
 ///
 /// Two things are genuinely unknown and only there does an estimate appear. The newest exchange has no
 /// successor to bracket it, so what it costs is not yet reported; and turns before the oldest recorded
-/// call were never bracketed at all. A log written under `CaptureLevel::Off` records no call, which
-/// makes the whole buffer unknown — [`estimated_start`] is that case.
+/// call were never bracketed at all. A backend that reports no usage leaves the whole buffer unknown
+/// — [`estimated_start`] is that case.
 pub fn carryover_start(turns: &[TurnView], pricing: Pricing) -> usize {
     let budget = pricing.carryover_token_budget.max(0) as usize;
     let newest = turns.len().saturating_sub(1);

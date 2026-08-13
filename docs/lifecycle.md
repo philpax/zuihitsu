@@ -30,7 +30,7 @@ The schema is **append-only**: a field is deprecated, never removed, and every s
 - *`max_steps`* — whether a turn terminated normally or hit the bound (a recorded outcome); plus the per-block timeout and attempt bound.
 - *Search scoring weights and recency-decay constants* — which memories retrieval surfaced.
 - *Concurrent-stream limit* (`concurrency.max_concurrent_streams`) — how many turns may crowd the shared model at once. Logged rather than environmental: it is read from the snapshot at construction and bounds the turn semaphore.
-- *Scheduler tick and per-session wake-up cap*, the *model-call capture level*, and the *maximum entry length*.
+- *Scheduler tick and per-session wake-up cap*, and the *maximum entry length*.
 
 **Environmental (operational file, `EnvConfig`):**
 

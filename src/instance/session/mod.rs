@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn a_buffer_the_backend_never_priced_falls_back_to_the_estimate() {
-        // No turn recorded a model call, which is what `CaptureLevel::Off` leaves behind. The
+        // No turn recorded a usage figure, which is what a backend reporting none leaves behind. The
         // estimate is all there is: 40 characters each, ten tokens each.
         let buffer = vec![turn(1, &"a".repeat(40)), turn(2, &"b".repeat(40))];
         assert_eq!(carryover_start(&buffer, pricing(10)), 1);

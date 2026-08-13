@@ -45,7 +45,6 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         max_block_attempts,
         max_entry_chars,
         max_attachment_text_chars,
-        capture,
         mut supersession,
     } = turn;
     let conversation = session
@@ -212,7 +211,6 @@ pub async fn run_turn(turn: Turn<'_>) -> Result<TurnReport, TurnError> {
         initiation: Initiation::Responding,
         provenance: agent_provenance,
         max_steps,
-        capture,
         supersession,
     })
     .await;
@@ -277,7 +275,6 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         max_block_attempts,
         max_entry_chars,
         max_attachment_text_chars,
-        capture,
     } = flush;
     // The flush's standing instruction comes from the `Flush` template; without it there is nothing to
     // flush. It rides as a trailing message (below), not as the system prompt.
@@ -357,7 +354,6 @@ pub(crate) async fn run_flush(flush: Flush<'_>) -> Result<(), TurnError> {
         initiation: Initiation::Initiated,
         provenance,
         max_steps,
-        capture,
         // The flush is agent-initiated background synthesis with no inbound batch behind it, so there
         // is nothing to supersede it.
         supersession: None,

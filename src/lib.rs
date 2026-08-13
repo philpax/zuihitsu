@@ -71,9 +71,9 @@ pub use model::{
     schema_of, stream_response,
 };
 pub use settings::{
-    AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings,
-    ConcurrencySettings, MaintenanceSettings, ObservabilitySettings, RecencySettings,
-    SchedulerSettings, SearchSettings, Settings, TauDays, TurnSettings, WebSettings,
+    AmbientSettings, BriefSettings, CheckpointSettings, CompactionSettings, ConcurrencySettings,
+    MaintenanceSettings, RecencySettings, SchedulerSettings, SearchSettings, Settings, TauDays,
+    TurnSettings, WebSettings,
 };
 pub use store::{Blob, BlobError, BlobMeta, BlobRange, BlobStore, MemoryStore, Store, StoreError};
 pub use time::{

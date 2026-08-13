@@ -8,11 +8,11 @@ use serde::Serialize;
 
 use common::Harness;
 use zuihitsu::{
-    BlockOutcome, CaptureLevel, CivilDate, Completion, EntryId, EnvConfig, Event, EventPayload,
-    InferredLink, InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace,
-    NewRelationSpec, OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq,
-    TemporalRef, TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole,
-    Usage, buffer_turns, genesis, prompt::PromptSectionKind, run_turn, time::MILLIS_PER_DAY,
+    BlockOutcome, CivilDate, Completion, EntryId, EnvConfig, Event, EventPayload, InferredLink,
+    InstanceFeatures, LinkInferenceArgs, Message, ModelPhase, Namespace, NewRelationSpec,
+    OpenAiClient, PromptTemplateName, RequestRecord, ScriptedModel, SeedSelf, Seq, TemporalRef,
+    TerminalCause, Timestamp, ToolCall, ToolChoice, TurnOutcome, TurnReport, TurnRole, Usage,
+    buffer_turns, genesis, prompt::PromptSectionKind, run_turn, time::MILLIS_PER_DAY,
 };
 
 pub(crate) use temporal::{

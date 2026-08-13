@@ -67,7 +67,7 @@ pub(super) use crate::{
     memory::memory_block::Authority,
     model::{Message, ModelClient, estimated_tokens_from_chars},
     prompt::PromptSectionSpan,
-    settings::{AmbientSettings, CaptureLevel},
+    settings::AmbientSettings,
     store::{Store, StoreError},
     time::Timestamp,
     turn_ref,
@@ -201,8 +201,6 @@ pub struct Turn<'a> {
     /// How much text one message's attachments inline into it, in total. Threaded from
     /// `TurnSettings::max_attachment_text_chars`.
     pub max_attachment_text_chars: usize,
-    /// How much of each model call to capture in the model-interaction record (spec §Observability).
-    pub capture: CaptureLevel,
     /// The cooperative-cancellation handle, when the turn runs under a supersession slot (spec
     /// §Concurrency → per-conversation supersession). `Some` for a platform or imprint turn admitted
     /// through the turn ledger; `None` for a turn with no newer-batch signal to watch. Checked at
@@ -238,8 +236,6 @@ pub(crate) struct Flush<'a> {
     /// How much text one message's attachments inline into it, in total. Threaded from
     /// `TurnSettings::max_attachment_text_chars`.
     pub max_attachment_text_chars: usize,
-    /// How much of each model call to capture in the model-interaction record (spec §Observability).
-    pub capture: CaptureLevel,
 }
 
 /// The shared step loop a participant turn and a pre-compaction flush both run.
@@ -256,7 +252,6 @@ pub(super) struct Steps<'a> {
     pub(super) initiation: Initiation,
     pub(super) provenance: Option<ProducedBy>,
     pub(super) max_steps: usize,
-    pub(super) capture: CaptureLevel,
     /// The cooperative-cancellation handle threaded from the turn, or `None` for the flush and any
     /// turn with no supersession slot. Checked at each step-loop boundary and passed to each
     /// `generate` for the mid-stream check.

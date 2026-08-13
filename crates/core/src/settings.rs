@@ -39,7 +39,6 @@ pub struct Settings {
     pub search: SearchSettings,
     pub scheduler: SchedulerSettings,
     pub concurrency: ConcurrencySettings,
-    pub observability: ObservabilitySettings,
     pub memory: MemorySettings,
     pub web: WebSettings,
     pub ambient: AmbientSettings,
@@ -304,36 +303,6 @@ pub struct ConcurrencySettings {
     pub describe_staleness_escape_seconds: i64,
 }
 
-/// Observability (spec §Observability): how much of each model call the model-interaction record
-/// captures. The full request repeats the agent loop's growing buffer (delta-encoded, but still
-/// material at the `Base` of each turn), so the verbosity is operator-tunable at runtime.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-#[cfg_attr(
-    feature = "ts",
-    derive(ts_rs::TS, settings_metadata_derive::SettingsMetadata),
-    settings_metadata(parent = "observability")
-)]
-pub struct ObservabilitySettings {
-    /// How much of each model call to record (the deliberation is always captured; this governs the
-    /// request side).
-    pub capture_model_calls: CaptureLevel,
-}
-
-/// How much of a model call's request the model-interaction record stores (spec §Observability). The
-/// deliberation — reasoning, finish reason, usage, latency — is captured at every level above `Off`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub enum CaptureLevel {
-    /// The delta-encoded request plus a digest — full reconstruction of every prompt.
-    #[default]
-    Full,
-    /// Only the request digest (no message content), plus the full response.
-    Digest,
-    /// No model-interaction record at all.
-    Off,
-}
-
 /// Memory write limits — guards against oversized entries that bloat the event log and pollute briefs
 /// and search snippets.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -583,14 +552,6 @@ impl Default for ConcurrencySettings {
     }
 }
 
-impl Default for ObservabilitySettings {
-    fn default() -> Self {
-        ObservabilitySettings {
-            capture_model_calls: CaptureLevel::Full,
-        }
-    }
-}
-
 impl Default for MemorySettings {
     fn default() -> Self {
         MemorySettings {
@@ -686,9 +647,9 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::{
-        AmbientSettings, BriefSettings, CaptureLevel, CheckpointSettings, CompactionSettings,
-        ConcurrencySettings, MemorySettings, ObservabilitySettings, SchedulerSettings, Settings,
-        TurnSettings, WebSettings,
+        AmbientSettings, BriefSettings, CheckpointSettings, CompactionSettings,
+        ConcurrencySettings, MemorySettings, SchedulerSettings, Settings, TurnSettings,
+        WebSettings,
     };
 
     #[test]
@@ -710,14 +671,6 @@ mod tests {
         let scheduler = SchedulerSettings::default();
         assert_eq!(scheduler.max_wakeups_per_session, 5);
         assert_eq!(scheduler.tick_seconds, 60);
-    }
-
-    #[test]
-    fn observability_defaults_to_full_capture() {
-        assert_eq!(
-            ObservabilitySettings::default().capture_model_calls,
-            CaptureLevel::Full
-        );
     }
 
     #[test]
@@ -745,11 +698,6 @@ mod tests {
         assert_eq!(
             settings.scheduler.tick_seconds,
             SchedulerSettings::default().tick_seconds
-        );
-        // A whole group added later (observability) adopts its default too.
-        assert_eq!(
-            settings.observability.capture_model_calls,
-            CaptureLevel::Full
         );
         // The checkpoint group postdates many logged snapshots; its absence must default with the
         // sweeper enabled.
@@ -841,5 +789,18 @@ mod tests {
         let written = serde_json::to_value(Settings::default()).unwrap();
         assert!(written["compaction"]["carryover_token_budget"].is_number());
         assert!(written["compaction"]["carryover_char_budget"].is_null());
+    }
+
+    #[test]
+    fn a_snapshot_carrying_the_retired_capture_setting_still_loads() {
+        // Model-call capture is no longer tunable: every conversation turn records its call in full,
+        // because the carryover trim reads what those records report. A snapshot still stating the
+        // old group is ignored like any unknown key rather than failing to deserialize.
+        let recorded = serde_json::json!({
+            "observability": { "capture_model_calls": "Off" },
+            "turn": { "max_steps": 7 }
+        });
+        let settings: Settings = serde_json::from_value(recorded).unwrap();
+        assert_eq!(settings.turn.max_steps, 7);
     }
 }

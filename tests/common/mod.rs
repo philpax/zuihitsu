@@ -129,7 +129,7 @@ mod harness {
 
     use zuihitsu::{
         AmbientSettings, Attachment, AttachmentKind, Authority, BlockContext, BlockOutcome,
-        CaptureLevel, ConversationId, Embedder, Engine, Event, EventPayload, EventSource, Graph,
+        ConversationId, Embedder, Engine, Event, EventPayload, EventSource, Graph,
         InMemoryVectorIndex, InboundMessage, Initiation, InstanceFeatures, ManualClock, MemoryId,
         MemoryStore, ModelClient, PromptTemplateName, Seq, Session, Teller, Turn, TurnId,
         TurnRecord, TurnRole, TurnView, VectorIndex, append_turn,
@@ -327,18 +327,6 @@ mod harness {
             self.link_inference_cursor.set(advanced);
         }
 
-        /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
-        /// Captures the full model-interaction record, the production default. Records the
-        /// participant turn in the event log before returning, mirroring `route_messages`.
-        pub fn as_turn<'a>(
-            &'a mut self,
-            model: &'a dyn ModelClient,
-            inbound: &'a str,
-            max_steps: usize,
-        ) -> Turn<'a> {
-            self.as_turn_capturing(model, inbound, max_steps, CaptureLevel::Full)
-        }
-
         /// Store `bytes` in the harness's blob store and describe them the way the platform handler
         /// does, so a test can hand an attachment to the next [`Harness::as_turn`].
         pub fn attach(&self, name: &str, mime: &str, bytes: &[u8]) -> Attachment {
@@ -359,14 +347,14 @@ mod harness {
             self
         }
 
-        /// As [`Harness::as_turn`], but with an explicit model-interaction capture level — for tests
-        /// that exercise the `Digest`/`Off` paths.
-        pub fn as_turn_capturing<'a>(
+        /// Borrow the harness as a [`Turn`] over `model` for `inbound`, ready to hand to `run_turn`.
+        /// Records the participant turn in the event log before returning, mirroring
+        /// `route_messages`.
+        pub fn as_turn<'a>(
             &'a mut self,
             model: &'a dyn ModelClient,
             inbound: &'a str,
             max_steps: usize,
-            capture: CaptureLevel,
         ) -> Turn<'a> {
             self.prepare_inbound(inbound);
             Turn {
@@ -393,7 +381,6 @@ mod harness {
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 max_attachment_text_chars: TEST_MAX_ATTACHMENT_TEXT_CHARS,
-                capture,
                 supersession: None,
             }
         }
@@ -431,7 +418,6 @@ mod harness {
                 max_block_attempts: TEST_MAX_BLOCK_ATTEMPTS,
                 max_entry_chars: TEST_MAX_ENTRY_CHARS,
                 max_attachment_text_chars: TEST_MAX_ATTACHMENT_TEXT_CHARS,
-                capture: CaptureLevel::Full,
                 supersession: None,
             }
         }
