@@ -1,7 +1,7 @@
 //! The live conversational buffer: the turn views the next turn replays as the prompt suffix,
 //! and the reads that assemble and bound it (spec §Conversations → the live buffer).
 
-use crate::agent::turn::*;
+use crate::{agent::turn::*, settings::Settings};
 
 /// The seam note marking a non-empty flush reply as undelivered when it replays into a later turn's
 /// buffer. A checkpoint flush is internal bookkeeping — its reply reaches no participant — but a
@@ -214,7 +214,7 @@ pub fn buffer_turns(
 /// without bound across compaction seams. `session_start_seq` is this session's own `SessionStarted`
 /// seq; it splits the read into the carried tail (turns before it, seeded from a prior session across
 /// a compaction seam) and this session's own turns (at or after it). The tail is re-trimmed to
-/// `token_budget` — the same newest-first fill the carryover staging uses ([`carryover_start`]) — so a
+/// the carryover budget — the same trim the carryover staging applies ([`carryover_start`]) — so a
 /// session seeded from a carryover, and every session after it, sees a tail no larger than the budget
 /// rather than every turn accrued since the original carryover point. The session's own turns always
 /// ride whole (the compaction budget already bounds them), so the buffer is structurally
@@ -225,128 +225,146 @@ pub fn bounded_buffer_turns(
     conversation: ConversationId,
     start_seq: Seq,
     session_start_seq: Seq,
-    token_budget: i64,
+    pricing: Pricing,
 ) -> Result<Vec<TurnView>, StoreError> {
     let mut turns = buffer_turns(store, conversation, start_seq)?;
     // The read is in seq order, so the carried tail is the prefix below this session's own start.
     let split = turns.partition_point(|turn| turn.seq < session_start_seq);
-    let keep_from = carryover_start(&turns[..split], token_budget);
+    let keep_from = carryover_start(&turns[..split], pricing);
     turns.drain(..keep_from);
     Ok(turns)
 }
 
-/// The index into `turns` of the oldest turn that fits `token_budget`, filling backward from the newest
-/// — the raw-transcript carryover trim rule (spec §Compaction → raw-transcript carryover). The newest
-/// turn is always kept (even if it alone exceeds the budget), then older turns while their running
-/// token total fits. Returns `turns.len()` for an empty slice (an empty tail keeps nothing). Shared by
-/// the read-time tail bound ([`bounded_buffer_turns`]) and the carryover staging, so both trim by the
-/// same rule.
+/// What the trim needs beyond the buffer: the budget it fills to, and the inlining budget a turn's
+/// text attachments were rendered under, since an estimate that ignored them would price a turn
+/// carrying a file as though it carried a sentence.
+#[derive(Clone, Copy, Debug)]
+pub struct Pricing {
+    pub carryover_token_budget: i64,
+    /// `TurnSettings::max_attachment_text_chars` — the whole message's inlining budget.
+    pub attachment_text_chars: usize,
+}
+
+impl Pricing {
+    /// The pricing an instance's current settings state.
+    pub fn of(settings: &Settings) -> Pricing {
+        Pricing {
+            carryover_token_budget: settings.compaction.carryover_token_budget,
+            attachment_text_chars: settings.turn.max_attachment_text_chars.max(0) as usize,
+        }
+    }
+}
+
+/// The estimated price of one turn, for the turns nothing measured.
 ///
-/// The tokens are the backend's own, not a guess: see [`turn_token_costs`].
-pub fn carryover_start(turns: &[TurnView], token_budget: i64) -> usize {
-    let token_budget = token_budget.max(0) as usize;
-    let costs = turn_token_costs(turns);
+/// Characters over the shared four-per-token rule, counting what the prompt carries rather than what
+/// the log records: the turn's text, the tool steps it replays, and what its attachments add. This is
+/// the only pricing in the module that guesses, and it exists because a turn that has not been
+/// followed by a model call has no reported cost to read.
+pub fn estimated_turn_tokens(turn: &TurnView, pricing: Pricing) -> usize {
+    let steps: usize = turn
+        .steps
+        .iter()
+        .map(|step| step.script.chars().count() + step.result.chars().count())
+        .sum();
+    let attachments: usize = turn
+        .attachments
+        .iter()
+        .map(|attachment| match attachment.kind {
+            // Inlined up to the message's budget, however long the file itself runs.
+            AttachmentKind::Text => {
+                (attachment.byte_len as usize).min(pricing.attachment_text_chars)
+            }
+            AttachmentKind::Image => IMAGE_ESTIMATE_CHARS,
+            // Announced by name, type, and size: a line, not a payload.
+            AttachmentKind::Opaque => ANNOUNCEMENT_CHARS,
+        })
+        .sum();
+    estimated_tokens_from_chars(turn.text.chars().count() + steps + attachments)
+}
+
+/// What one image is guessed at, in the characters this estimate is stated in. A vision backend bills
+/// an image at a few hundred to a couple of thousand tokens by its dimensions; this is the middle of
+/// that band. It applies only until the next model call reports the real number.
+const IMAGE_ESTIMATE_CHARS: usize = 4_000;
+
+/// The announcement line an attachment the model cannot read costs: its name, media type, and size.
+const ANNOUNCEMENT_CHARS: usize = 80;
+
+/// The index into `turns` of the oldest turn the carryover can afford, filling backward from the
+/// newest — the raw-transcript carryover trim (spec §Compaction → raw-transcript carryover). The
+/// newest turn is always kept, even alone over budget. Returns `turns.len()` for an empty slice.
+///
+/// **The cost is the backend's own count, not a guess.** A turn's first model call records the prompt
+/// as it stood before that turn generated, and every prompt is assembled over the same frozen prefix,
+/// so the difference between two such counts is exactly what the buffer grew by between them —
+/// replayed tool steps, inlined attachments, and image parts included, each charged what the provider
+/// charged rather than what a character count imagines. The trim therefore cuts at a turn that made a
+/// model call, and asks one question per candidate: does the growth since that turn fit?
+///
+/// Two things are genuinely unknown and only there does an estimate appear. The newest exchange has no
+/// successor to bracket it, so what it costs is not yet reported; and turns before the oldest recorded
+/// call were never bracketed at all. A log written under `CaptureLevel::Off` records no call, which
+/// makes the whole buffer unknown — [`estimated_start`] is that case.
+pub fn carryover_start(turns: &[TurnView], pricing: Pricing) -> usize {
+    let budget = pricing.carryover_token_budget.max(0) as usize;
+    let newest = turns.len().saturating_sub(1);
+    let measured: Vec<(usize, u32)> = turns
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, turn)| turn.prompt_tokens.map(|tokens| (idx, tokens)))
+        .collect();
+    let Some(&(last, last_tokens)) = measured.last() else {
+        return estimated_start(turns, pricing);
+    };
+
+    // Everything from the newest recorded call onward — that turn's own generation and any turn after
+    // it — is unreported until the next call, and rides along whatever else is carried.
+    let tail: usize = turns[last..]
+        .iter()
+        .map(|turn| estimated_turn_tokens(turn, pricing))
+        .sum();
+    // The newest turn always rides, even alone over budget.
+    let mut start = newest;
+    // Carrying from a recorded call costs the growth since it, exactly: both prompts were measured
+    // over the same frozen prefix, so their difference is the buffer content between them.
+    for &(idx, tokens) in measured.iter().rev() {
+        if last_tokens.saturating_sub(tokens) as usize + tail > budget {
+            break;
+        }
+        start = idx.min(start);
+    }
+    // Reaching past the oldest recorded call means paying for turns nothing bracketed.
+    if let Some(&(oldest, oldest_tokens)) = measured.first()
+        && start == oldest
+        && oldest > 0
+    {
+        let unbracketed: usize = turns[..oldest]
+            .iter()
+            .map(|turn| estimated_turn_tokens(turn, pricing))
+            .sum();
+        if last_tokens.saturating_sub(oldest_tokens) as usize + tail + unbracketed <= budget {
+            start = 0;
+        }
+    }
+    start
+}
+
+/// The trim with nothing measured to go on: the newest-first fill over [`estimated_turn_tokens`], for
+/// a buffer whose turns recorded no model call at all.
+fn estimated_start(turns: &[TurnView], pricing: Pricing) -> usize {
+    let budget = pricing.carryover_token_budget.max(0) as usize;
     let mut total = 0usize;
     let mut start = turns.len();
-    for idx in (0..turns.len()).rev() {
-        let next = total.saturating_add(costs[idx]);
-        if start != turns.len() && next > token_budget {
+    for (idx, turn) in turns.iter().enumerate().rev() {
+        let next = total.saturating_add(estimated_turn_tokens(turn, pricing));
+        if start != turns.len() && next > budget {
             break;
         }
         total = next;
         start = idx;
     }
     start
-}
-
-/// What each turn in `turns` costs the prompt, in tokens.
-///
-/// Two turns that recorded a prompt size bound a span whose cost is exactly the difference between
-/// them: both prompts were assembled over the same frozen prefix, so the prefix cancels and what is
-/// left is the buffer content between the two — the replayed tool steps included, which are routinely
-/// larger than the turn text and which a character count cannot see at all. The span's cost is spread
-/// across its turns by character share, so a trim can still land on any turn rather than only on a
-/// measured boundary.
-///
-/// The difference is clamped at zero. Within a session it cannot go backwards, but a tail that spans a
-/// seam is priced against a prefix that was re-frozen in between, and a flush turn's prompt carries a
-/// trailing instruction the next turn's does not — both read as a small negative rather than a real
-/// shrink.
-///
-/// Turns the backend never priced fall back to the shared character estimator: the newest turns, whose
-/// successor has not run yet; a backend that reports no usage; and a log written under
-/// `CaptureLevel::Off`, which records no `ModelCalled` to read.
-pub fn turn_token_costs(turns: &[TurnView]) -> Vec<usize> {
-    let mut costs: Vec<usize> = turns.iter().map(estimated_turn_tokens).collect();
-    let anchors: Vec<usize> = turns
-        .iter()
-        .enumerate()
-        .filter(|(_, turn)| turn.prompt_tokens.is_some())
-        .map(|(idx, _)| idx)
-        .collect();
-    for pair in anchors.windows(2) {
-        let (from, to) = (pair[0], pair[1]);
-        // Both anchors carry a prompt size — that is what made them anchors.
-        let (before, after) = (
-            turns[from].prompt_tokens.unwrap_or_default(),
-            turns[to].prompt_tokens.unwrap_or_default(),
-        );
-        spread_by_char_share(
-            after.saturating_sub(before) as usize,
-            &turns[from..to],
-            &mut costs[from..to],
-        );
-    }
-    costs
-}
-
-/// The fallback price of one turn: its text and its replayed tool steps under the shared character
-/// estimator. Deliberately counts the steps, which the prompt carries in full.
-pub fn estimated_turn_tokens(turn: &TurnView) -> usize {
-    let chars = turn.text.chars().count()
-        + turn
-            .steps
-            .iter()
-            .map(|step| step.script.chars().count() + step.result.chars().count())
-            .sum::<usize>();
-    estimated_tokens_from_chars(chars)
-}
-
-/// Divide `total` across `turns` in proportion to how many characters each holds, writing the shares
-/// into `out`. The rounding remainder lands on the last turn, so the shares always sum to `total`
-/// exactly. A span holding no characters at all puts the whole cost on its first turn.
-fn spread_by_char_share(total: usize, turns: &[TurnView], out: &mut [usize]) {
-    let weights: Vec<usize> = turns
-        .iter()
-        .map(|turn| {
-            turn.text.chars().count()
-                + turn
-                    .steps
-                    .iter()
-                    .map(|step| step.script.chars().count() + step.result.chars().count())
-                    .sum::<usize>()
-        })
-        .collect();
-    let weight_total: usize = weights.iter().sum();
-    let Some((last, leading)) = out.split_last_mut() else {
-        return;
-    };
-    if weight_total == 0 {
-        leading.fill(0);
-        *last = 0;
-        if let Some(first) = out.first_mut() {
-            *first = total;
-        }
-        return;
-    }
-    let mut assigned = 0usize;
-    for (share, weight) in leading.iter_mut().zip(&weights) {
-        // The product stays far inside `usize`: a prompt is at most a few hundred thousand tokens and
-        // a turn at most a few million characters.
-        *share = total * weight / weight_total;
-        assigned += *share;
-    }
-    *last = total - assigned;
 }
 
 /// The distinct memory IDs the `conversation`'s blocks touched (read or wrote) from `from_seq`,

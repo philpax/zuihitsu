@@ -30,5 +30,15 @@ fn estimate_tokens_counts_buffer_and_messages() {
         text: "1234".to_owned(),
         attachments: Vec::new(),
     }];
-    assert_eq!(estimate_tokens(&buffer, &messages), 3);
+    assert_eq!(
+        estimate_tokens(
+            &buffer,
+            &messages,
+            Pricing {
+                carryover_token_budget: 0,
+                attachment_text_chars: 8_000,
+            }
+        ),
+        3
+    );
 }

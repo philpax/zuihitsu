@@ -10,7 +10,7 @@ mod turn;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::{
-    agent::{TurnView, carryover_start, lua::Session, turn::InboundMessage},
+    agent::{Pricing, TurnView, carryover_start, lua::Session, turn::InboundMessage},
     event::PromptTemplateName,
     ids::{ConversationId, MemoryId, Seq, SessionId, TurnId},
     memory::memory_block::Authority,
@@ -34,8 +34,8 @@ pub(crate) struct TailSeed {
 /// Returns the oldest carried turn as the tail extent, or `None` for an empty buffer. Called at reopen
 /// against the previous session's own turns to derive the seed (see
 /// [`crate::instance::Instance::ensure_session`]).
-pub(crate) fn carryover_tail(buffer: &[TurnView], token_budget: i64) -> Option<TailSeed> {
-    let start = carryover_start(buffer, token_budget);
+pub(crate) fn carryover_tail(buffer: &[TurnView], pricing: Pricing) -> Option<TailSeed> {
+    let start = carryover_start(buffer, pricing);
     buffer.get(start).map(|turn| TailSeed {
         seeded_from_turn: turn.turn_id,
         from_seq: turn.seq,
@@ -107,9 +107,19 @@ pub(crate) struct RoutedTurn<'a> {
 mod tests {
     use super::*;
     use crate::{
-        agent::{ToolStep, turn_token_costs},
+        agent::{Pricing, ToolStep},
+        attachment::{Attachment, AttachmentKind},
         event::TurnRole,
     };
+
+    /// The pricing a test states: a carryover budget, and the default inlining budget for the
+    /// estimate's attachment weighting.
+    fn pricing(carryover_token_budget: i64) -> Pricing {
+        Pricing {
+            carryover_token_budget,
+            attachment_text_chars: 8_000,
+        }
+    }
 
     fn turn(seq: u64, text: &str) -> TurnView {
         TurnView {
@@ -135,7 +145,7 @@ mod tests {
             turn(3, &"c".repeat(8)),
         ];
         // Budget 6 admits the newest (2) plus the next (4) = 6, but not the third — extent is seq 2.
-        let carry = carryover_tail(&buffer, 6).expect("a non-empty buffer carries a tail");
+        let carry = carryover_tail(&buffer, pricing(6)).expect("a non-empty buffer carries a tail");
         assert_eq!(carry.from_seq, Seq(2));
         assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
     }
@@ -147,14 +157,14 @@ mod tests {
             turn(2, "a long final turn that alone exceeds the budget"),
         ];
         // The immediate thread survives the seam: the newest turn is carried regardless.
-        let carry = carryover_tail(&buffer, 1).expect("the newest turn is always carried");
+        let carry = carryover_tail(&buffer, pricing(1)).expect("the newest turn is always carried");
         assert_eq!(carry.from_seq, Seq(2));
         assert_eq!(carry.seeded_from_turn, buffer[1].turn_id);
     }
 
     #[test]
     fn carryover_tail_of_an_empty_buffer_is_none() {
-        assert!(carryover_tail(&[], 100).is_none());
+        assert!(carryover_tail(&[], pricing(100)).is_none());
     }
 
     #[test]
@@ -165,13 +175,13 @@ mod tests {
             turn(3, &"c".repeat(8)),
         ];
         // Budget 6 admits the newest (2) plus the next (4) = 6, not the third — the tail starts at 1.
-        assert_eq!(carryover_start(&buffer, 6), 1);
+        assert_eq!(carryover_start(&buffer, pricing(6)), 1);
         // A budget below the newest turn still keeps it (index 2), never an empty tail.
-        assert_eq!(carryover_start(&buffer, 0), 2);
+        assert_eq!(carryover_start(&buffer, pricing(0)), 2);
         // A budget the whole buffer fits keeps everything (index 0).
-        assert_eq!(carryover_start(&buffer, 1_000), 0);
+        assert_eq!(carryover_start(&buffer, pricing(1_000)), 0);
         // An empty slice keeps nothing — the past-the-end index.
-        assert_eq!(carryover_start(&[], 100), 0);
+        assert_eq!(carryover_start(&[], pricing(100)), 0);
     }
 
     /// An agent turn whose first model call reported `prompt_tokens`, carrying `steps` a character
@@ -198,42 +208,98 @@ mod tests {
             measured(2, "bbbb", 1_100, 8_000),
             measured(3, "", 2_100, 0),
         ];
-        // The newest turn closes the second span and is itself unpriced (nothing followed it), but
+        // The newest turn closes the second span and is itself unreported (nothing followed it), but
         // it holds no text, so it costs nothing and the two spans stand alone.
-        assert_eq!(turn_token_costs(&buffer), vec![100, 1_000, 0]);
         // A budget below 1000 cannot afford the second span, so only the newest turn is kept.
-        assert_eq!(carryover_start(&buffer, 999), 2);
+        assert_eq!(carryover_start(&buffer, pricing(999)), 2);
         // 1100 affords both spans, reaching back to the oldest turn.
-        assert_eq!(carryover_start(&buffer, 1_100), 0);
+        assert_eq!(carryover_start(&buffer, pricing(1_100)), 0);
     }
 
     #[test]
-    fn a_turn_the_backend_never_priced_falls_back_to_the_character_estimate() {
-        // No turn carries a prompt size, so every turn uses the shared character estimator.
-        let buffer = vec![turn(1, &"a".repeat(40)), turn(2, &"b".repeat(40))];
-        assert_eq!(turn_token_costs(&buffer), vec![10, 10]);
-    }
-
-    #[test]
-    fn a_prompt_that_shrank_across_the_span_is_clamped_to_zero() {
-        // A tail spanning a seam is priced against a prefix re-frozen in between, so the difference
-        // can read negative. It must never wrap into an enormous cost that evicts the whole tail.
-        let buffer = vec![measured(1, "aaaa", 5_000, 0), measured(2, "bbbb", 1_000, 0)];
-        assert_eq!(turn_token_costs(&buffer)[0], 0);
-    }
-
-    #[test]
-    fn a_span_of_several_turns_splits_its_measured_cost_between_them() {
-        // One measured span covering three turns: the 900 tokens are shared by character weight
-        // (10/20/60 chars → 1/2/6 of the total), and the shares sum to the measurement exactly.
+    fn an_attachment_is_priced_by_the_backend_that_charged_for_it() {
+        // The file and the image are inside the reported growth, so neither needs guessing at: the
+        // span between the two calls costs what the backend said, whatever the turn's text length.
+        let mut sharing = turn(2, "have a look");
+        sharing.attachments = vec![Attachment {
+            name: "notes.txt".to_owned(),
+            mime: "text/plain".into(),
+            blob: crate::ids::BlobHash::of(b"notes"),
+            byte_len: 8_000,
+            kind: AttachmentKind::Text,
+        }];
         let buffer = vec![
-            measured(1, &"a".repeat(10), 1_000, 0),
-            turn(2, &"b".repeat(20)),
-            turn(3, &"c".repeat(60)),
-            measured(4, "d", 1_900, 0),
+            measured(1, "aaaa", 1_000, 0),
+            sharing,
+            measured(3, "", 3_000, 0),
         ];
-        let costs = turn_token_costs(&buffer);
-        assert_eq!(costs[..3].iter().sum::<usize>(), 900);
-        assert_eq!(costs[..3], [100, 200, 600]);
+        // The sharing turn is inside the 2000-token growth between the two calls, so a budget under
+        // it keeps only the newest turn, and one over it reaches back past the file.
+        assert_eq!(carryover_start(&buffer, pricing(1_999)), 2);
+        assert_eq!(carryover_start(&buffer, pricing(2_000)), 0);
+    }
+
+    #[test]
+    fn an_unreported_attachment_is_estimated_rather_than_read_as_free() {
+        // Nothing followed these turns, so nothing priced them. The estimate is the only guess in the
+        // module, and a turn carrying a file must not read as a turn carrying a sentence.
+        let mut sharing = turn(2, "have a look");
+        sharing.attachments = vec![Attachment {
+            name: "notes.txt".to_owned(),
+            mime: "text/plain".into(),
+            blob: crate::ids::BlobHash::of(b"notes"),
+            byte_len: 8_000,
+            kind: AttachmentKind::Text,
+        }];
+        let buffer = vec![turn(1, "a short line"), sharing];
+        // The inlined file is ~8000 characters ≈ 2000 tokens, so a small budget keeps only it.
+        assert_eq!(carryover_start(&buffer, pricing(100)), 1);
+        assert_eq!(carryover_start(&buffer, pricing(4_000)), 0);
+
+        // A file longer than the message's inlining budget is clipped to it, so it is priced at what
+        // the prompt carries rather than at what the file holds.
+        let mut huge = turn(3, "and this");
+        huge.attachments = vec![Attachment {
+            name: "big.log".to_owned(),
+            mime: "text/plain".into(),
+            blob: crate::ids::BlobHash::of(b"big"),
+            byte_len: 4_000_000,
+            kind: AttachmentKind::Text,
+        }];
+        let buffer = vec![turn(1, "a short line"), huge];
+        assert_eq!(carryover_start(&buffer, pricing(4_000)), 0);
+    }
+
+    #[test]
+    fn a_buffer_the_backend_never_priced_falls_back_to_the_estimate() {
+        // No turn recorded a model call, which is what `CaptureLevel::Off` leaves behind. The
+        // estimate is all there is: 40 characters each, ten tokens each.
+        let buffer = vec![turn(1, &"a".repeat(40)), turn(2, &"b".repeat(40))];
+        assert_eq!(carryover_start(&buffer, pricing(10)), 1);
+        assert_eq!(carryover_start(&buffer, pricing(20)), 0);
+    }
+
+    #[test]
+    fn a_prompt_that_shrank_across_the_span_does_not_evict_the_tail() {
+        // A tail spanning a seam is priced against a prefix re-frozen in between, so the growth can
+        // read negative. It must never wrap into an enormous cost that evicts everything.
+        let buffer = vec![measured(1, "aaaa", 5_000, 0), measured(2, "bbbb", 1_000, 0)];
+        assert_eq!(carryover_start(&buffer, pricing(10)), 0);
+    }
+
+    #[test]
+    fn the_trim_cuts_where_the_backend_measured() {
+        // Three reported calls bracket two spans of 1000 tokens each. The cut lands on a bracket, so
+        // a budget of one span reaches back to the middle call and no further.
+        let buffer = vec![
+            measured(1, "a", 1_000, 0),
+            turn(2, "an unreported turn inside the span"),
+            measured(3, "b", 2_000, 0),
+            measured(4, "c", 3_000, 0),
+        ];
+        // The newest call's own generation is unreported, and costs one token of estimate.
+        assert_eq!(carryover_start(&buffer, pricing(1_000)), 3);
+        assert_eq!(carryover_start(&buffer, pricing(1_001)), 2);
+        assert_eq!(carryover_start(&buffer, pricing(2_001)), 0);
     }
 }

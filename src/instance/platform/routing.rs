@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use zuihitsu_platform_connector_types::PlatformResponse;
 
 use crate::{
-    agent::{InboundMessage, TurnError, TurnOutcome},
+    agent::{InboundMessage, Pricing, TurnError, TurnOutcome},
     event::{PromptTemplateName, SessionEndCause},
     ids::{ConversationId, ConversationLocator, MemoryId, PersonId, TurnId},
     instance::{
@@ -176,13 +176,12 @@ impl Platform<'_> {
         // now so the next message re-segments with a fresh brief and a carried tail (spec
         // §Compaction). The estimate fallback keeps the trigger meaningful when the backend reports
         // no usage (the in-memory and no-openai builds).
-        let token_budget = Settings::from_store(self.server.engine.store.lock().as_ref())?
-            .compaction
-            .token_budget;
+        let settings = Settings::from_store(self.server.engine.store.lock().as_ref())?;
+        let token_budget = settings.compaction.token_budget;
         let observed = report
             .prompt_tokens
             .map(i64::from)
-            .unwrap_or_else(|| estimate_tokens(&buffer, messages));
+            .unwrap_or_else(|| estimate_tokens(&buffer, messages, Pricing::of(&settings)));
         // `reported` distinguishes the authoritative real-usage path from the coarse estimate
         // fallback: if the backend never reports `prompt_tokens`, the trigger is running on the
         // (system-prefix-omitting) estimate, which is an operability signal worth seeing.

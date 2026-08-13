@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    agent::{TurnView, estimated_turn_tokens},
+    agent::{Pricing, TurnView, estimated_turn_tokens},
     attachment::Attachment,
     graph::GraphError,
     ids::{ConversationLocator, EntryId, MemoryId, PersonId},
@@ -201,8 +201,15 @@ pub(super) fn retract_if_live(
 /// [`estimated_turn_tokens`], the same fallback the carryover trim uses, so the two budgets are read in
 /// one unit by one rule. Coarse and an under-count (it omits the frozen prefix); only the real client's
 /// `prompt_tokens` is authoritative.
-pub(super) fn estimate_tokens(buffer: &[TurnView], messages: &[MessageInput]) -> i64 {
-    let buffer_tokens: usize = buffer.iter().map(estimated_turn_tokens).sum();
+pub(super) fn estimate_tokens(
+    buffer: &[TurnView],
+    messages: &[MessageInput],
+    pricing: Pricing,
+) -> i64 {
+    let buffer_tokens: usize = buffer
+        .iter()
+        .map(|turn| estimated_turn_tokens(turn, pricing))
+        .sum();
     let inbound_chars: usize = messages.iter().map(|m| m.text.chars().count()).sum();
     (buffer_tokens + estimated_tokens_from_chars(inbound_chars)) as i64
 }

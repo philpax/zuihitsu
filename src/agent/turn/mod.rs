@@ -30,8 +30,8 @@ mod tools;
 pub use supersede::Supersession;
 
 pub use buffer::{
-    ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start, estimated_turn_tokens,
-    flushed_up_to, recent_touched, session_touched, turn_token_costs,
+    Pricing, ToolStep, TurnView, bounded_buffer_turns, buffer_turns, carryover_start,
+    estimated_turn_tokens, flushed_up_to, recent_touched, session_touched,
 };
 pub use record::{TurnRecord, append_turn};
 pub use resolve::{ResolvedTurn, TurnResolution, TurnWindow, resolve_turn};
@@ -59,7 +59,7 @@ pub(super) use sha2::Digest;
 
 #[allow(unused_imports)]
 pub(super) use crate::{
-    attachment::Attachment,
+    attachment::{Attachment, AttachmentKind},
     clock::Clock,
     engine::Engine,
     event::{EventPayload, Initiation, ProducedBy, PromptTemplateName, Teller, TurnRole},
