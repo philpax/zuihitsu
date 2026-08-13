@@ -35,4 +35,12 @@ describe("a package's blob catalogue", () => {
     // A perceivable image stays itself, or the transcript has nothing to put in an `<img>`.
     expect(objectBlob(blob("image/png", PNG_SIGNATURE)).type).toBe("image/png");
   });
+
+  it("floors a type a browser would sniff to the generic one", () => {
+    // An object URL states no `nosniff`, and a package is a file from anywhere, so a type the MIME
+    // Sniffing standard calls unknown must not reach a `Blob` that a click could navigate to.
+    for (const unknown of ["", "*/*", "unknown/unknown", "application/unknown"]) {
+      expect(objectBlob(blob(unknown, PNG_SIGNATURE)).type).toBe("application/octet-stream");
+    }
+  });
 });

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { PackageBlob } from "@zuihitsu/wire/types/PackageBlob.ts";
 import { servedMediaType, whenWasmReady } from "../replica/replica.ts";
+import { OCTET_STREAM } from "../api/blobs.ts";
 import { NO_BLOBS, type BlobSource } from "./blobSource.ts";
 
 /// The eval frame's [`BlobSource`]: one object URL per catalogue entry, revoked when the catalogue
@@ -52,9 +53,19 @@ const NO_CATALOGUE: readonly PackageBlob[] = [];
 
 /// One catalogue entry as a `Blob`, typed as the agent's read route would serve it rather than as it
 /// was stored: markup a run shared reads as text here too.
+///
+/// An object URL carries no headers, so it cannot state `nosniff` the way the read route does. A type
+/// a browser treats as unknown is sniffed instead — and a package is a file from anywhere — so an
+/// unrecognised type floors to the generic one, which is sniffed as bytes rather than as markup.
 export function objectBlob(blob: PackageBlob): Blob {
-  return new Blob([decodeBase64(blob.base64)], { type: servedMediaType(blob.mime) });
+  const served = servedMediaType(blob.mime);
+  return new Blob([decodeBase64(blob.base64)], {
+    type: SNIFFABLE.has(served.trim().toLowerCase()) ? OCTET_STREAM : served,
+  });
 }
+
+/// The types the MIME Sniffing standard (§7) calls unknown, and so sniffs the body for.
+const SNIFFABLE = new Set(["", "*/*", "unknown/unknown", "application/unknown"]);
 
 /// Decode standard-alphabet base64. `atob` yields one character per byte, so each code unit is the
 /// byte; the buffer is explicit because a `Blob` part needs an `ArrayBuffer`, not an `ArrayBufferLike`.
