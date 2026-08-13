@@ -61,6 +61,8 @@ control_keys = []
 read_only = false
 # The largest attachment a connector may upload to POST /platform/blobs, in bytes.
 # A body over the cap is rejected whole (400) — an attachment is never truncated.
+# Uploads are content-addressed and idempotent when the MIME matches; the same
+# bytes with another MIME return 409 rather than rewriting recorded meaning.
 # Default: 16777216 (16 MiB).
 max_attachment_bytes = 16777216
 # The maximum number of attachment references in one complete platform messages
@@ -71,8 +73,6 @@ max_message_attachment_count = 32
 # platform messages batch. Repeated references consume this budget repeatedly.
 # Default: 67108864 (64 MiB). Zero permits text-only batches.
 max_message_attachment_bytes = 67108864
-# Blob uploads are idempotent only when the MIME matches existing metadata; the
-# same bytes with another MIME return 409 rather than rewriting recorded meaning.
 
 [model]
 # Where to reach the generation model (an OpenAI-compatible endpoint). An empty

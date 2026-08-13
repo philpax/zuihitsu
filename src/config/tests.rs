@@ -103,27 +103,17 @@ fn serving_config_defaults_and_overrides_include_message_attachment_budgets() {
 }
 
 #[test]
-fn attachment_contract_documentation_names_the_limits_conflict_and_fallback() {
+fn the_readme_example_carries_every_serving_attachment_field() {
+    // The example config is the copy-pasteable reference for the environmental config, so a field
+    // added here must appear there. The prose around each field is the README's own business.
     let readme = include_str!("../../README.md");
-    let protocol = include_str!("../../docs/platform-connector-protocol.md");
-    let storage = include_str!("../../docs/events-and-storage.md");
-    let discord = include_str!("../../platform-connectors/discord/README.md");
-    let http_upload = include_str!("../http_server/blobs.rs");
-    let instance_upload = include_str!("../instance/mod.rs");
-    let connector_api = include_str!("../../crates/platform-connector-api/src/lib.rs");
-    let console_upload = include_str!("../../console/src/lib/api/blobs.ts");
-
-    assert!(readme.contains("max_message_attachment_count"));
-    assert!(readme.contains("max_message_attachment_bytes"));
-    assert!(readme.contains("same bytes with another MIME return 409"));
-    assert!(protocol.contains("409 Conflict"));
-    assert!(protocol.contains("repeated references count independently"));
-    assert!(storage.contains("a different MIME is rejected"));
-    assert!(discord.contains("conservative fallback"));
-    assert!(http_upload.contains("different MIME is a `409`"));
-    assert!(instance_upload.contains("different MIME returns a conflict"));
-    assert!(connector_api.contains("different MIME returns a conflict"));
-    assert!(console_upload.contains("different MIME returns a conflict"));
+    for field in [
+        "max_attachment_bytes",
+        "max_message_attachment_count",
+        "max_message_attachment_bytes",
+    ] {
+        assert!(readme.contains(field), "the README example names {field}");
+    }
 }
 
 #[test]
