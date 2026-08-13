@@ -145,6 +145,44 @@ async fn an_uploaded_blob_is_fetched_back_by_its_address() {
     assert_eq!(fetched_bytes.as_ref(), PNG_BYTES);
 }
 
+#[tokio::test]
+async fn a_text_attachment_is_served_as_plain_text_so_markup_renders_rather_than_running() {
+    // The bytes are a sender's, and this route is same-origin with the console: serving an uploaded
+    // `text/html` as itself would run its script there. Plain text still opens in place — the reader
+    // sees the file, and there is nothing for the browser to execute.
+    let server =
+        Arc::new(Server::in_memory(Box::new(ManualClock::new(Timestamp::from_millis(0)))).unwrap());
+    let app = router(test_state(server.clone()));
+
+    let markup = b"<html><script>alert(document.domain)</script></html>";
+    for (bytes, stored, served) in [
+        (&markup[..], "text/html", "text/plain; charset=utf-8"),
+        (b"<svg/>", "image/svg+xml", "text/plain; charset=utf-8"),
+        (
+            b"{\"a\":1}",
+            "application/json",
+            "text/plain; charset=utf-8",
+        ),
+        // An image the model can perceive is inert and stays itself, or the console would have
+        // nothing to put in an `<img>`. So does a type that is neither, which `nosniff` keeps from
+        // being sniffed into markup.
+        (b"\x89PNG fake", "image/png", "image/png"),
+        (b"%PDF-1.7 fake", "application/pdf", "application/pdf"),
+    ] {
+        upload(app.clone(), bytes, stored).await;
+        let (status, headers, body) = fetch_range(app.clone(), &BlobHash::of(bytes), None).await;
+        assert_eq!(status, StatusCode::OK, "serving {stored}");
+        assert_eq!(headers["content-type"], served, "serving {stored}");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        // Only the declared type changes; the bytes are served exactly as stored.
+        assert_eq!(body, bytes, "serving {stored}");
+    }
+
+    // The stored record is untouched — the downgrade is a decision about one response.
+    let stored = server.blob_meta(&BlobHash::of(markup)).unwrap().unwrap();
+    assert_eq!(stored.mime, "text/html");
+}
+
 /// Fetch `path` with an optional `Range` header, returning the status, the headers, and the body —
 /// the three a ranged read is judged on.
 async fn fetch_range(
@@ -190,7 +228,7 @@ async fn a_ranged_read_answers_the_window_the_reader_asked_for() {
         let (status, headers, body) = fetch_range(app.clone(), &hash, Some(spec)).await;
         assert_eq!(status, StatusCode::PARTIAL_CONTENT, "asking for {spec}");
         assert_eq!(headers["content-range"], content_range, "asking for {spec}");
-        assert_eq!(headers["content-type"], "text/plain");
+        assert_eq!(headers["content-type"], "text/plain; charset=utf-8");
         assert_eq!(headers["accept-ranges"], "bytes");
         assert_eq!(body, expected, "asking for {spec}");
     }
@@ -399,7 +437,9 @@ async fn uploading_same_bytes_with_a_different_mime_returns_conflict_and_preserv
         )
         .await
         .unwrap();
-    assert_eq!(read.headers()["content-type"], "text/plain");
+    // The stored type is preserved (asserted above); the response states the charset the text is
+    // served under — see the plain-text serving test.
+    assert_eq!(read.headers()["content-type"], "text/plain; charset=utf-8");
 }
 
 #[tokio::test]

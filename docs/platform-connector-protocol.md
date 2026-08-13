@@ -115,6 +115,8 @@ Storage is content-addressed and idempotent when the MIME matches: the same byte
 
 The bytes are read back at `GET /blobs/{hash}`, which sits outside `/platform` and takes no key: a console renders an image with an ordinary `<img>` tag, which cannot carry an `Authorization` header, so the 256-bit content address is itself the capability. A connector never needs this route; it is there for the viewers.
 
+A blob is served under its stored media type with one exception: anything the system classifies as text — `text/*`, the structured-text types, and the `+json`/`+xml` suffixes, which is where `text/html`, `application/xhtml+xml`, and `image/svg+xml` all land — is served as `text/plain; charset=utf-8`, with `X-Content-Type-Options: nosniff` on every response. The bytes are a sender's and the route is same-origin with the console, so markup served as itself would run there; served as text it still opens in place and reads as the file it is. The stored record keeps the media type it was uploaded under, and the bytes are served unchanged — only the declared type differs.
+
 That read accepts a single-range `Range: bytes=…` request, answering it with `206 Partial Content` and a `Content-Range`, so a viewer showing the head of a long text file transfers only what it shows. A range past the end is `416`, naming the stored size; a range header the server does not parse (several ranges, a unit other than `bytes`) is ignored and the whole blob is served, as HTTP permits. Every response carries `Accept-Ranges: bytes`.
 
 ## Writing context

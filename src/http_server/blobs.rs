@@ -7,6 +7,10 @@
 //! `/platform`: an `<img src>` cannot carry an `Authorization` header, and the 64-hex content hash is
 //! itself the capability — it is unguessable, and knowing it means having been told it by someone who
 //! had the bytes. Nothing else about the instance is reachable through it.
+//!
+//! That capability governs *reading* a blob, not what a blob contains: the bytes are whatever a
+//! sender uploaded, and the route is same-origin with the console. What a response may therefore
+//! declare itself to be is decided by [`served_media_type`], not by the uploader.
 
 use axum::{
     Json,
@@ -16,7 +20,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use zuihitsu::{BlobError, BlobHash};
+use zuihitsu::{AttachmentKind, BlobError, BlobHash};
 
 use crate::http_server::{AppState, error::ApiError};
 
@@ -55,8 +59,9 @@ pub(super) async fn upload_blob(
     Ok(Json(BlobUploaded { hash }))
 }
 
-/// `GET /blobs/{hash}` — the bytes stored under a content address, served with the media type they
-/// were uploaded under. Unauthenticated: see the module docs for why the hash is the capability.
+/// `GET /blobs/{hash}` — the bytes stored under a content address, served under [`served_media_type`]
+/// (the stored type, unless serving it as itself would let a sender's markup run on the console's
+/// origin). Unauthenticated: see the module docs for why the hash is the capability.
 ///
 /// A miss is an explicit `404`, and so is a path segment that is not a well-formed address. Both
 /// matter: the router's fallback serves the console's `index.html` for anything unmatched, so
@@ -129,25 +134,65 @@ pub(super) async fn blob(
 
 /// The headers every blob response carries, whole or partial.
 ///
-/// The media type is a stored one — whatever an uploading connector sent — so it is rendered through
-/// `HeaderValue` rather than trusted: a value carrying anything a header may not hold falls back to
-/// the generic type instead of reaching the response.
+/// The media type is [`served_media_type`]'s rather than the stored one, and it is rendered through
+/// `HeaderValue` rather than trusted: a stored value carrying anything a header may not hold falls
+/// back to the generic type instead of reaching the response.
+///
+/// `nosniff` is what makes that served type binding. Without it a browser may sniff a `text/plain`
+/// body that opens with `<html>` back into markup, which would undo the downgrade the served type
+/// exists to perform.
 ///
 /// The response is immutably cacheable, which is exactly true rather than merely convenient — the
 /// address is the content, so what a given URL answers can never change.
-fn common_headers(mime: &str) -> [(header::HeaderName, HeaderValue); 3] {
+fn common_headers(mime: &str) -> [(header::HeaderName, HeaderValue); 4] {
     [
         (
             header::CONTENT_TYPE,
-            HeaderValue::from_str(mime).unwrap_or_else(|_| HeaderValue::from_static(OCTET_STREAM)),
+            HeaderValue::from_str(served_media_type(mime))
+                .unwrap_or_else(|_| HeaderValue::from_static(OCTET_STREAM)),
         ),
         (
             header::CACHE_CONTROL,
             HeaderValue::from_static("public, max-age=31536000, immutable"),
         ),
         (header::ACCEPT_RANGES, HeaderValue::from_static("bytes")),
+        (
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ),
     ]
 }
+
+/// The media type a blob is *served* under, which is not always the one it was stored under.
+///
+/// The bytes are uploader-controlled and this route is same-origin with the console, so a stored
+/// `text/html` served as itself would run script on the console's origin — the address being
+/// unguessable stops a stranger reading a blob, not a sender choosing what their own blob contains.
+/// Anything the system already treats as text is therefore served as `text/plain`, which a browser
+/// renders inline as text: the reader still opens the file in place and sees exactly what it says,
+/// and there is no markup for the browser to execute. It is the closest thing the web has to a
+/// view-source media type — HTML has no inline-as-source rendering the way XML has its tree viewer,
+/// so the choice is between rendering it as a document, forcing a download, and this.
+///
+/// An image type is served verbatim: the four [`AttachmentKind::Image`] types are inert raster
+/// formats, and downgrading them would leave the console with nothing to put in an `<img>`. Anything
+/// else keeps its stored type too — the executable-in-a-browser types (`text/html`,
+/// `application/xhtml+xml`, `image/svg+xml`) all classify as text and are covered above, and
+/// `nosniff` stops the rest from being sniffed into one — so a PDF still opens in the viewer.
+///
+/// The stored metadata is untouched: this is a decision about one response, and the attachment record
+/// the log holds still says what was uploaded.
+fn served_media_type(mime: &str) -> &str {
+    match AttachmentKind::of_mime(mime) {
+        AttachmentKind::Text => PLAIN_TEXT,
+        AttachmentKind::Image | AttachmentKind::Opaque => mime,
+    }
+}
+
+/// The media type every text-classified attachment is served under. The charset is stated because a
+/// browser left to guess one may pick a legacy encoding, and the agent's own inlining already reads
+/// these bytes as UTF-8.
+const PLAIN_TEXT: &str = "text/plain; charset=utf-8";
 
 /// One byte range as the request asked for it, before the stored length is known.
 #[derive(Debug, PartialEq, Eq)]
