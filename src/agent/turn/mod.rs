@@ -198,7 +198,7 @@ pub struct Turn<'a> {
     /// The maximum character length of a single memory content entry. Threaded from
     /// `MemorySettings::max_entry_chars`.
     pub max_entry_chars: usize,
-    /// How much of a text attachment is inlined into the message that carried it. Threaded from
+    /// How much text one message's attachments inline into it, in total. Threaded from
     /// `TurnSettings::max_attachment_text_chars`.
     pub max_attachment_text_chars: usize,
     /// How much of each model call to capture in the model-interaction record (spec §Observability).
@@ -235,7 +235,7 @@ pub(crate) struct Flush<'a> {
     /// The maximum character length of a single memory content entry. Threaded from
     /// `MemorySettings::max_entry_chars`.
     pub max_entry_chars: usize,
-    /// How much of a text attachment is inlined into the message that carried it. Threaded from
+    /// How much text one message's attachments inline into it, in total. Threaded from
     /// `TurnSettings::max_attachment_text_chars`.
     pub max_attachment_text_chars: usize,
     /// How much of each model call to capture in the model-interaction record (spec §Observability).

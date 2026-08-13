@@ -31,10 +31,9 @@ pub(crate) struct RenderedAttachments {
 
 /// Render `attachments` against `text`, reading their bytes from `blobs`.
 ///
-/// A text attachment longer than `max_text_chars` is inlined up to the cap and marked as clipped, so
-/// a large paste informs the turn without displacing the conversation. A blob that is missing or is
-/// not decodable text degrades to the same announcement an opaque attachment gets: the turn proceeds
-/// and the agent is told plainly what it cannot read.
+/// `max_text_chars` is the message's total inlining budget, not each file's, spent in carry order —
+/// otherwise the per-file cap multiplies by the per-message file count. A file that cannot be read,
+/// or that arrives after the budget is gone, is announced with the reason.
 pub(crate) fn render(
     text: &str,
     attachments: &[Attachment],
@@ -43,9 +42,14 @@ pub(crate) fn render(
 ) -> RenderedAttachments {
     let mut body = text.to_owned();
     let mut images = Vec::new();
+    let mut text_budget = max_text_chars;
     for attachment in attachments {
         let rendered = match attachment.kind {
-            AttachmentKind::Text => inline_text(attachment, blobs, max_text_chars),
+            AttachmentKind::Text => {
+                let (rendered, spent) = inline_text(attachment, blobs, text_budget);
+                text_budget -= spent;
+                rendered
+            }
             AttachmentKind::Image => match blobs.get(&attachment.blob) {
                 Ok(Some(blob)) => {
                     images.push(ImagePart {
@@ -74,24 +78,41 @@ fn announce(attachment: &Attachment, note: &str) -> String {
     )
 }
 
-/// A text attachment's announcement followed by its content in a fence.
-fn inline_text(attachment: &Attachment, blobs: &BlobStore, max_text_chars: usize) -> String {
+/// A text attachment's announcement and as much content as `budget` allows, with what it spent. A
+/// file that does not inline spends nothing.
+fn inline_text(attachment: &Attachment, blobs: &BlobStore, budget: usize) -> (String, usize) {
     let Ok(Some(blob)) = blobs.get(&attachment.blob) else {
-        return announce(attachment, "text, but its content is unavailable");
+        return (
+            announce(attachment, "text, but its content is unavailable"),
+            0,
+        );
     };
     let Ok(text) = String::from_utf8(blob.bytes) else {
-        return announce(attachment, "not decodable as text");
+        return (announce(attachment, "not decodable as text"), 0);
     };
-    let (shown, clipped) = clip(&text, max_text_chars);
+    if budget == 0 {
+        return (
+            announce(
+                attachment,
+                "text, but the message's earlier files used its whole inlining budget",
+            ),
+            0,
+        );
+    }
+    let (shown, clipped) = clip(&text, budget);
+    let spent = shown.chars().count();
     let note = if clipped {
-        format!("text, showing the first {max_text_chars} characters")
+        format!("text, showing the first {spent} characters")
     } else {
         "text, shown in full".to_owned()
     };
     // The fence is longer than the longest backtick run the content holds, so content that is itself
     // fenced Markdown cannot close the fence early.
     let fence = "`".repeat(longest_backtick_run(shown).max(2) + 1);
-    format!("{}\n{fence}\n{shown}\n{fence}", announce(attachment, &note))
+    (
+        format!("{}\n{fence}\n{shown}\n{fence}", announce(attachment, &note)),
+        spent,
+    )
 }
 
 /// `text` truncated to at most `max_chars` characters, and whether truncation happened. Counts

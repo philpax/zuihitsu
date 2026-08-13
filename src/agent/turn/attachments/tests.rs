@@ -166,3 +166,61 @@ fn rendering_the_same_record_twice_is_byte_identical() {
     assert_eq!(first.body, second.body);
     assert_eq!(first.images, second.images);
 }
+
+#[test]
+fn several_text_attachments_share_one_message_budget() {
+    let blobs = BlobStore::open_in_memory().unwrap();
+    let first = attach(
+        &blobs,
+        "one.txt",
+        "text/plain",
+        &"a".repeat(40).into_bytes(),
+    );
+    let second = attach(
+        &blobs,
+        "two.txt",
+        "text/plain",
+        &"b".repeat(40).into_bytes(),
+    );
+    let third = attach(
+        &blobs,
+        "three.txt",
+        "text/plain",
+        &"c".repeat(40).into_bytes(),
+    );
+    let rendered = render("three files", &[first, second, third], &blobs, 50);
+
+    // The first file takes what it needs, the second what is left, the third only its announcement.
+    assert!(rendered.body.contains(&"a".repeat(40)));
+    assert!(rendered.body.contains("showing the first 10 characters"));
+    assert!(rendered.body.contains(&"b".repeat(10)));
+    assert!(!rendered.body.contains(&"b".repeat(11)));
+    assert!(
+        rendered
+            .body
+            .contains("the message's earlier files used its whole inlining budget")
+    );
+    assert!(!rendered.body.contains("cc"));
+}
+
+#[test]
+fn an_unreadable_attachment_leaves_the_budget_for_the_files_after_it() {
+    let blobs = BlobStore::open_in_memory().unwrap();
+    let missing = Attachment {
+        name: "gone.txt".to_owned(),
+        mime: "text/plain".into(),
+        blob: crate::ids::BlobHash::of(b"never stored"),
+        byte_len: 12,
+        kind: AttachmentKind::Text,
+    };
+    let present = attach(&blobs, "here.txt", "text/plain", b"still readable");
+    let rendered = render("two files", &[missing, present], &blobs, 20);
+
+    assert!(
+        rendered
+            .body
+            .contains("text, but its content is unavailable")
+    );
+    assert!(rendered.body.contains("still readable"));
+    assert!(rendered.body.contains("text, shown in full"));
+}

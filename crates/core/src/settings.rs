@@ -273,9 +273,10 @@ pub struct TurnSettings {
     /// per-conversation serialization stays on regardless.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub supersede_window_seconds: i64,
-    /// How much of a text attachment is inlined into the message that carried it. A longer file is
-    /// inlined up to the cap and marked as clipped, so a large paste informs the turn without
-    /// displacing the conversation around it.
+    /// How much text one message's attachments inline into it, in total. A longer file is inlined up
+    /// to the budget and marked as clipped, so a large paste informs the turn without displacing the
+    /// conversation around it; several files spend the same budget between them, in the order they
+    /// were carried, rather than each being allowed the whole of it.
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub max_attachment_text_chars: i64,
 }
