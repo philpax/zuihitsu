@@ -50,16 +50,17 @@ pub(crate) fn render(
                 text_budget -= spent;
                 rendered
             }
-            AttachmentKind::Image => match blobs.get(&attachment.blob) {
-                Ok(Some(blob)) => {
+            AttachmentKind::Image => match read(attachment, blobs) {
+                Read::Bytes(bytes) => {
                     images.push(ImagePart {
                         blob: attachment.blob.clone(),
                         mime: attachment.mime.clone(),
-                        data: STANDARD.encode(&blob.bytes).into(),
+                        data: STANDARD.encode(&bytes).into(),
                     });
                     announce(attachment, "shown below")
                 }
-                _ => announce(attachment, "an image, but its content is unavailable"),
+                Read::Missing => announce(attachment, "an image, but its content is unavailable"),
+                Read::Failed => announce(attachment, "an image, but it could not be read"),
             },
             AttachmentKind::Opaque => announce(attachment, "not something you can read"),
         };
@@ -67,6 +68,33 @@ pub(crate) fn render(
         body.push_str(&rendered);
     }
     RenderedAttachments { body, images }
+}
+
+/// What reading an attachment's bytes yielded. A store that failed is not the same as a store that
+/// never held these bytes: the first is an operational fault worth a log line, the second is the
+/// ordinary consequence of a collected or reverted blob.
+enum Read {
+    Bytes(Vec<u8>),
+    Missing,
+    Failed,
+}
+
+/// Read one attachment's bytes, logging a backend failure. The turn proceeds either way — a prompt
+/// that announces what it cannot read beats a turn that does not run.
+fn read(attachment: &Attachment, blobs: &BlobStore) -> Read {
+    match blobs.get(&attachment.blob) {
+        Ok(Some(blob)) => Read::Bytes(blob.bytes),
+        Ok(None) => Read::Missing,
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                blob = %attachment.blob,
+                name = attachment.name,
+                "could not read an attachment's bytes; announcing it instead"
+            );
+            Read::Failed
+        }
+    }
 }
 
 /// One attachment's one-line announcement: what it is called, what it is, how big, and why it reads
@@ -81,13 +109,17 @@ fn announce(attachment: &Attachment, note: &str) -> String {
 /// A text attachment's announcement and as much content as `budget` allows, with what it spent. A
 /// file that does not inline spends nothing.
 fn inline_text(attachment: &Attachment, blobs: &BlobStore, budget: usize) -> (String, usize) {
-    let Ok(Some(blob)) = blobs.get(&attachment.blob) else {
-        return (
-            announce(attachment, "text, but its content is unavailable"),
-            0,
-        );
+    let bytes = match read(attachment, blobs) {
+        Read::Bytes(bytes) => bytes,
+        Read::Missing => {
+            return (
+                announce(attachment, "text, but its content is unavailable"),
+                0,
+            );
+        }
+        Read::Failed => return (announce(attachment, "text, but it could not be read"), 0),
     };
-    let Ok(text) = String::from_utf8(blob.bytes) else {
+    let Ok(text) = String::from_utf8(bytes) else {
         return (announce(attachment, "not decodable as text"), 0);
     };
     if budget == 0 {
