@@ -27,9 +27,9 @@ pub use executor::StepRecord;
 pub use live::LiveEvent;
 pub use mode::AppMode;
 pub use package::{
-    Aggregate, Bar, Category, EvalPackage, PackageSummary, ResumeProvenance, RunMeta, RunMetrics,
-    RunRecord, RunSummary, ScenarioMeta, ScenarioReport, ScenarioSummary, Stat, TokenStat, Verdict,
-    VerdictKind,
+    Aggregate, Bar, Category, EvalPackage, PackageBlob, PackageSummary, ResumeProvenance, RunMeta,
+    RunMetrics, RunRecord, RunSummary, ScenarioMeta, ScenarioReport, ScenarioSummary, Stat,
+    TokenStat, Verdict, VerdictKind,
 };
 pub use prompts::TemplateStatus;
 pub use step::{

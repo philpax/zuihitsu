@@ -11,6 +11,31 @@ use crate::executor::StepRecord;
 pub struct EvalPackage {
     pub meta: RunMeta,
     pub scenarios: Vec<ScenarioReport>,
+    /// The bytes behind every attachment a run in this package can name, by content address.
+    ///
+    /// A package is read where no agent stands behind it — a file opened in the viewer months later —
+    /// and an event log names an attachment by address alone. Without the bytes riding along, a
+    /// shared image is unviewable in exactly the surface built to review what the agent saw. Added
+    /// additively, and omitted when empty, so a package from before attachments loads unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blobs: Vec<PackageBlob>,
+}
+
+/// One attachment's bytes, carried in a package so a viewer with no server behind it can still render
+/// what a run shared.
+///
+/// Base64 rather than a byte array because a package is JSON: an array of numbers costs several bytes
+/// per byte and reads as noise in a diff.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PackageBlob {
+    /// The content address the events refer to these bytes by.
+    pub hash: zuihitsu_core::ids::BlobHash,
+    /// The media type the bytes were stored under. A viewer presents them under
+    /// [`served_media_type`](zuihitsu_core::attachment::served_media_type), not this.
+    pub mime: String,
+    /// The bytes, base64-encoded (standard alphabet, padded).
+    pub base64: String,
 }
 
 /// What produced this package: the harness, the models, and the wall-clock span.
@@ -440,6 +465,12 @@ impl From<&ScenarioReport> for ScenarioSummary {
 pub struct PackageSummary {
     pub meta: RunMeta,
     pub scenarios: Vec<ScenarioSummary>,
+    /// The package's blob catalogue, carried whole rather than summarised away: the summary is what a
+    /// live watcher has while a run drives, so leaving the bytes out would make a shared image render
+    /// only once the run finished. The catalogue is a scenario suite's fixtures, which are small and
+    /// few — see [`EvalPackage::blobs`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blobs: Vec<PackageBlob>,
 }
 
 impl From<&EvalPackage> for PackageSummary {
@@ -451,6 +482,7 @@ impl From<&EvalPackage> for PackageSummary {
                 .iter()
                 .map(ScenarioSummary::from)
                 .collect(),
+            blobs: package.blobs.clone(),
         }
     }
 }

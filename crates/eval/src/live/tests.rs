@@ -86,6 +86,53 @@ fn a_stamped_run_survives_the_sidecar_and_resume() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// The blob catalogue reaches both a viewer's routes into a run: the package a file-loaded viewer
+/// opens, and the summary a live watcher receives before any run has finished. An attachment resolves
+/// against it, so leaving either out means a shared image renders nowhere.
+#[test]
+fn the_blob_catalogue_rides_the_package_and_its_summary() {
+    let dir = std::env::temp_dir().join(format!(
+        "zuihitsu-catalogue-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let sidecar = dir.join("catalogue.jsonl");
+    let meta = RunMeta {
+        harness_version: "test".to_owned(),
+        git_sha: None,
+        git_dirty: false,
+        model_id: "test-model".to_owned(),
+        embedding_model: None,
+        scenario_filter: None,
+        started_at_ms: 100,
+        finished_at_ms: 100,
+        runs_per_scenario: 1,
+        concurrency: 1,
+        rejudged_from: None,
+        resumed_from: None,
+    };
+    let scenario = ScenarioMeta {
+        name: "catalogue".to_owned(),
+        category: Category::Recall,
+        description: "catalogue test".to_owned(),
+        bar: Bar::gating(),
+    };
+    let sink = EvalSink::new(meta, vec![scenario], &sidecar).expect("sink opens");
+
+    let expected = crate::attachment_fixture::catalogue();
+    assert!(!expected.is_empty(), "the fixtures are the catalogue");
+    assert_eq!(sink.package().blobs, expected);
+    // The snapshot a watcher connects to is the summary, and it carries the catalogue before a single
+    // run has completed.
+    let (summary, _, _) = sink.subscribe();
+    assert_eq!(summary.blobs, expected);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Progress frames broadcast to live subscribers but never persist: the sidecar and the folded
 /// package are identical with or without them, so replay and resume are unaffected by who watched.
 #[test]

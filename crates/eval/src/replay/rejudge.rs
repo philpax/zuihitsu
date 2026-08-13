@@ -35,6 +35,10 @@ pub(crate) async fn rejudge(
         .unwrap_or_default();
 
     let mut rejudged = pkg.clone();
+    // The catalogue is re-seeded from the fixtures this binary holds rather than carried over: a
+    // package recorded before it existed gains one here, so re-judging an old run also makes what it
+    // shared viewable.
+    rejudged.blobs = crate::attachment_fixture::catalogue();
     let mut comparisons = Vec::new();
     for (report, out) in pkg.scenarios.iter().zip(rejudged.scenarios.iter_mut()) {
         if scenario.is_some_and(|sub| !report.meta.name.contains(sub)) {
