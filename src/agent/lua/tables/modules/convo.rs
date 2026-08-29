@@ -1,6 +1,6 @@
 //! The `convo` global: `turn(id)` resolves a conversation turn link to a window of surrounding turns.
 
-use crate::agent::lua::tables::modules::{metatables::*, *};
+use crate::agent::lua::tables::modules::*;
 
 /// The `convo` global: `turn(id)` resolves a conversation turn link — the id carried in a
 /// `[turn:<ulid>]` token, the canonical agent-facing reference form — to that moment and a small
