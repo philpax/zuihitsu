@@ -1,199 +1,619 @@
 # Evolution
 
-How the codebase gets from what runs today to what the rest of this tree describes.
+The current instance remains on the current model. It is not migrated or dual-read. The successor starts at genesis. This boundary does not permit incompatible change after successor genesis. Every later stage uses additive records, registered definition versions, new projections, or explicit transitions. No stage resets an existing successor instance or invents missing history.
 
-## Scope
+Every stage records its implementation plan when work starts. The plan names concrete modules, event variants, wire formats, migrations, automated tests, and scenario fixtures. This roadmap defines semantic dependencies and evidence gates without freezing those implementation details early.
 
-This is a code path, not a data path. The design targets a new instance at genesis, and the existing instance is not migrated. No upcasting story is owed for existing entries, no dual-read compatibility layer is built, and no stage keeps the old and new fact models coexisting in one log. See [how the work lands](#how-the-work-lands) for what follows from that.
+The mechanical stage audit uses the following exact heading aliases. `Prerequisites`, `Compatibility`, and `Deferred` match literally. `Semantic contracts` is the stage's `Implements` section. `Evidence gates` is its `Gates` section. `Rollback/disable` is its `Rollback` section. `Owning chapters`, `Required decisions`, and `Stop conditions` are additional mandatory sections. An extractor must normalise those three aliases before checking every stage and must require all nine sections. This mapping resolves the two heading vocabularies without duplicating content or weakening either contract.
 
-That freedom is load-bearing in several places. Structural equality can be the deduplication primitive because no legacy prose entries need matching against it. The referential frame can be required on every Statement because no entry predates it. Relation definitions can demand domain and range because nothing was registered without them.
+## Stage -1: permanence review
 
-The existing instance keeps running on the current model for as long as it is useful. Its log remains the best source of evidence about what a real corpus contains, and [the corpus study](research/2026-08-03/modelling-study.md) is one example of reading it without touching it.
+### Prerequisites
 
-## Ordering principles
+The proposed successor objects, source kinds, and privacy boundaries are available for review.
 
-Three rules decide the sequence.
+### Semantic contracts
 
-Cheap decisions come before expensive commitments. Several questions decide the cost of large parts of the design and can be answered before the substrate exists. They go first.
+Enumerate stable IDs, event envelopes and payload versions, source kinds, registered ontology and policy definitions, replay and upcast rules, transition folds, erasure boundaries, and compatibility rules. Run counterfactuals for negation, modality, temporal correction, per-teller retraction, hidden support, Event split, identity severance, schema change, witness-policy change, support-policy change, image reinspection, shared-blob erasure, and Derivation invalidation. A design fails if replay must invent a value or reinterpret a persisted field.
 
-Containment comes before capability. The episodic wall ships before anything that generates narrative. A guard added alongside the thing it guards was optional during the window that mattered.
+### Owning chapters
 
-External prerequisites come first. One dependency originates outside this design and gates the privacy work regardless of how that work is built.
+[Overview](overview.md#permanence-contract), [assertions](statements.md), [artefacts](artefacts-and-perceptions.md), [privacy](privacy-and-provenance.md), and [relations](relations.md).
 
-## Stage 0: the decisions that come first
+### Evidence gates
 
-Four measurements, none of which needs new substrate. Three run against the system that exists today, and the fourth against a synthetic log.
+All counterfactuals preserve source records and stable identities. The evidence is append-only replay behavior in the current system and migration cost observed in surveyed systems. The exact permanence contract remains a design decision ([storage](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [survey](research/2026-07-24/lanes/survey-giants.md)).
 
-### 0a. The encoding-against-retrieval ablation
+### Compatibility
 
-The single unresolved question with the largest cost attached. The dual-trace evidence cannot say whether the benefit comes from writing an elaborated narrative or from reading richer context at retrieval, and the difference is a record-time model call and permanent log volume per occasion against nearly nothing.
+| Field | Contract |
+|---|---|
+| New record and definition versions | None. This review freezes versioning rules, not implementation names. |
+| Pre-stage log readability | Not applicable to successor logs because genesis has not occurred. Current-instance logs remain on the current model and are not migrated. |
+| Projection and snapshot rebuild | Every proposed fold must rebuild deterministically from the fixture log; no successor snapshot exists yet. |
+| Required raw inputs | The review enumerates every identity, source, witness, influence, selector, time, policy, authorization, and erasure input required at genesis. |
+| Disablement and persisted meaning | No runtime policy exists. Rejection revises the design before genesis. |
 
-The existing instance is well placed to answer it, because every content entry already records the turn that produced it. Three arms:
+### Required decisions
 
-1. Control: current behaviour.
-2. Retrieval-side: surface the source turn window alongside a retrieved claim. No new writes, no model calls, no log growth.
-3. Encoding-side: generate a narrative at session close and index it.
+The architecture owner must approve the stable-ID inventory, version/upcast contract, selector encoding, and transition folds before Stage -1 closes. The architecture, security, storage, and operator owners must freeze the [genesis erasure storage baseline](privacy-and-provenance.md#genesis-erasure-storage-baseline): per-payload keys, reference-specific shared-byte wrappers, hold scope and expiry, tombstone-first restore ordering, the daily erasure sweep, seven-day package retention, 30-day backup and managed-export bounds, and explicit uncontrolled-export failure reporting. Each decision is an entry blocker, is recorded in the Stage -1 permanence decision record before schema freeze, and maps to the genesis-blocking permanence, erasure, selector, and identity rows in [the unresolved register](confidence.md#unresolved-item-register). No semantic or irreversible-storage decision may be deferred into Stage 1 or Stage 2.
 
-Scenarios mirror the four capabilities the evidence distinguishes, with single-occasion lookup as a declared null arm. A treatment that improves every category has not been understood.
+### Rollback/disable
 
-Unblocks: the entire episodic layer's cost model, and stage 4's scope.
-Gating: arm 2 against arm 1 on the three complex capabilities, and no movement on the null.
-Risk: the arms differ in context volume as well as in structure, so the comparison needs care to avoid measuring prompt size.
+No runtime capability exists. A failed review revises the design before genesis.
 
-### 0b. Present-set definition
+### Stop conditions
 
-[Issue #123](https://github.com/philpax/zuihitsu/issues/123) reports that the present set conflates being in a channel with being in a conversation, so a confidence can reach a silent member. This design makes audience conditions predicates over who is present, which means a wrong present set produces wrong answers more expressively than the current enum does.
+Stop if any fixture requires destructive merge, stable-ID reuse, old-data invention, hidden-input leakage, or an unbounded erasure promise.
 
-The same definition decides the disclosure set and the exposure set on a gloss, and the two pull in opposite directions. A present set that is too wide leaks a confidence to a silent member. A disclosure set that is too wide licenses repeating something to someone who never saw it, which is the same leak arriving through the other door. All three read the same underlying judgement about who was in the conversation, so a stage that gets it wrong is wrong twice. The disclosure set is the more dangerous of the two, because it widens an audience rather than restricting one.
+### Deferred
 
-Unblocks: stage 7, both witness sets that [`privacy-and-provenance.md`](privacy-and-provenance.md) and [`belief.md`](belief.md) rely on, and a class of live leak reduced in the meantime.
-Gating: a scenario where a silent channel member does not receive a confidence, and its mirror, where a confidence is not repeated back to a member who was present but silent.
-Risk: the correct definition may be platform-specific, in which case it belongs to the connector contract rather than the core.
+All runtime policy and implementation.
 
-### 0c. Extraction economics against the existing corpus
+## Stage 0: measurements before commitments
 
-The design's central economic claim is that structuring pays for itself. Stages 0a and 0b test representational and privacy questions. This one tests the bill, and it needs no new code beyond a harness, because the data already exists.
+### Prerequisites
 
-Replay the existing instance's 198 content entries through a schema-constrained extractor on the target model and measure four things:
+Access to current recorded turns, connector metadata, attachment fixtures, and a synthetic-log harness.
 
-- Yield. What fraction produces a non-junk triple. The corpus is not uniform: roughly a third sits on topic memories holding interpretive readings, conditionals, and generics, where there may be no structure to find. If yield on that third is poor, the junk-fill failure mode is systematic rather than occasional, and a gloss-only write verb is the answer rather than a better prompt.
-- Convergence. What fraction of the known re-mentions produce byte-identical claims. Structural equality as a deduplication primitive assumes an extractor converges on the same triple from different prose, and that assumption is currently unmeasured. The exact-textual-duplicate set does not test it, since fourteen of those sixteen are connector boilerplate. The consolidation and arbitration events in the live log name entries the running system judged to be one claim, which is the labelled re-mention set this measurement needs.
-- Latency. The p50, p90, and p99 per extraction. Measured against the same instance's recorded model calls as a baseline: p50 6.8s, p90 30.8s, p99 73.7s, max 94.9s over 417 calls.
-- Volume. Bytes added to the log per structured write. Recorded model calls are already 95.9% of this log's payload (31.4 MB of 32.7 MB, mean 75 KB per call) against 0.27% for the content entries themselves. Structuring adds a call per write block, of which this log has 132.
+### Semantic contracts
 
-The figures above are recorded in [`research/2026-08-06/log-measurements.md`](research/2026-08-06/log-measurements.md).
+Measure: `0a` raw Occasion-window retrieval against generated narrative encoding; `0b` connector witness evidence and disclosure/exposure assurance; `0c` extraction yield, convergence, latency, and economics against canonical Proposition/Assertion/Attestation fixtures; `0d` browser/log/projection cost including ArtefactReference, Perception, Derivation, blob, and eval-package volume; `0e` query-surface classification on real turns; and `0f` multimodal recall using prior Perception, explicit reinspection, and textual memory.
 
-Unblocks: the cost model for the whole verified write path, and the choice of default in [`write-surface.md`](write-surface.md).
-Gating: none. This is measurement, not a gate, and its output is numbers that stages 2 and 4 are then judged against.
-Risk: the extractor used in the harness is not the one that ships, so the numbers are indicative rather than binding. They are still better than the current position, which is no numbers at all.
+### Owning chapters
 
-### 0d. The console fold budget
+[Two traces](two-traces.md), [privacy](privacy-and-provenance.md), [verified write](verified-write.md), [query surface](query-surface.md), [artefacts](artefacts-and-perceptions.md), and [coverage](coverage.md).
 
-[`coverage.md`](coverage.md) calls the console's whole-fold a prerequisite rather than a deferred concern, and the classification is correct. Recorded model calls already dominate the log's payload, and putting a structuring call on every write block roughly doubles the dominant term. A replica that folds the whole log in browser memory is the surface that pays for that.
+### Evidence gates
 
-Measure against a synthetic log at realistic sizes: bytes added per turn under the new write path, fold time and peak memory in the browser, and where the curve stops being usable.
+Measurements publish fixtures, prompts, models, costs, failures, uncertainty, and baselines. Before data collection, the architecture owner and operator sign a `stage-0-measurement-contract` that fixes each metric, minimum sample, confidence treatment, cost and latency budget, privacy failure tolerance, and pass/fail rule. The current implementation baselines each metric. No dependent implementation or activation begins while its threshold is absent or changed after results are visible. Stage 0a preserves the one-study and missing-ablation caveats. Stage 0c defines canonical encoding before convergence is measured ([dual-trace study](research/2026-08-03/dual-trace.md), [log measurements](research/2026-08-06/log-measurements.md), [confidence](confidence.md#evidence-map)).
 
-Unblocks: knowing whether the replica needs windowing or snapshots before stage 2 rather than after stage 4.
-Gating: none. This is measurement, and its output is the threshold the later stages are judged against.
-Risk: a synthetic log is not a real one, and the shape of real traffic decides the answer as much as its volume.
+### Compatibility
 
-## Stage 1: the modelling spike
+| Field | Contract |
+|---|---|
+| New record and definition versions | None; measurement packages are evidence artefacts, not successor semantic records. |
+| Pre-stage log readability | Current logs are read-only inputs. No migration or mutation occurs. |
+| Projection and snapshot rebuild | None for successor state. Measurement packages name the code, fixture, and source-log sequence used. |
+| Required raw inputs | Current turns, connector metadata, attachments, costs, and synthetic fixtures listed in the prerequisites. Missing input blocks the affected measurement. |
+| Disablement and persisted meaning | Discarding a flawed measurement changes no persisted successor meaning. |
 
-Model the [Statement](statements.md), the [Event](events-and-roles.md), the [frame](statements.md), and the first hard critics: type, domain and range, frame consistency, and duplicate resolution. Replay them over recorded logs with no live model, in the style of the existing rejudge mode.
+### Required decisions
 
-Unblocks: confidence that the shape holds real utterances before the verified write path is committed to.
-Gating: the two same-happening entries of the recorded four-entry case resolve to one Event with correct roles, while the distinct causal claim stays distinct; the duplicate critic flags the re-filing.
+The architecture owner and operator own the `stage-0-measurement-contract`; security owns privacy tolerances; the model/eval owner owns sampling and uncertainty. Alternatives, baselines, and thresholds are frozen before each measurement. Missing decisions block only the dependent measurement and stage, not unrelated measurements. These map to the extraction convergence, witness evidence, generated episodes, multimodal retrieval, query classification, and storage-budget rows in [the unresolved register](confidence.md#unresolved-item-register).
 
-For the frame, the criterion is deliberately stricter than "the layers separate", because both readings of what a `source` claim's subject is would satisfy that. The observed cat case must resolve to the right subject: a claim about a persona's principal must land on the principal, not on the persona under any frame value. The mechanism under test is [the `principal` redirect](statements.md), resolved against a seeded `presents` edge by a critic at write time, so this stage has a concrete design to falsify rather than a gap to report. If the redirect fails here, the alternative is a referent pointer carried on the Statement, at a cost the redirect avoids.
+### Rollback/disable
 
-Risk: the frame's values prove wrong on a corpus other than the one that motivated them. This is why the check happens here rather than after the substrate is built.
+Discard a flawed measurement and rerun it with the flaw recorded.
 
-## Stage 2: the Statement substrate and verification
+### Stop conditions
 
-Build the Statement as the atomic write unit, the hard and soft critic banks, and forced-choice elicitation for the load-bearing writes.
+Stop a dependent stage when results do not distinguish the proposed treatment, costs exceed declared budgets, or witness metadata cannot support fail-closed resolution.
 
-Two pieces of configuration land here too, because a new instance needs both at genesis and neither is a memory: [the self slot](memory-typology.md), which holds the charter the prompt reads every turn, and [scoped directives](memory-typology.md), versioned, which is what a connector writes when it opens a context.
+### Deferred
 
-One further obligation is easy to miss and belongs here rather than later: the agent's own outbound turns become first-class glosses carrying both witness sets. Today they are recorded as turns and nothing more. Without them, a claim the agent relayed and was later told back is indistinguishable from independent corroboration, so [the dependence rule](belief.md) that stage 6 gates on cannot be evaluated at all. The datum has to exist from the moment Statements do.
+Generated episodes, automatic multimodal work, and authoritative extraction.
 
-Unblocks: everything downstream. Every later stage writes Statements.
-Gating: extraction fidelity against gold-structure scenarios, scored on precision and recall; a faithfulness oracle asserting every structural write is entailed by some utterance in the transcript; and a paraphrase-spread probe showing near-zero spread on field-content correctness, not on capture presence, which a required field pins by construction.
-Risk: the constraint tax. Schema forcing can suppress tool use or degrade reasoning, and this must be measured on the target model per behaviour rather than assumed. If it bites, the response is to constrain fewer behaviours, rather than to give up verifying writes.
+## Stage 1: modelling and replay spike
 
-## Stage 3: time
+### Prerequisites
 
-The three-axis split, typed values including quantities, and qualitative anchoring.
+Stage -1 passes. Stage 0c defines canonical encodings.
 
-Unblocks: correct scheduling semantics, and the temporal graph.
-Gating: a dated description never fires, and a genuine task with a trigger does. A claim with no temporal anchor in its utterance stays unstamped rather than taking the day it was heard.
-Risk: the chosen interval subset is too weak to infer the orderings that matter in practice.
+### Semantic contracts
 
-## Stage 4: the memory typology and episodes
+Model Occasion, Activity, ArtefactReference, Proposition, Assertion, Attestation, Perception, Event, polarity, modality, source locators, transitions, and first hard critics over recorded logs and synthetic multimodal fixtures.
 
-The four kinds with their lifecycles. Scope depends on stage 0a: if the benefit is retrieval-side, this stage is linkage and co-retrieval only, and the narrative generator is not built.
+### Owning chapters
 
-The episodic wall ships first within this stage, as critics, before any generation exists to need containing.
+[Assertions](statements.md), [artefacts](artefacts-and-perceptions.md), [events](events-and-roles.md), and [verified write](verified-write.md).
 
-Unblocks: the episodic, procedural, and working kinds; long-document ingestion.
-Gating: an episodic trace cannot be made a premise, distilled, or attested, and every attempt is a teachable error. A question answerable only from an episode is answered with hedged provenance. Ingestion precision does not fall against a short-document baseline.
-Risk: episode volume. If the gate is too loose the store fills with reconstructions, and the cost per fact stops falling.
+### Evidence gates
 
-## Stage 5: identity
+Byte-stable canonicalization, deterministic replay, compound and artefact-only Occasions, direct Activity sources, quotation, correction, per-teller audiences, and source-only fallback pass. The corpus study establishes expressiveness problems but not extraction convergence ([modelling study](research/2026-08-03/modelling-study.md)).
 
-Merges as revocable assumptions, assumption stamps, fold-filter severance, relational evidence, and the substrate wall.
+### Compatibility
 
-Unblocks: zero-administration identity; the behaviour leak.
-Gating: a merge-then-sever scenario folds cleanly to the world as if never merged. Post-merge sibling history relays correctly, against the measured 0.30 baseline. A recitation attack does not raise merge credence.
-Risk: crumble and accretion thresholds are unresolved and need real data, because genuine same-person profiles also diverge.
+| Field | Contract |
+|---|---|
+| New record and definition versions | Disposable candidate versions only; none can become a successor genesis contract without Stage -1 approval. |
+| Pre-stage log readability | The spike reads current fixtures through adapters and never changes current log meaning. |
+| Projection and snapshot rebuild | Every spike log rebuilds byte-stably without a snapshot; snapshots are disposable test artefacts. |
+| Required raw inputs | Canonical encodings, source fixtures, selector definitions, witness scopes, and erasure tombstones from Stages -1 and 0. |
+| Disablement and persisted meaning | The spike can be deleted in full; no authoritative persisted meaning depends on it. |
 
-## Stage 6: belief
+### Required decisions
 
-Credence from evidence counting, trust discounting, dependence detection, non-prioritised revision.
+The architecture owner chooses among candidate canonical encodings and critic boundaries using the Stage 0c baseline. The decision is recorded in `stage-1-model-selection` before the spike may pass and blocks Stage 2 entry. The selected model must close every genesis-blocking row in [the unresolved register](confidence.md#unresolved-item-register); a result that merely chooses the least-bad incomplete model is a stop condition.
 
-Unblocks: principled contradiction handling; the recitation defence at the belief layer.
-Gating: two dependent attestations produce no credence gain, including the two dependence paths that run through the agent, a claim it re-recorded and a claim it relayed and was told back. A low-credibility teller does not overturn a well-corroborated claim. A claim hedged and later asserted flatly by the same teller is one Statement with two tellings whose credence has not moved, while the same claim corroborated by a second independent teller does move.
-Risk: the credence shape is a live disagreement. Ship the representation and discounting; leave fusion operators unused until validated.
+### Rollback/disable
 
-## Stage 7: transmission principles and forgetting
+Discard the spike implementation. Preserve measurements and fixture results.
 
-Postures promoted to registered conditions, retraction against erasure, propagation through the derivation graph, the authority lattice, and inter-agent claims as quotations. Gated on stage 0b.
+### Stop conditions
 
-Unblocks: cross-boundary confidences; a lawful erasure story.
-Gating: zero residue holds as non-interference under an erasure that propagates through derived conclusions. A description, which cannot attribute, is composed from public content alone; an episode, which carries a teller list, takes the intersection and never draws on a confidence. A new read path cannot leak by omission, because visibility is computed once rather than per path.
-Risk: the combinatorial blowup if audiences ever become richer than predicates over the present set.
+Stop if canonicalization does not converge sufficiently, critics require unsupported fields, or object boundaries cannot express the fixtures.
 
-## Stage 8: drift and the exception queue
+### Deferred
 
-Longitudinal scenarios with canary re-probes and re-derivation audits; the operator exception queue.
+Authoritative structured writes and policy automation.
 
-Unblocks: the zero-administration endgame, meaning exception-triggered attention backed by detection.
-Gating: a canary flip, an audit oscillation, or a post-embedder-change structural shift raises exactly one alarm, with no false positives over a clean run.
-Risk: drift is a longitudinal property a single-turn scenario structurally cannot see, so the harness itself is novel work, and canaries are weakest against the drift shape that actually occurs.
+## Stage 2: additive genesis substrate and audience resolution
 
-## Stage 9: off-turn work
+### Prerequisites
 
-[`off-turn.md`](off-turn.md) is a property every stage owes rather than a stage of its own, and it is listed last because that is where it can be asserted over the assembled system rather than intended.
+Stages -1 and 1 pass. Stage 0b supplies an assurance model or establishes teller-only fallback.
 
-Two halves land at different times. Retiring the parts of consolidation that recover structure rides stage 2: the moment writes carry structure, a pass that deduplicates by similarity is doing work the write path already did, and leaving it running would mean two mechanisms deciding sameness by different rules. The queue machinery accretes stage by stage instead, because each stage introduces its own marks: voided derivations at stage 5, contested pairs at stage 6, erasure propagation at stage 7.
+### Semantic contracts
 
-What is left for this stage is the assertion over the whole assembled set.
+Implement every permanent identity and transition shape before structured data becomes authoritative: Occasion, Activity, Artefact and ArtefactReference, Perception, Event and resolution hypothesis, Proposition, Assertion, Attestation, Derivation, typed locators, polarity and modality, typed validity with precision and timezone, correction and supersession, candidate and promotion, ontology and policy definition IDs, proposal states, influence envelopes, and audience-resolved views. Occurrence, agent-authored Task, and Trigger are separate. Source-only fallback remains valid.
 
-Unblocks: a maintenance budget that does not grow with the store.
-Gating: no pass writes anything the critics would reject on the hot path; no pass widens an audience, promotes an episode to a premise, or reaches the self slot; a tick with nothing marked performs no model call; and a due trigger fires on a tick whose maintenance queue is saturated.
-Risk: the queues are only as good as the marks, and a condition nobody thought to mark is a silent gap where a sweep would at least have been slow and correct. The drift audits of stage 8 are the backstop, which is an argument for not reordering this ahead of them.
+Stage 2 also implements executable baseline forgetting before any restricted source or Artefact is accepted: payload/key separation, authenticated blob retrieval, erasure authorization decisions, closure traversal over every matrix surface, reference-specific withdrawal, dependent invalidation, index/cache deletion, snapshot invalidation, restore tombstone filtering, and package/export/backup handling. Stage 8 may improve operations or activate richer transmission policy, but it cannot add basic erasure semantics.
 
-## How the work lands
+### Owning chapters
 
-Three decisions govern the transition. They are stated here because a reviewer needs them before agreeing to the sequence, and an implementer needs them before starting.
+All normative chapters. [Assertions](statements.md), [privacy](privacy-and-provenance.md), and [time](time.md) own the main contracts.
 
-### No compatibility layer
+### Evidence gates
 
-The new model replaces the old outright. There is no flag selecting between fact models, no parallel implementation, no dual-read path, and no migration of existing entries. A stage that would be easier with a compatibility shim is implemented without one, and the shim is not built.
+Replay determinism, hidden-input non-interference, subject-guard compilation, crash recovery, erasure inventory, dated-description-never-fires, and shared-blob authorization pass. Durable activities and non-interference have supporting research. Complete influence and erasure closure remain genesis-blocking design obligations ([verification](research/2026-07-24/verification/part-b.md), [privacy research](research/2026-07-24/lanes/provenance-privacy.md), [confidence](confidence.md#adversarial-obligation-register)).
 
-The running instance keeps its current build until an instance born under the new model replaces it. Its log stays readable as evidence for as long as that is useful, which is a concern separate from the codebase, and [`research/`](research/) is where such readings are recorded.
+### Compatibility
 
-### Each stage acquires its plan when work starts on it
+| Field | Contract |
+|---|---|
+| New record and definition versions | Version 1 for every identity, transition, selector, witness, access, influence, erasure, Task, Trigger, ontology, and policy record in the Stage 2 contract. |
+| Pre-stage log readability | There are no earlier successor production logs. Current-instance logs remain unmigrated; Stage 1 fixtures remain readable only as test inputs. |
+| Projection and snapshot rebuild | All folds rebuild from versioned events. Snapshots carry schema versions and erasure watermarks and are rejected when stale. |
+| Required raw inputs | Every later policy input named by Stage -1 is stored now, including reference-authorized model consumption, typed time, resolution environments, witness scope, and erasure authority. |
+| Disablement and persisted meaning | Disabling structured policy returns source-only reads. Baseline access control and erasure remain active; persisted source and typed meanings do not change. |
 
-The chapters are the design input to an implementation plan. They are not the plan. A stage is planned at the point it is picked up, through the repository's plan-and-execute workflow, which produces the module boundaries, event payloads, wire types, genesis path, and eval scenarios that stage needs. Stage 0's four measurements are scoped the same way, and each eval run they require is the operator's to authorise.
+### Required decisions
 
-Nothing in this file is sufficient to implement from.
+The architecture owner, security owner, storage owner, and operator must approve `stage-2-genesis-contract`: event and definition versions, conformance to the Stage -1 per-payload key and managed-copy schedules, authenticated blob access, the exact audience resolver and subject-guard predicate, authority lattice, source-only behaviour, and operational limits. Stage 2 may choose implementation modules and cryptographic primitives that satisfy the frozen contract; it may not choose different key granularity, restore ordering, retention bounds, or erasure semantics. Alternatives and rationale are recorded before the first successor genesis. Any unresolved genesis-blocking row in [the unresolved register](confidence.md#unresolved-item-register) blocks stage entry, not merely activation.
 
-### The tree drains into `docs/`
+### Rollback/disable
 
-`docs-future/` is temporary by construction. As each change lands, the commit that implements it also removes it from the chapter that proposed it and writes it into [`../docs/`](../docs/) as as-built documentation. A chapter empties over the stages that build it rather than being copied across at the end, so the two trees never describe the same mechanism at once.
+Disable structured projection and use source-only reads. Persisted source and typed records remain valid.
 
-Three things remain when the chapters are empty:
+### Stop conditions
 
-- The meta-documents describe a proposal rather than a system. [`coverage.md`](coverage.md), [`confidence.md`](confidence.md), and this file are deleted at that point, and git history holds them.
-- [`research/`](research/) returns to `docs/` with its dates intact, because evidence about why the system has its shape outlives the proposal that used it.
-- Nothing else. A `docs-future/` still standing after the last stage means a change was documented and not landed.
+Stop before genesis if an identity-bearing field is still expected later, audience resolution is distributed among callers, or erasure cannot identify all influence surfaces.
 
-## Reordering
+### Deferred
 
-Stages 0 and 1 are the load-bearing bet and should not be reordered. Stage 2 gates everything after it.
+Rich recurrence, contradiction, support arithmetic, generated narrative, autonomous resolution, and multimodal automation.
 
-Stages 3 through 9 are independently valuable and can be resequenced against evidence, with three constraints: the episodic wall precedes narrative generation, stage 0b precedes stage 7, and stage 9 follows stage 8 so the audits exist before the sweeps they replace are retired. If the constraint tax turns out to be severe at stage 2, the right response is to reduce the number of schema-constrained behaviours and continue, not to reorder around the problem.
+## Stage 3: shadow verified writes and structural projections
 
-## Success criteria
+### Prerequisites
 
-Success is not "all eleven failure classes closed". [`coverage.md`](coverage.md) grades six as closed structurally and five as answered without validation, and the stages above are how the five acquire evidence. A stage that ships without its gating evidence has moved the design forward and moved the confidence register backward, which is a trade worth making occasionally and worth noticing every time.
+Stage 2 is complete. Stage 0c provides economic baselines.
+
+### Semantic contracts
+
+Run extraction, grounding, and critics in shadow mode through the append-only proposal lifecycle. Publish atomically only after review. Initial authoritative policy is limited to conservative actual-positive Propositions and minimal Event handling. Stage 3 cannot add an identity-bearing field.
+
+### Owning chapters
+
+[Verified write](verified-write.md), [write surface](write-surface.md), [query surface](query-surface.md), and [assertions](statements.md).
+
+### Evidence gates
+
+Fidelity, convergence, completion rate, blocks per write, retries, latency, constraint tax, temporal safety, source-only fallback, and non-interference meet the thresholds in `stage-3-authority-gate`. The eval owner drafts that artefact from Stage 0c baselines; the architecture and operator owners approve and freeze it before shadow data is inspected for activation. Any privacy or source-preservation failure has zero tolerance. Critics establish shape and limited grounding, not truth ([verification research](research/2026-07-24/verification/part-b.md), [welding](research/2026-07-24/lanes/welding.md)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Stage 2 proposal, review, transition, critic, and Activity versions; a new version is registered only if Stage 2 left an additive extension seam. |
+| Pre-stage log readability | Stage 2 source-only logs remain readable and require no invented structured output. |
+| Projection and snapshot rebuild | Rebuild can include or ignore shadow outputs by recorded authority state. Snapshots record that state and invalidate on policy change. |
+| Required raw inputs | Stage 2 source locators, authority, witness, influence, proposal, and erasure fields are sufficient. No new identity-bearing input is permitted. |
+| Disablement and persisted meaning | Returning to shadow or source-only changes selection only. Accepted, rejected, amended, and dropped history retains its recorded meaning. |
+
+### Required decisions
+
+The architecture owner and operator approve `stage-3-authority-gate`, the initial authoritative Proposition subset, review authority, retry bounds, and source-only degradation rule before activation. Entry into shadow mode requires no unresolved semantic decisions; activation is blocked until the quantitative gate is frozen and passes. The decisions map to extraction convergence, critic faithfulness, verified-write lifecycle, and source-only fallback in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Return to shadow or source-only mode. Do not delete accepted or rejected proposal history.
+
+### Stop conditions
+
+Stop on junk fill, unstable canonicalization, unacceptable latency or log growth, critic bypass, or source-only failure.
+
+### Deferred
+
+Non-actual inference, autonomous acceptance, broad contradiction, and generated episodes.
+
+## Stage 4: typed time policy
+
+### Prerequisites
+
+Stage 3 passes for relevant Assertion shapes.
+
+### Semantic contracts
+
+Activate correction and refinement, uncertainty and timezone rendering, planned/actual/cancelled semantics, and explicit recurrence policies including last-day, skip, clamp, and business-calendar adjustment.
+
+### Owning chapters
+
+[Time](time.md) and [assertions](statements.md#assertion).
+
+### Evidence gates
+
+Dated-description-never-fires, temporal-correction-preserves-source, vague-time, timezone, cancellation, and month-end fixtures pass. Occurrence/Task/Trigger separation is locally supported; uncertainty ownership and recurrence policy remain design work ([time research](research/2026-07-24/lanes/time-memory.md), [confidence](confidence.md#evidence-map)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive temporal-policy, timezone-database, calendar, recurrence, and interpretation versions; no new temporal identity field. |
+| Pre-stage log readability | Stage 2 and 3 logs remain readable. Unknown or absent optional interpretations stay unknown rather than being invented. |
+| Projection and snapshot rebuild | Rebuild uses each value's recorded policy context. Temporal snapshots invalidate when an activated projection version changes. |
+| Required raw inputs | Precision, uncertainty, timezone ownership, validity, occurrence Assertions, modality, Task, and Trigger are already present. |
+| Disablement and persisted meaning | Disabling temporal automation suppresses derived interpretations and firing only; source and typed values retain meaning. |
+
+### Required decisions
+
+The architecture owner and operator choose the initial uncertainty rendering, timezone ownership fallback, cancellation representation, and recurrence subset in `stage-4-temporal-policy` before activation. Alternatives include disabling each interpretation. The time/eval owner freezes month-end, vague-time, and timezone oracle expectations before testing. Missing choices block activation, not implementation of the generic versioned evaluator. They map to typed-time and temporal-subalgebra rows in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Disable temporal automation and retain source and typed values.
+
+### Stop conditions
+
+Stop if ordinary intent requires guessing, corrections mutate source, or descriptions can create Triggers.
+
+### Deferred
+
+Unvalidated recurrence policies and broad temporal inference.
+
+## Stage 5: Event, role, and relation policy
+
+### Prerequisites
+
+Stages 3 and 4 pass for Event role Assertions.
+
+### Semantic contracts
+
+Activate typed Event subroles, disclosure-safe projections, conservative co-reference, relation evolution, historical-definition replay, and governed schema activation.
+
+### Owning chapters
+
+[Events and roles](events-and-roles.md), [relations](relations.md), and [privacy](privacy-and-provenance.md).
+
+### Evidence gates
+
+Repeated same-participant Events remain distinct. Explicit re-mention can merge. Merge then sever restores source views and invalidates stamped Derivations. Partial projection never manufactures a stronger Event. Alias-cycle and historical-definition fixtures pass. Event/role structure is supported, but stable Event identity and projection safety are design obligations ([modelling study](research/2026-08-03/modelling-study.md), [fact-shape report](research/2026-07-24/report.md), [confidence](confidence.md#evidence-map)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive Event-type, role/subrole, relation, projection-policy, schema-governance, and Event-resolution transition versions. |
+| Pre-stage log readability | Earlier Events and Assertions rebuild under their recorded definitions; absent subroles or hypotheses are not inferred. |
+| Projection and snapshot rebuild | Rebuild validates historical records in their original context and recomputes current aliases, safe shells, and live composites. Snapshots invalidate on registry or resolution changes. |
+| Required raw inputs | Stable Events, attribute/role Assertions, source locators, audience data, and resolution environments are present from Stage 2. |
+| Disablement and persisted meaning | Disabling typed subroles or co-reference returns parent-role and source Event views without changing records. |
+
+### Required decisions
+
+The architecture owner and schema reviewer approve `stage-5-event-schema`: the initial Event types, universal role parents, subrole activation governance, safe-shell policies, and Event-resolution authority. Each proposed type or subrole may be omitted. Missing governance blocks stage entry; an unvalidated type blocks only its activation. These choices map to role governance, Event co-reference, schema replay, and partial disclosure in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Disable typed subrole inference and co-reference acceptance. Preserve hypotheses and stable Events.
+
+### Stop conditions
+
+Stop on role-tail inconsistency, unsafe partial visibility, schema activation through hidden conversational syntax, or destructive merge.
+
+### Deferred
+
+Autonomous Event merging and broad role vocabularies.
+
+## Stage 6: identity hypotheses
+
+### Prerequisites
+
+Central audience resolution and resolution-stamped Derivations pass.
+
+### Semantic contracts
+
+Start with operator-confirmed disjoint operational composites. Platform stubs remain permanent. Merge hypotheses record evidence, scope, recall and disclosure clearance, authority, status, and lifecycle. Overlapping candidates do not become one composite.
+
+### Owning chapters
+
+[Identity](identity.md), [privacy](privacy-and-provenance.md), and [query surface](query-surface.md).
+
+### Evidence gates
+
+Overlap conflicts, response-affecting disclosure, one-handle behavior, merge/sever replay equivalence, and sibling-history fixtures pass. Attribute overlap is not identity evidence by itself ([identity research](research/2026-07-24/lanes/identity-belief.md), [report](research/2026-07-24/report.md), [confidence](confidence.md#evidence-map)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive identity-hypothesis, acceptance, severance, composite, clearance, and resolution-environment versions. |
+| Pre-stage log readability | Permanent platform stubs and pre-stage Assertions remain readable as separate identities; no merge is inferred. |
+| Projection and snapshot rebuild | Rebuild folds accepted disjoint composites and invalidates environments after severance. Identity-dependent snapshots invalidate on any resolution transition. |
+| Required raw inputs | Stable stubs, identity evidence, witness data, authority, and Derivation resolution dependencies are already present. |
+| Disablement and persisted meaning | Disabling resolution exposes source handles to operators and fails closed conversationally; it does not rewrite stubs or Assertions. |
+
+### Required decisions
+
+The operator and security owner approve `stage-6-identity-policy`: confirmation authority, disjointness conflict handling, recall and disclosure clearance, one-handle rendering, and severance response. Operator confirmation is the only initial acceptance alternative; autonomous scoring remains disabled. Missing choices block stage entry and map to identity overlap, response-affecting recall, one-handle behavior, and severance rows in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Withdraw accepted hypotheses and invalidate dependent projections.
+
+### Stop conditions
+
+Stop if composites overlap, tentative recall affects a response below disclosure clearance, or severance loses history.
+
+### Deferred
+
+Autonomous scoring and cross-instance identity.
+
+## Stage 7: support, dependence, and mechanical contradiction
+
+### Prerequisites
+
+Attestations, witness evidence, audience resolution, and transition folds are authoritative.
+
+### Semantic contracts
+
+Activate audience-safe support projections, dependence detection, reliability observations, expression strength, explicit polarity, and the registered mechanical contradiction subset. Support remains an ordinal corroboration projection rather than a truth probability.
+
+### Owning chapters
+
+[Belief](belief.md), [assertions](statements.md#mechanical-contradiction), and [privacy](privacy-and-provenance.md).
+
+### Evidence gates
+
+Shared-room dependence, agent restatement, relay and return, reliability change, hidden support, last independent support withdrawal, opposite polarity, quantities, and contest-versus-contradiction fixtures pass. Provenance and discounting have support; arithmetic and truth-directed interpretation remain unsettled ([identity and belief research](research/2026-07-24/lanes/identity-belief.md), [confidence](confidence.md#evidence-map)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive support, dependence, reliability, polarity-normalisation, contradiction-rule, and promotion-policy versions. |
+| Pre-stage log readability | Existing Attestations and Propositions retain source meaning. Missing evidence yields unranked or contested state. |
+| Projection and snapshot rebuild | Support and contradiction projections rebuild per audience and policy version; snapshots invalidate on Attestation, audience, dependence, or rule changes. |
+| Required raw inputs | Teller-specific Attestations, expression strength, dependence lineage, polarity/modality, validity, witness, and influence are present. |
+| Disablement and persisted meaning | Disabling policy returns unranked visible Attestations and operator-reviewed conflicts without changing Assertions. |
+
+### Required decisions
+
+The architecture, security, and eval owners approve `stage-7-support-policy`: ordinal vocabulary, dependence rules, reliability use, promotion threshold, and the exact mechanical contradiction registry. Alternatives include no rank and no automatic promotion. Privacy non-interference thresholds are zero tolerance; other activation thresholds are frozen against Stage 0 baselines before testing. Missing policy blocks activation, not projection implementation. These map to support fusion, dependence, reliability, polarity, and contradiction rows in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Return to unranked visible Attestations and operator-reviewed conflicts.
+
+### Stop conditions
+
+Stop if hidden support changes visible output, dependent evidence increases support, or mechanical rules claim linguistic contradiction.
+
+### Deferred
+
+Fusion operators, probabilities, and autonomous contradiction arbitration.
+
+## Stage 8: richer privacy policy and erasure operations
+
+### Prerequisites
+
+Stage 2 baseline subject guards, influence envelopes, authenticated blob access, witness assurance, executable erasure closure, snapshot/restore filtering, and package/backup handling pass.
+
+### Semantic contracts
+
+Stage 2 already enforces baseline erasure, authenticated access, conservative subject guards, and static fail-closed transmission. This stage activates only richer decidable transmission principles and operational erasure improvements with passing connector, influence, package, backup, and non-interference tests. Candidate principles are public, attributed, demonstrated-witness-only/in-confidence, explicit include/exclude, and scoped consent with expiry or revocation. An implementation may activate only the subset whose evidence passes.
+
+### Owning chapters
+
+[Privacy and provenance](privacy-and-provenance.md) and [artefacts](artefacts-and-perceptions.md).
+
+### Evidence gates
+
+Silent-member, multi-subject, hidden aggregate, rejected-proposal taint, shared-blob, derived-artefact, embedding, eval-package, snapshot, and backup scenarios pass. Non-interference and retract-versus-forget are supported concepts. Exact closure is design work ([privacy research](research/2026-07-24/lanes/provenance-privacy.md), [current leak observation](research/2026-08-06/current-system-fixes.md), [storage](../docs/events-and-storage.md)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive transmission-principle evaluators, consent, remote-status, retention-hold, and erasure-operation versions. Baseline Stage 2 tombstones and authorization decisions remain canonical. |
+| Pre-stage log readability | Older records retain their transmission expression and assurance evidence. Unknown principles fail closed; no witness scope is invented. |
+| Projection and snapshot rebuild | Audience and influence projections rebuild under named evaluator versions. Erasure watermarks continue to invalidate stale snapshots. |
+| Required raw inputs | Stage 2 witness scopes, subject closures, access records, influence edges, key/payload separation, and complete erasure surfaces are already present. |
+| Disablement and persisted meaning | Disabling a richer evaluator falls back to the safest Stage 2 static audience. Completed erasure remains irreversible and meaningful. |
+
+### Required decisions
+
+The security owner, operator, and connector owner approve one `stage-8-policy-activation` record per principle or operational improvement. It names the semantics, evidence source, failure mode, rollback, and zero-residue oracle before activation. No all-or-nothing bundle exists. Missing decisions block only that capability. Reciprocity and purpose limitation remain unresolved gated rows in [the unresolved register](confidence.md#unresolved-item-register) and cannot be activated here.
+
+### Rollback/disable
+
+Disable a transmission evaluator and restrict affected content to its safest static audience. Erasure execution itself is not reversible.
+
+### Stop conditions
+
+Stop if a hash acts as a bearer credential, closure omits a durable surface, or policy depends on unrecorded purpose or presence.
+
+### Deferred
+
+Reciprocal and purpose-based policies until execution-purpose and obligation semantics exist.
+
+## Stage 9: memory kinds and bulk ingestion
+
+### Prerequisites
+
+Artefact, Activity, bounded jobs, per-document audience, and source-only fallback pass.
+
+### Semantic contracts
+
+Activate procedural and working-memory lifecycles and source-first long-document or media ingestion. Ordinary conversational Perception remains separate from bulk jobs and generated episodes.
+
+### Owning chapters
+
+[Memory typology](memory-typology.md), [artefacts](artefacts-and-perceptions.md), and [off-turn work](off-turn.md).
+
+### Evidence gates
+
+Ingestion precision, cost, source-only fallback, per-document audience, influence propagation, cancellation, and bounded-work fixtures pass thresholds in `stage-9-ingestion-gate`. The ingestion owner drafts the metrics and alternatives from Stage 0 baselines; the operator and security owner approve and freeze them before implementation begins. Any audience-lineage or source-loss failure has zero tolerance. Four memory lifecycles are motivated, but storage and ingest economics remain stage-gated ([time and memory research](research/2026-07-24/lanes/time-memory.md), [coverage](coverage.md), [confidence](confidence.md#evidence-map)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive memory-kind, ingestion-plan, document-selection, extraction, and bounded-job versions. |
+| Pre-stage log readability | Earlier conversational Occasions, Artefacts, Activities, and Perceptions retain their existing kinds; bulk ingestion is never inferred retroactively. |
+| Projection and snapshot rebuild | Ingestion projections and job folds rebuild from plans and source heads; snapshots invalidate on source, audience, or pipeline changes. |
+| Required raw inputs | Source Artefacts, references, selectors, access decisions, typed Activities, influence, and erasure transitions already exist. |
+| Disablement and persisted meaning | Disabling ingestion retains source Artefacts and source-only reads; generated structure becomes inactive without changing source meaning. |
+
+### Required decisions
+
+The ingestion owner, operator, security owner, and storage owner approve `stage-9-ingestion-gate`: enabled memory kinds, document selection, chunk/source locator policy, per-document audience, maximum work and storage, cancellation, and economics. Alternatives include explicit-only ingestion and source-only retention. Missing decisions block stage entry. They map to memory typology, working storage, document selection, and ingest economics in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Disable automatic ingestion and retain source Artefacts for explicit governed use.
+
+### Stop conditions
+
+Stop on unbounded work, missing audience lineage, junk extraction, or inability to retain source-only content.
+
+### Deferred
+
+Automatic broad media ingest and scene graphs.
+
+## Stage 10: optional episodic and multimodal extensions
+
+### Prerequisites
+
+Stage 0a or 0f passes the specific capability's evidence gate. The episodic non-evidence wall and multimodal influence controls pass.
+
+### Semantic contracts
+
+Generated episodes, historical reinspection, OCR, generated captions, region grounding, and visual search are separate capabilities over genesis records. Each records its Activity, Perception or Derivation, source, version, audience, and access.
+
+### Owning chapters
+
+[Two traces](two-traces.md), [artefacts](artefacts-and-perceptions.md), [query surface](query-surface.md), and [privacy](privacy-and-provenance.md).
+
+### Evidence gates
+
+Each capability has an independent `stage-10-<capability>-gate` fixing retrieval-value, cost, latency, grounding, correction, erasure, and privacy thresholds before its experiment runs. The capability owner drafts it from Stage 0a or 0f baselines; the operator and security owner approve it. Privacy, source laundering, and erasure failures have zero tolerance. A pass for one capability supplies no evidence for another. Generated narrative retains the small-sample, automated-judge, missing-ablation, geometry-variance, invention, and non-transferable cost caveats ([dual trace](research/2026-08-03/dual-trace.md), [research index](research/README.md), [confidence](confidence.md#evidence-map)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | One additive pipeline, criterion, projection, and capability-policy version per independently activated extension. |
+| Pre-stage log readability | Pre-stage logs remain readable. They acquire no generated episode, OCR, caption, region, or visual-search result unless a new Activity records it. |
+| Projection and snapshot rebuild | Capability projections rebuild from recorded Activities, Perceptions, Derivations, selectors, and access decisions; affected snapshots invalidate on pipeline or erasure change. |
+| Required raw inputs | Genesis selectors, reference-authorized Activity edges, Perception lifecycle, source locators, influence, and erasure closure supply every required seam. |
+| Disablement and persisted meaning | Each capability disables independently. Derived outputs become inactive or are erased under policy; source records retain meaning. |
+
+### Required decisions
+
+The named capability owner, operator, and security owner approve each `stage-10-<capability>-gate`, including whether the capability is declined, experimental, or activation-ready. Generated episodes, reinspection, OCR, captions, region grounding, and visual search are separate decisions with separate deadlines before their experiments. Absence blocks only that capability. Scene graphs remain explicitly declined for this stage and reopen only with a dedicated graph-writer safety plan. These map to the corresponding safely deferred and stage-gating rows in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Disable each capability independently. Preserve generated records for audit or erase them under the applicable policy.
+
+### Stop conditions
+
+Stop on source laundering, hidden reinspection, uncontrolled cost, concrete invention presented as evidence, or capability bundling without separate proof.
+
+### Deferred
+
+Scene graphs remain furthest deferred. Any capability without a passed gate remains disabled.
+
+## Stage 11: drift, exceptions, and off-turn retirement
+
+### Prerequisites
+
+Longitudinal baselines, event-sourced job machinery, and compare-at-commit behavior pass.
+
+### Semantic contracts
+
+Activate drift canaries, an operator exception queue, and idempotent background jobs. Retire superseded maintenance only after equivalence and longitudinal tests. Separate mechanical projection, derived-Assertion, and retraction-proposal authority.
+
+### Owning chapters
+
+[Off-turn work](off-turn.md), [verified write](verified-write.md), and [confidence](confidence.md).
+
+### Evidence gates
+
+Lease expiry, duplicate attempt, crash recovery, cancellation, supersession, poison handling, relevant-change requeue, stale-head compare, and authority-boundary fixtures pass. Queue-by-change follows scaling evidence. Exact concurrency machinery remains design work ([maintenance](../docs/maintenance-passes.md), [welding](research/2026-07-24/lanes/welding.md), [survey](research/2026-07-24/lanes/survey-giants.md)).
+
+### Compatibility
+
+| Field | Contract |
+|---|---|
+| New record and definition versions | Additive job, lease, attempt, cancellation, supersession, poison, criterion, drift, and exception-queue versions. |
+| Pre-stage log readability | Existing semantic records remain readable with no job history. Jobs target only recorded source heads and never invent a prior attempt. |
+| Projection and snapshot rebuild | Job state rebuilds from events; worker snapshots are disposable and invalidate on lease, target-head, criterion, or authority change. |
+| Required raw inputs | Source heads, policy/schema/time/identity change events, typed authority, influence, and compare-at-commit dependencies already exist. |
+| Disablement and persisted meaning | Stopping workers retains pending state and changes no semantic record. Re-enabling cannot duplicate committed output. |
+
+### Required decisions
+
+The operations owner, architecture owner, and operator approve `stage-11-job-policy`: lease duration, retry bound, poison threshold, relevant-change keys, compare-at-commit behavior, exception ownership, and retirement equivalence threshold. Baselines and thresholds are frozen before workers run. Missing concurrency decisions block stage entry; exploration and proactive initiation remain separate unapproved experiments. These map to off-turn idempotency, drift, exception review, and proactive salience in [the unresolved register](confidence.md#unresolved-item-register).
+
+### Rollback/disable
+
+Stop workers and retain pending state. Re-enable from the recorded target head without duplicating committed outputs.
+
+### Stop conditions
+
+Stop on unbounded retry, duplicate publication, stale commit, authority escalation, constant whole-store review, or longitudinal regression.
+
+### Deferred
+
+Exploration and proactive initiation remain optional disabled experiments with separate privacy, cost, and yield gates.
+
+## Executable stage handoff register
+
+This register is complete for roadmap handoff. A later implementation plan may make a threshold stricter, but it cannot weaken or postpone one after results are visible. `Entry` means the stage cannot begin. `Activation` means implementation may run only in shadow or disabled mode until the gate passes.
+
+| Stage | Decision artefact and owners | Alternatives and baseline | Threshold or structural oracle | Freeze point and deadline | Blocker | Automated and scenario evidence IDs |
+|---|---|---|---|---|---|---|
+| Stage -1 | `stage--1-permanence-decision`; architecture, security, storage, and operator owners | Accept each proposed identity/fold/storage choice or revise before genesis; baseline is the current non-successor model with no compatibility promise | Every counterfactual rebuilds without invented fields, ID reuse, hidden flow, or payload resurrection; all genesis-blocking register rows have an approved rule | Freeze before Stage 1 candidate encoding; deadline is Stage -1 exit | Entry to Stage 1 and every successor schema stage | `perm-negation`, `perm-modality`, `perm-correction`, `perm-retraction`, `perm-hidden-support`, `perm-event-split`, `perm-identity-sever`, `perm-schema-change`, `perm-witness-policy`, `perm-support-policy`, `perm-reinspection`, `perm-shared-erasure`, `perm-derivation-invalidation` |
+| Stage 0 | `stage-0-measurement-contract`; architecture/operator, security, and eval owners | Treatments 0a–0f against the named current or source-only baseline; reject an unmeasurable treatment | Each study publishes sample, uncertainty, cost/latency, privacy tolerance, and a pre-registered pass rule; no result is interpreted under a post-result threshold | Freeze each study before its first sample; deadline is start of its dependent stage | Entry to the dependent measurement; activation of its dependent capability | `measure-0a-episode-ablation`, `measure-0b-witness`, `measure-0c-convergence`, `measure-0d-budget`, `measure-0e-query-class`, `measure-0f-multimodal` |
+| Stage 1 | `stage-1-model-selection`; architecture owner with security review | Candidate canonical encodings and object boundaries versus source-only baseline | All canonical fixture rows compile without implicit fields, produce exact selector/digest values, and replay equal IDs, folds, probes, wrapper sets, and digests; critic false requirements are zero | Freeze before Stage 2 schema implementation; deadline is Stage 1 exit | Entry to Stage 2 | `model-fixture-compile`, `model-replay-digest`, `model-source-only`, `model-selector-cbor`, `model-transition-conflict` |
+| Stage 2 | `stage-2-genesis-contract`; architecture, security, storage, and operator owners | Implement the frozen complete substrate or do not create a successor; source-only disablement is the operational baseline | Zero hidden-input residue in deterministic probes; every erasure cell has an implemented outcome; all folds replay; dated descriptions fire zero actions; shared-reference erasure preserves exactly surviving wrappers | Freeze event/definition v1 before first successor genesis; deadline is creation of the first successor instance | Entry to successor genesis | `genesis-replay`, `genesis-subject-guard`, `genesis-zero-residue`, `genesis-erasure-crossproduct`, `genesis-restore-order`, `genesis-dated-no-fire`, `genesis-shared-wrapper` |
+| Stage 3 | `stage-3-write-activation`; architecture, model/eval, and operator owners | Authoritative structured writes versus source-only and shadow proposal baselines | Pre-registered Stage 0c thresholds for fidelity, completion, blocks, retry, latency, cost, false critic rejection, and non-interference all pass; fault injection yields no partial/duplicate/stale publication | Freeze thresholds before the first shadow corpus run; deadline is authoritative-write activation | Activation; Stage 3 may begin only in shadow | `write-fidelity`, `write-convergence`, `write-constraint-tax`, `write-source-fallback`, `write-abort`, `write-retry`, `write-crash`, `write-atomic`, `write-stale-head` |
+| Stage 4 | `stage-4-time-policy`; architecture, temporal-policy, and operator owners | Last-day, skip, clamp, and business-calendar choices versus reject-ambiguity baseline | Zero dated-description firings; correction preserves source/IDs; all vague-time/timezone/month-end vectors return their registered result or explicit unknown | Freeze each policy and threshold before temporal scenario execution; deadline is activation of that policy | Activation of each temporal policy | `time-dated-no-fire`, `time-correction`, `time-vague`, `time-timezone`, `time-last-day`, `time-skip`, `time-clamp`, `time-business-calendar` |
+| Stage 5 | `stage-5-event-schema-policy`; architecture, schema-governance, privacy, and operator owners | Universal roles only versus each proposed typed subrole; separate Events versus accepted co-reference; suppress versus incomplete shell | Repeated same-participant Events remain distinct absent strong evidence; merge/sever restores exact sources; every partial projection is semantically safe; alias cycles reject; historical definitions replay unchanged | Freeze each definition/policy version before its first authoritative use; deadline is Stage 5 activation for that item | Activation per subrole, Event type, co-reference policy, or definition version | `event-distinct`, `event-merge-sever`, `event-partial-projection`, `schema-alias-cycle`, `schema-historical-replay` |
+| Stage 6 | `stage-6-identity-operation`; identity, security, and operator owners | Operator-confirmed disjoint composites versus no composite; autonomous scoring remains disabled | Accepted composites are disjoint; response-affecting use has disclosure clearance; merge/sever replay is equivalent; sibling history does not migrate; overlap always denies operation | Freeze operational policy before first accepted composite; deadline is Stage 6 activation | Activation; autonomous scoring remains separately blocked | `identity-overlap`, `identity-disclosure`, `identity-merge-sever`, `identity-sibling-history`, `identity-one-handle` |
+| Stage 7 | `stage-7-support-policy`; belief, privacy, architecture, and operator owners | Visible-attestation counts/dependence discount versus no computed support; fusion remains disabled | Hidden support causes zero visible delta; shared-room and relay dependence discount; last-support withdrawal demotes/omits as registered; mechanical contradiction and contest classify exactly | Freeze support/dependence/contradiction versions before evaluation; deadline is Stage 7 activation | Activation; fusion and general arbitration remain separately blocked | `support-hidden-zero`, `support-shared-room`, `support-relay-return`, `support-reliability`, `support-last-withdrawal`, `support-contest` |
+| Stage 8 | `stage-8-privacy-extension`; security, storage, privacy-policy, and operator owners | Each richer principle or erasure operation against the Stage 2 fail-closed baseline | The specific witness, influence, authorization, package/backup, restore, and non-interference vectors pass with zero prohibited flow; purpose/reciprocity require a separately approved execution-purpose model | Freeze each extension before its scenario run; deadline is activation of that extension | Activation per extension | `privacy-principle-*`, `privacy-hidden-influence`, `privacy-package`, `privacy-backup`, `privacy-restore`, `privacy-external-copy` |
+| Stage 9 | `stage-9-ingestion-policy`; memory, privacy, model/eval, and operator owners | Source-first bounded ingest versus no automatic ingest; procedural/working lifecycle options | Pre-registered Stage 0c/0d precision, cost, latency, and bounded-work thresholds pass; source-only fallback is lossless; per-document audience and taint produce zero prohibited flow | Freeze corpus, budgets, and thresholds before ingest evaluation; deadline is activation per ingest type | Activation per document/media/procedural capability | `ingest-precision`, `ingest-cost`, `ingest-bounded`, `ingest-source-fallback`, `ingest-audience`, `ingest-taint` |
+| Stage 10 | `stage-10-extension-<capability>`; multimodal/episodic, privacy, model/eval, and operator owners | Each of episodes, reinspection, OCR, captions, regions, visual search, and scene graphs independently versus disabled baseline | Its Stage 0a/0f pre-registered benefit exceeds cost/latency budget with zero privacy failures; exact provenance/correction/erasure vectors pass; passing one capability gives no evidence for another | Freeze per-capability model, corpus, budget, and threshold before evaluation; deadline is that capability's activation | Activation per capability | `episode-ablation`, `inspect-authorized`, `inspect-denied`, `ocr-correction`, `caption-provenance`, `region-selector`, `visual-retrieval`, `scenegraph-writer-safety` |
+| Stage 11 | `stage-11-background-policy`; architecture, operations, privacy, and operator owners | Event-triggered bounded jobs versus disabled/manual maintenance; exploration/initiation remain separately disabled | One valid outcome under crash/race/retry/supersession/poison/stale head; no authority escalation; longitudinal equivalence passes before old maintenance retires; cost and yield stay within pre-registered budgets | Freeze job policy and budgets before shadow run; deadline is activation or retirement of the affected maintenance path | Activation per job; retirement requires equivalence; exploration/initiation separately blocked | `job-crash`, `job-race`, `job-retry`, `job-supersede`, `job-poison`, `job-stale-head`, `job-authority`, `drift-longitudinal`, `maintenance-equivalence` |
+
+## Handoff requirements
+
+A stage implementation plan must state:
+
+- exact event and definition versions it adds;
+- readability of every pre-stage log version;
+- projection rebuild and snapshot behavior;
+- raw inputs already present and any genesis-blocking omission;
+- whether disabling the policy changes persisted meaning;
+- automated structural oracles and named scenario tests;
+- the named decision artefact, owner, alternatives, baseline, threshold, freeze point, deadline, and whether absence blocks entry or activation;
+- rollback operation, stop conditions, and unresolved-register links;
+- the chapter contracts implemented by each component.
+
+Composite benchmark scores are not acceptance targets. Structural behavior uses deterministic oracles. Model judges are limited to linguistic behavior. [`confidence.md`](confidence.md) records the evidence and caveat behind every stage gate.
+
+Each completed stage drains its implemented normative contracts into `docs/` as as-built documentation in the same change that activates the implementation. Only material actually implemented and verified is marked or removed from `docs-future/`; unresolved, disabled, experimental, or later-stage material remains here. The future tree can be deleted only after every required and accepted extension has landed in `docs/` or has an explicit, recorded decline decision. A stage completion that leaves its active contract only in `docs-future/` is incomplete.

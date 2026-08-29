@@ -1,158 +1,69 @@
 # The memory typology
 
-Memory is four kinds with four lifecycles. The kind is a type distinction, not a label: each has its own authority over who may write it, its own retrieval rule, its own decay, and its own relationship to truth.
+Memory has four lifecycle classes: semantic, episodic, procedural, and working. The distinction controls authority, retrieval, decay, and evidential use; it is not a search label. The taxonomy is well motivated by cognitive architectures and agent systems, but the exact storage and policy below are this design's synthesis ([time and memory research](research/2026-07-24/lanes/time-memory.md)).
 
-Forcing four kinds through one visibility predicate, one similarity threshold, and one decay function is wrong for three of them.
+The canonical object identities are defined elsewhere. [Statements](statements.md) owns Occasion, Activity, Proposition, Assertion, Attestation, and Derivation. [Artefacts and perceptions](artefacts-and-perceptions.md) owns Artefact, ArtefactReference, and Perception. This chapter assigns those objects to memory lifecycles without redefining them.
 
 ## Semantic
 
-Curated claims about the world: the [Statements](statements.md) the rest of this tree describes.
+Semantic memory consists of curated Assertions about the world and the source and derivation records needed to interpret them. It is durable, audience-resolved, and eligible for structural query. Support is computed from visible Attestations; model or tool observations enter through Perceptions and Derivations, not fictitious human testimony.
 
-Durable, credence-bearing, audience-gated, and distilled into the descriptions that summarise a memory. Written by the agent during a turn and by maintenance passes afterwards. This is the kind that means what it says.
+Not all durable input becomes semantic structure. An Occasion can yield no Assertion, and an Artefact can remain available only through its reference and access policy. Formal, figurative, or insufficiently grounded content may remain source-only.
+
+Semantic memory does not mean “true”. Assertions can be quoted, candidate, contested, superseded, or retracted according to the append-only lifecycle in [statements](statements.md).
 
 ## Episodic
 
-The occasions themselves: what was said, by whom, in what order, and what it was like.
+Episodic memory preserves experience and optional reconstructions of it. The durable source side is an Occasion or Activity with its original utterance, participants, ordering, ArtefactReferences, and tool/model records. A generated episode is a separate mnemonic narrative produced by a generation Activity and recorded as a Derivation.
 
-Episodic memory is raw experience, not asserted truth, and the distinction is the reason it is a separate kind. "Someone said X" and "X is true" are different facts, and a system that lets the first become the second by consolidation has laundered a claim into a belief.
+Generated narrative is never participant testimony, never a premise for a semantic Derivation, and never allowed to accrue Attestations. It is labelled as reconstruction and carries lineage and the intersection of its inputs' transmission restrictions. It is an optional gated extension, not a required trace for every Occasion. [The two traces](two-traces.md) owns this boundary.
 
-The rules follow from that:
+The evidence for generated episodes is limited to one unreplicated study using an automated judge and small per-category samples, with no privacy evaluation and no encoding-versus-retrieval ablation ([dual-trace study](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Its reported cost neutrality does not transfer to this event-sourced log. Stage 0a must show encoding-side value before generation is enabled.
 
-- Always told by the agent, never by a participant.
-- Never a premise in a derivation.
-- Never distilled into another memory's description.
-- Never accrues attestation or corroboration.
-- Marked as a reconstruction wherever it surfaces.
-- Composed under the intersection rule, and never over a confidence, because a narrative body cannot be partially surfaced. See [the two traces](two-traces.md).
-
-Retrieval is the part that differs most from the current design. An episode is a linked companion to the Statements recorded during it, not a fallback consulted when semantic search misses. Each knows the other structurally, so surfacing one surfaces the other without a second search. The experimental evidence is specific on this point: the gain lives where both traces are present and their anchors can be cross-referenced, and it is exactly zero where a single lookup suffices. A fallback tier would be consulted precisely when the pair is least useful.
-
-Episodes decay by recency in ranking, but they are not retired. An old episode is not wrong, merely distant.
-
-Not every session earns one. See [the two traces](two-traces.md) for why a low rate is correct rather than a coverage problem to tune away.
+Source Occasions are not demoted when no episode is generated. They remain retrievable under source and audience policy. Episodic ranking may decay with recency, but source history is not rewritten merely because it is old.
 
 ## Procedural
 
-Executable Luau the agent has saved: a routine it worked out once and can invoke again.
+Procedural memory is executable agent-authored code plus a natural-language description used for retrieval. Producing or revising a procedure is an Activity. Invocation is another recorded Activity with code version, inputs, tool effects, and outcome.
 
-Indexed by a natural-language description embedding, so it is found by what it does rather than by what it is called. Retrieved on demand rather than held in the prompt, which is what keeps the surface from growing with every saved routine. Invoked in the same frozen sandbox under the same step and timeout budget as any other block, with no additional authority.
+Procedures are retrieved by purpose and run in the ordinary sandbox with no additional authority. Ranking decays by invocation recency and frequency rather than calendar age: an unused routine is not thereby false or stale. Automatic procedure extraction remains gated on bounded cost, review, and authority fixtures.
 
-Decay is by invocation, not by calendar age. A correct routine that has not been needed for months is not stale the way a fact about someone's job is stale. It is simply unused. Ranking on recency and frequency of use captures this, and it has the useful property of being independent of any embedding model and deterministic under replay.
-
-Procedures are produced deliberately, and may also be produced automatically from a deliberation that turned out to be costly or repeated. A turn that required unusually deep multi-step reasoning is a candidate for being saved as a routine, which is the same instinct as compiling a hard-won result rather than re-deriving it.
+A procedure is not an Assertion. Claims about what it does, whether it succeeded, or when it is safe are ordinary Assertions supported by tool observations or operator evidence.
 
 ## Working
 
-A private scratchpad: persistent but transient, the agent's own head.
+Working memory is a persistent but transient agent scratchpad. Notes are not Assertions, have no teller, and carry no independent epistemic support. Promotion does not relabel a note: it creates a proposed Assertion or other durable result through a recorded Activity and normal critics.
 
-Outside the visibility model entirely. It has no audience because it has no readers, no teller because nothing told it, and no credence because it asserts nothing. It is the staging area where a thought is held long enough to become something or be discarded.
+Every note carries an influence envelope for the content rendered into the model context that produced it, including visible Assertions, source Occasions, Perceptions, tool results, rejected proposals, and prior notes. A promoted result inherits the intersection of those restrictions. Taint is per note and monotone; session-global accumulation would eventually make all promotion impossible.
 
-A [reflection pass](off-turn.md) promotes or discards. Promotion means writing an actual Statement, with all the provenance and audience condition that entails. Discarding means the note is gone.
+This is conservative because a model cannot report which visible input actually influenced a note. Over-taint can block useful promotion, but under-taint can disclose restricted content. The event-log versus compacted-storage choice remains a genesis decision because replay must reproduce the envelope and promote-or-discard outcome; the research lane explicitly treated storage as uncertain ([time and memory research](research/2026-07-24/lanes/time-memory.md#mapping-zuihitsus-open-issues-onto-the-typology)).
 
-### Promotion carries a taint
+## Conversational artefacts are not bulk ingestion
 
-A working note has no transmission principle of its own, which is what makes promotion dangerous: the [audience-invariant critic](verified-write.md) checks that no endorsement is wider than what it was founded under, and a note founded under nothing passes trivially. A confidence reasoned about in the scratchpad and then promoted arrives with whatever audience the promotion chose.
+An image or document shared during conversation first creates an ArtefactReference on an Occasion. Model inspection produces a Perception through a recorded Activity. Neither arrival nor inspection automatically creates a semantic Assertion. If the agent deliberately records an image-derived claim, the Derivation cites the Perception and underlying ArtefactReference and retains their audience restrictions.
 
-So a note carries a taint set: the Statements consulted while it was written. Promotion intersects the promoted Statement's principle against them, which is the same arithmetic [a derivation](statements.md) already does over its premises, reaching one step further back.
+This ordinary conversational path preserves the current ability to inspect a supplied image while adding durable provenance. Historical reinspection, OCR, generated captions, region grounding, and visual retrieval are separately gated capabilities. Their exact model belongs to [artefacts and perceptions](artefacts-and-perceptions.md).
 
-Consulted is defined operationally, and this definition decides whether the mechanism works at all. The set is what left a read event: the explicit reads performed by the block that wrote the note, plus the turn's ambient recall, both of which are recorded and foldable. The brief is excluded. It is excluded not because it is less present to the model but because it leaves no read event and is itself audience-computed before composition, so tainting against it would taint every note with everything on the first note and end promotion immediately.
+Bulk ingestion is a different operation. It is a bounded, source-first job over an Artefact, normally a long document or media object. The source and its ArtefactReference become durable before selection or extraction. The job records deterministic segmentation or transforms, selection decisions, extraction Activities, Perceptions where applicable, and per-unit success or source-only fallback. It does not simulate hundreds of conversational Occasions or fabricate utterances.
 
-The line is a proxy and should be read as one. A model cannot distinguish what a note drew on from what was merely in front of it while it was written, so ambient recall counts even where the agent never asked for it: a note written beside a confidence is tainted as surely as one written from it. That is over-tainting, and it is the acceptable direction, because the cost is a note that must wait for corroboration rather than a confidence that escapes. It is also survivable in practice, because taint governs only the promotion of notes: what the agent may assert from a live conversation runs through the ordinary [write surface](write-surface.md) with its own provenance and is untouched by any of this.
+A bulk job has one governing source audience unless explicit source partitions carry separately authorised policies. Derived Assertions and Perceptions inherit restrictions through normal provenance. Mixed-audience material defaults to the stricter policy; per-claim model guesses cannot widen it. Job leasing, retry, compare-at-commit, poison handling, and supersession belong to [off-turn work](off-turn.md).
 
-Two consequences the design should own rather than discover.
+Bulk ingestion remains stage-gated. Research motivates separate lifecycles and source-first selective structuring, but exact document selection, extraction economics, and per-document audience behaviour are unresolved ([time and memory research](research/2026-07-24/lanes/time-memory.md#mapping-zuihitsus-open-issues-onto-the-typology)). Required evidence includes bounded calls and log growth, precision against selected spans, source-only degradation, audience non-interference, and replay after retry.
 
-Taint is monotone, so it must be per note. A taint set that accumulates across a whole deliberation converges on everything the agent read, and promotion becomes impossible: everything is tainted by the strictest thing in the session. Tainting each note with what that note saw keeps the sets small. On the live instance the reads a single block performs run to a median of one memory and a maximum of eleven, which is the closest available proxy: it is measured on a system that has no scratchpad, so it bounds block reads rather than note consultation, and it is a reason to expect the mechanism to be affordable rather than a demonstration that it is.
+## The self and directives are configuration
 
-The taint set also settles how the scratchpad is stored. Keeping notes in the log preserves the commitment that the system is a pure function of its log, while a side table would keep transient churn out of replay. A taint set decides it: the set is state the fold must reproduce, so a side table is not available. What remains is a compactable channel whose net effect after reflection is a single promote-or-discard.
+The agent's charter and identity are versioned, operator-owned configuration, not memory. They are always supplied through their dedicated slot and cannot be searched, retracted, consolidated, or promoted by memory machinery. The agent may propose a change, but activation is an operator action.
 
-The volume worry that motivated the side table does not survive contact with the numbers. A note is text of the same order as a saved routine, hundreds of bytes, and a note a model wrote is preceded by the recorded model call that wrote it, which is two orders of magnitude larger. Scratchpad volume is bounded above by a small fraction of a cost the log already pays, and the ratio is scale-invariant because both terms scale with turns. This resolves an [open question](confidence.md) toward the option the research lane was least sure of, for a reason the lane did not have.
+Directives are separately versioned configuration scoped globally, per context, or per conversation. Connector-authored directives are limited to their context and cannot edit the self slot. A directive is not an Assertion: it has no truth value, teller, validity interval, or support. The modelling study found 22 directives stored as ordinary content, including repeated connector material; keeping configuration outside the typology addresses that observed category error ([modelling study](research/2026-08-03/modelling-study.md#directives-are-not-assertions)).
 
-## The self is not a memory
+Claims about the agent remain semantic Assertions. “The agent observed X” may be sourced by an Activity; “the operator instructs the agent to do X” is configuration or a deontic Assertion depending on whether it configures this system or describes an obligation in the world. The write path must choose explicitly rather than infer configuration from imperative prose.
 
-The agent's identity, its voice, its charter, and the standing instructions it operates under are configuration. They live in a dedicated slot outside the typology, not in any of the four kinds.
+## Scenario matrix
 
-They have no teller, no truth value, no credence, no validity interval, and no audience. Nothing about the Statement machinery applies to them, and putting them in the same container as facts is a category error that costs real capacity: [the corpus study](research/2026-08-03/modelling-study.md) found twenty-two directive entries filed as ordinary content in a 198-entry corpus, one of them repeated verbatim ten times because each re-mint re-appended it.
-
-### The slot
-
-The self slot is an append-only sequence of versions, of which one is current. It is:
-
-- Always in context. It is not retrieved, so it cannot fail to be retrieved. No ranking, no similarity, no budget under which it loses to something more recent.
-- Invisible to the memory API. It is not returned by search, not readable or writable through the memory verbs, and cannot be retracted, consolidated, distilled, superseded, or tombstoned. No pass can reach it.
-- Operator-owned. A new version is an operator write. The agent may propose one, and a proposal is an ordinary Statement about the agent that reaches the [exception queue](verified-write.md), not an edit.
-- Versioned rather than mutable, so a change to who the agent is has a date, an author, and a diff, and the prompt reads exactly one version.
-
-The current system keeps the charter as immutable content entries on a `self` memory, which protects the wording and not the slot. Immutability stops an entry being rewritten. It does not stop the entry being retracted, selected into a synthesis by a consolidation pass, summarised into a regenerable description, or dropped from a surface by an audience evaluation. A thing that must appear in every prompt should not be reachable by the machinery whose entire purpose is deciding what to leave out.
-
-### Directives are configuration of their own
-
-"Kind" means a kind of memory throughout this chapter, and a directive is not one. It is the second thing living outside the typology, beside the slot, and it is named separately here to keep the count at four.
-
-The slot holds what the agent is. Directives are instructions about how to behave, and they are neither memory nor charter: they are scoped configuration with their own authors and their own lifecycle.
-
-The live instance makes the distinction concrete. A connector mints a directive when it opens a context, saying what that context is like and how to behave in it, and it re-mints it whenever the context is re-established. Such a directive is per-context, not global; it is authored by a connector, not by the operator; and it is not part of who the agent is anywhere else. The self slot cannot absorb it, because the slot is always in context and singular, and the fact model cannot hold it either, because it has no teller, no truth value, and no audience.
-
-A directive therefore carries four things:
-
-| | |
-|---|---|
-| Scope | global, per-context, or per-conversation. Scope decides where it applies, and a directive is never in a prompt outside its scope |
-| Author | operator or connector. Never the agent |
-| Lifecycle | versioned like the slot, so re-establishing a context supersedes rather than appends. The observed failure is a directive re-appended verbatim ten times, which no amount of structural equality would have fixed, because each copy was a real event |
-| Composition | narrower scope layers over wider, and a conflict is a teachable error to the author rather than a silent precedence rule |
-
-A connector-authored directive is bounded. Nothing else in the design lets a connector write configuration, and the [connector contract](privacy-and-provenance.md) deliberately confines connectors to stubs and naming, so this is a new authority path and gets explicit limits: per-context scope only, never global, never able to touch the self slot, and attributed to the connector wherever it surfaces. A connector that is buggy or compromised can then shape one context's manner and nothing else, which is the blast radius the platform already has anyway.
-
-### What stays on the memory side
-
-Claims about the agent are ordinary Statements with the agent as their subject: what it did, what it noticed about itself, what someone told it about how it comes across. Those carry tellers, accrue credence, can be contradicted, and can be wrong, and the agent writes them as [an ordinary fallible teller](privacy-and-provenance.md). The slot holds only what the agent is by construction, which is not the sort of thing that can be corroborated.
-
-The [frame](statements.md) falls on the memory side of this line, and the distinction is worth keeping sharp. A persona agent's stated opinions are Statements in the `persona` frame. The instruction to speak in that voice is configuration. The first can be learned, superseded, and disputed. The second is a decision someone made.
-
-### Charter authority
-
-A charter the agent can edit drifts without bound, because the drift is self-reinforcing: the next turn reads what the last turn wrote, and there is no outside signal correcting it. This is the same argument that keeps [credence](belief.md) off the writer and [merges](identity.md) below the wall, applied to the one piece of state that conditions every other decision the agent makes.
-
-The cost is real and worth naming. An agent that cannot revise its own charter cannot grow into a different one on its own initiative, and every such change costs operator attention. That is the trade, taken deliberately, and it is the same exception-triggered-attention posture the rest of the design takes.
-
-## Ingesting a long document
-
-Bulk ingestion lands in the typology without needing new kinds, and it does need its own machinery. The earlier claim that it needs none was wrong, and the arithmetic says so plainly.
-
-A long source lands as semantic Statement clusters, with sections and claims becoming Events and Statements linked by composition and summarisation relations, giving the work a navigable structure rather than one undifferentiated blob. Alongside it, an episodic source layer retains each span as the gloss its Statements point at, so any extracted claim traces back to the text that produced it.
-
-The observed-against-recorded split is what makes this coherent: a document written years ago and ingested today records both truthfully.
-
-Not everything in a document warrants extraction. The gate is the same judgement the episode rate needs, and the same discipline applies: retaining raw experience cheaply and structuring selectively is what keeps the cost per fact falling as the store grows.
-
-### Why bulk ingestion needs a path of its own
-
-The [write surface](write-surface.md) structures one utterance per extraction call and writes the call and its response to the log. Against the numbers [`evolution.md`](evolution.md) stage 0c measures, a hundred-thousand-word source chunked into a few hundred spans is a few hundred calls, tens of megabytes of log, and tens of minutes of wall clock before its p90 tail is counted. A document is not a long conversation, and treating it as one violates the fourth commitment directly.
-
-Three properties are therefore owed by a bulk path, and none of them is expressible as a loop over `record`:
-
-- Extraction batches many spans per call, so cost scales with the document rather than with its chunk count.
-- The gate runs before extraction, not as part of it. A judgement about what warrants structuring that is itself a model call per span reduces writes without reducing calls, which is the wrong half.
-- Failure is per span and never loses the source. A span that will not structure stays a gloss under its source layer, exactly as an utterance does.
-
-### The path
-
-`ingest` is a verb of its own and a job rather than a call. The agent supplies a source and the fields no extractor can infer, and receives a handle. The work runs on [the heartbeat's judgement budget](off-turn.md), not inside the turn. Five phases.
-
-The source layer lands first, and calls nothing. The document is chunked deterministically, by heading and then by paragraph windows with fixed overlap, and every span commits as a gloss under one source memory, `observed` at the document's authored date and `recorded` now. This is why failure cannot lose the source: the source is durable before anything capable of failing has run, which is a construction rather than a handler.
-
-The gate is symbolic first and batched second. A model call per span to decide whether a span deserves a model call is the trap this path exists to avoid. So a symbolic pre-filter drops spans with no anchor at all, no resolvable handle, no date, no quantity, no registered relation stem, which removes navigation, boilerplate, and front matter for nothing. What survives is digested to its heading path and opening sentence, and one batched call selects from the digest. The gate costs a call per few hundred spans.
-
-Extraction batches. Selected spans pack into context-sized batches, one schema-constrained call each, every proposal tagged with its span. Cost becomes a function of document length over context window rather than of chunk count, which is the property that makes a long source affordable at all.
-
-Critics run per proposal and call nothing. A rejection does not fail its batch: the span stays gloss-only under the mark [`off-turn.md`](off-turn.md) already defines, retried once. Per-span failure without per-span calls.
-
-Structure lands over the document. Sections become memories under the source, linked by composition, with summarisation relations from a section to its digest, so a long work is navigable rather than one blob.
-
-### Deferred structuring and audience
-
-Ingest is not deferred structuring. The prohibition in [`write-surface.md`](write-surface.md) is on recovering structure from prose the store already treats as settled, which is the re-derivation tax. Here the source layer and its structure land in one job, and nothing reads the source as settled in between: a span committed in the first phase carries a pending mark that keeps it out of search and off every read surface until the job completes or degrades it to gloss-only. Ingest is one transaction spanning several blocks, which is the shape the write surface already accepts when it makes the returned parse a deferred handle.
-
-Audience is per document, not per Statement. A per-Statement audience decision over several hundred Statements is not answerable by anyone, so the required-field discipline is met differently rather than waived: the document carries one transmission principle, inherited by every span and every Statement drawn from it, defaulting to the stricter of what the agent supplied and what the requesting conversation permits. Anything derived later takes the ordinary intersection. Where a document genuinely mixes audiences, the whole of it takes the strict principle and the agent re-records the public parts by hand, which is the same trade [an episode](two-traces.md) makes.
-
-The cost model is four numbers, and stage 0c's harness produces them with the extractor pointed at a document instead of an entry: calls per hundred thousand words at a stated selection rate, recorded bytes per call, wall clock including the tail, and yield per selected span.
+| Scenario | Durable objects | Not implied |
+|---|---|---|
+| A participant shares an image without text | Occasion plus ArtefactReference; optionally an inspection Activity and Perception | No utterance and no automatic Assertion |
+| A tool returns a measurement off-turn | Activity and tool observation; optionally a derived Assertion | No human teller or synthetic Occasion |
+| A long document is ingested | Artefact/Reference, job Activities, transforms or Perceptions, selected Assertions, and source-only spans | No conversational episode per chunk |
+| An episode is generated for a rich session | Source Occasions plus an Activity, its Derivation, and a labelled reconstruction | No new evidence or participant Attestation |
+| A scratch note is promoted | Original note and influence envelope plus a new proposal Activity | The note itself does not become an Assertion |

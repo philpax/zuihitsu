@@ -1,295 +1,321 @@
-# Statements
+# Assertions
 
-A Statement is the atomic unit of the store. Everything the agent knows is a Statement, everything it writes produces one, and every read resolves to a set of them. There is no smaller unit and no parallel container. A fact, an endorsement of a fact, and the provenance of a fact are one object described from different angles.
+The assertion layer separates semantic content, situated claims, support, and production history. Earlier research in [`research/`](research/) used `Statement` for combinations of these objects. Normative chapters use Proposition, Assertion, and Attestation. The filename remains stable to preserve links.
 
-A Statement carries eight things:
+The exact split is a permanence-driven design decision. Research supports addressable contextual assertions and recorded lineage, but it does not establish this exact object model ([report](research/2026-07-24/report.md), [fact-shape lane](research/2026-07-24/lanes/fact-shape.md), [confidence register](confidence.md#evidence-map)).
 
-| | |
+## Object ownership
+
+| Object | Stable identity and cardinality | Owns | Initial fold | Transition union and precedence | Erasure, tombstone, and ID rule |
+|---|---|---|---|---|---|
+| Occasion | One minted ID for one external input event. It grounds zero or more Attestations. | One ordered interleaved typed-content-part sequence, participants, witness evidence, and observed and recorded time. Text or media may be absent. | `recorded` | `occasion_invalidated` applies to malformed or unauthorised source; `occasion_erased` outranks invalidation. There is no semantic correction or restoration transition. | Erasure removes governed parts and leaves the same Occasion ID as a terminal tombstone. Correction mints a new Occasion and links it; replay never reuses the erased ID. |
+| Activity | One minted ID for one execution attempt. It produces zero or more direct Assertions, Perceptions, or Derivations. | Actor/source kind, implementation and input versions, observed and recorded time, and outcome envelope. | `started`, then `completed`, `failed`, or `aborted` from its terminal outcome record | Exactly one terminal outcome wins by append validation; duplicate or conflicting terminal records make the fold `quarantined`. `activity_erased` outranks retained outcome payload. Retries mint new Activity IDs linked to the attempted operation. | Erasure strips governed input/output payload and leaves the same Activity ID, outcome class, and permitted audit tombstone. It cannot become runnable again. |
+| Artefact | One algorithm-independent minted ID for one immutable byte sequence. Many references and digest assertions can identify it. | Byte identity and mechanically observed metadata. | Availability `unavailable` until verified storage exists; retention is the fold of live authorities. | Verified locations produce `available`; collision evidence produces `quarantined` and outranks availability; loss produces `unavailable`; terminal erasure outranks all. | Erasure leaves the same Artefact ID and permitted digest/destruction tombstone. New bytes always mint a new ID. See [artefacts and perceptions](artefacts-and-perceptions.md). |
+| ArtefactReference | One minted ID for one Occasion-specific sharing act. | Supplier, ordered part position, name, caption, transmission principle, and retention authority. | `authorised` | `reference_withdrawn` or `reference_retracted` deny use; `reference_authority_restored` may follow only either reversible state; terminal `reference_erased` outranks all and rejects restoration. | Erasure leaves the same reference ID as a terminal tombstone. A later sharing mints a new reference. One reference's fold never alters another. |
+| Perception | One minted ID for one fallible model/tool observation produced by one Activity. | Consumed-reference edge, selector, pipeline, versions, output, and influence envelope. | `current` | `perception_superseded`, `perception_retracted`, or `perception_invalidated` replace `current`; terminal `perception_erased` outranks them. Conflicting current successors quarantine the projection. | Erasure removes output and governed selector payload under the same terminal ID. A correction mints a new Perception and appends supersession. It is never testimony. |
+| Event | One minted ID for one proposed happening identity. Role, occurrence, and attribute Assertions refer to it. | Happening identity only. | `live` | `event_invalidated` marks an unsupported identity; `event_erased` is terminal. Co-reference transitions apply to a separate hypothesis and composite, never to the Event. | Invalidation or erasure retains the source Event ID as a tombstone. Correction mints another Event or Assertion; merge and severance never consume or restore an Event ID. |
+| Event-resolution hypothesis | One minted ID for one member set and immutable proposal evidence. Acceptance mints one separate composite-resolution ID. | Member Event IDs and the ResolutionEnvironment. | `candidate` | `resolution_accepted`, `resolution_rejected`, `resolution_withdrawn`, and `resolution_superseded`. Withdrawal of an accepted hypothesis retires its composite and invalidates dependants. Erasure of governed evidence can force `withdrawn` or terminal tombstoning. | Member Event IDs survive every transition. The hypothesis and composite IDs remain historical tombstones and are never reassigned. |
+| Task | One minted ID for one authorised agent action intent. | Actor, arguments, audience, source, and optional due or target time. | `proposed` | `task_activated`, `task_completed`, `task_cancelled`, `task_superseded`, and `task_erased`; completed, cancelled, superseded, and erased are terminal for that ID. | Erasure leaves a terminal Task tombstone. A renewed intent mints a new Task. A Task cannot fire without a live Trigger. |
+| Trigger | One minted ID for one versioned firing condition and action binding for one Task. | Condition, action binding, timing policy, and scheduler authority. | `inactive` | `trigger_armed`, `trigger_fired`, `trigger_cancelled`, `trigger_superseded`, and `trigger_erased`; fired, cancelled, superseded, and erased are terminal for that ID. | Erasure leaves a terminal Trigger tombstone and never re-arms it. A replacement mints a new Trigger. Only an armed Trigger for an active Task may invoke action. |
+| Proposition | One canonical semantic key for subject, relation, object, frame, polarity, and modality. Many Assertions may share it. | Semantic coordinates only. | `defined` while at least one retained Assertion or governed definition refers to it | It has no semantic transition union. Assertion transitions change situated claims, not Proposition equality. A definition-version conflict quarantines affected reads rather than changing the key. | Erasure removes governed coordinate payload and leaves a non-resolvable key tombstone where permitted. Re-creation with erased coordinates is forbidden; a semantically different proposition has a different key. |
+| Assertion | One minted ID for one Proposition, validity interpretation, and immutable `asserted` or `quoted` mode. Many Attestations may support it. | Situated semantic claim and validity. | `candidate` | `assertion_settled`, `assertion_demoted`, `assertion_validity_closed`, `assertion_superseded`, `assertion_retracted`, `assertion_invalidated`, and `assertion_erased`. Erasure is terminal; supersession selects one current successor or quarantines conflict. | Correction mints a new Assertion and links it. The old ID remains historical or terminal; no transition changes its Proposition or mode. |
+| Attestation | One minted ID for one teller's support of one Assertion. | Expression strength, Occasion, source locators, witness/dependence inputs, and transmission principle. | `live` | `attestation_retracted`, `attestation_invalidated`, and `attestation_erased`; erasure is terminal. Retraction removes only this support and has no restoration transition. A renewed telling mints another Attestation. | The same ID remains as a permitted tombstone. Last-support loss changes the Assertion's support projection, not its identity or source record. |
+| Derivation | One minted ID for one recorded production with exactly one typed output. One Activity may produce zero or more Derivations. | Typed inputs and output, versions, ResolutionEnvironment, assumptions, source head, and influence envelope. | `current` | `derivation_invalidated`, `derivation_superseded`, and `derivation_erased`; erasure is terminal. Invalidated assumptions always outrank current output. A replacement result uses a new Derivation and output ID. | Erasure removes governed inputs/output payload and leaves lineage tombstones. It never edits inputs or repoints the old output; recomputation records new IDs from surviving authorised inputs. |
+
+Identity-bearing records are immutable. Corrections, supersessions, promotions, retractions, co-reference decisions, and invalidations append transition records. A versioned fold derives `candidate`, `settled`, `current`, `superseded`, `retracted`, and `invalidated` states. These names describe projection state, not mutable source records.
+
+### Common transition acceptance and fold algorithm
+
+Every lifecycle table and chapter uses this algorithm. A transition request, authorization decision, and accepted state transition are distinct immutable records. Only an accepted state transition enters the target object's fold.
+
+1. Resolve the target source record and its type/version at the transition's recorded `source_head`. A missing, erased, wrong-type, or not-yet-existing target rejects the transition.
+2. Verify the transition authority and policy version, its exact target ID, its ordered predecessor transition IDs, and its expected prior folded state. The predecessor list must equal the accepted chain heads for that target at `source_head`; it cannot skip an accepted transition. A stale, duplicate, or impossible transition is recorded as a denied decision and does not enter the chain.
+3. Validate the object-specific transition matrix. A non-terminal transition is accepted only from a listed prior state. An erasure transition is accepted from any non-erased state after its allowed erasure decision and closure preconditions pass. No state transition is accepted after terminal erasure. Restoration is object-specific and never implied; ArtefactReference restoration is valid only from `withdrawn` or `retracted`.
+4. Order accepted transitions by the append sequence recorded in the log. Fold from the object's declared initial state through that single predecessor chain. A denied request, failed authorization, or operator-only trace has no fold effect.
+5. If two transitions both claim the same predecessor chain head, append validation accepts at most the first valid transition. If a damaged or imported log contains multiple accepted successors for one predecessor, the projection is `quarantined`; it does not select “latest”. A governed resolution appends a conflict-resolution record that names all branches and either selects one retained branch or terminally erases the target. It never rewrites a branch.
+6. `erased` is terminal and has highest projection precedence only because no successor transition can be accepted. Replay preserves the accepted chain, denied decisions, quarantine evidence, tombstone, and exact IDs. It never reconstructs erased payload or applies a denied late transition.
+
+Per-object tables define the legal prior-state matrix and fold effect. When another chapter says “latest applicable transition”, `applicable` means the final member of this validated single predecessor chain, not the transition with the greatest timestamp or sequence among competing requests.
+
+```text
+Occasion --contains--> ArtefactReference --refers-to--> Artefact
+    |                                      |
+    +--grounds--> Attestation              +--input-to--> Perception
+                     |                                       |
+                     v                                       v
+Proposition <--means-- Assertion <--output/source-------- Activity
+                         ^                                   |
+                         +------------- Derivation <---------+
+
+Event <--subject/object of role and attribute Assertions
+```
+
+## Occasion and Activity
+
+An Occasion represents an external input event and owns one ordered sequence of typed content parts. Text parts preserve their order and can jointly form the utterance; media parts name ArtefactReferences in that same sequence, so text and media can interleave without a second ordering field. A text-only, artefact-only, mixed, or empty-content control Occasion is representable. A compound utterance produces one Occasion and any number of Propositions, Assertions, and Attestations. The system does not manufacture separate source phrases for extracted claims.
+
+An Activity represents an action by the agent, an operator, a tool, or a model. A direct agent observation, operator assertion, tool observation, Perception, or Derivation cites an Activity. It does not require a synthetic utterance or human teller. Activity authority and source kind remain explicit.
+
+Occasion and Activity record observed time and recorded time. Assertion validity describes when semantic content applies. Event occurrence is not a field on Event identity: one or more Event-attribute Assertions carry occurrence values, and an audience-safe read projects the applicable value. [Time](time.md) owns the typed time rules.
+
+## Proposition
+
+A Proposition is canonical semantic content:
+
+```text
+(subject, relation, object, frame, polarity, modality)
+```
+
+Proposition equality includes all six coordinates. It excludes teller, provenance, audience, Occasion, validity, and assertion status. Relation, frame, modality, entity-kind, and value encodings use registered stable definition IDs and versions. [Relations](relations.md) owns schema governance.
+
+The subject is a stable entity or Event handle. The object can be:
+
+- a stable handle;
+- a typed date, duration, quantity, bounded count, or recurrence value;
+- an opaque literal for formal content that the ontology does not model;
+- a Proposition reference for a bounded propositional attitude;
+- an utterance, Occasion, ArtefactReference, Perception, or Activity reference for metalinguistic and provenance claims.
+
+The frame identifies the referential layer. The initial values are `system`, `persona`, and `source`; they are disjoint from modality values. A governed write-time `principal` redirect can resolve through a registered `presents` relation and records the resolution dependency. `principal` is not a stored frame. Stored Propositions contain the resolved subject and one ordinary frame.
+
+Polarity is `positive` or `negative` from genesis. Lexical negation canonicalises into polarity over the same positive relation and object core. Relation IDs and object values must not duplicate ordinary negation. A lexically negative relation name is permitted only when its registered semantics are not the logical complement of another relation. Negative quantities remain signed typed values unless the utterance negates the whole proposition, and negative modality such as `not_planned` is distinct from negative polarity over an actual claim. These invariants make “works at X” and “does not work at X” mechanically comparable.
+
+Modality is a registered extensible axis with `actual`, `planned`, `hypothetical`, `habitual`, `deontic`, and `cancelled` in its genesis definition. `cancelled` describes proposition force and never arms or cancels a Task by itself. “Not planned” is negative polarity over a `planned` Proposition, not a new modality value. Initial inference can treat non-actual modalities opaquely. It cannot omit the identity coordinate and add it retrospectively.
+
+A count records amount, kind or unit, exactness, and optional lower and upper bounds. Named participants remain individual Event role Assertions. Collective versus distributive readings can remain in the utterance when no governed representation exists.
+
+Some content has no useful Proposition. Figurative language, analogy, and unmodelled formal content can remain source-only. Artefact-only Occasions are also valid. The assertion layer does not claim to represent everything the agent can retain.
+
+## Assertion
+
+An Assertion situates a Proposition. Its source record contains:
+
+- the Proposition ID;
+- typed validity with precision, uncertainty, and timezone ownership where applicable;
+- immutable `assertion_mode`: `asserted` or `quoted`;
+- the producing proposal or direct SourceAuthority record.
+
+A SourceAuthority is an immutable non-testimonial record for a direct agent observation, operator assertion, tool observation, or other direct Activity source. It has a minted ID and records the Activity ID, authenticated actor and source kind, source locators or typed observation edges, registered transmission principle and version, audience-decision ID, InfluenceEnvelope, observed and recorded time, and authority-policy version. It folds `live`, `retracted`, `invalidated`, or terminal `erased` under the common transition algorithm. It is not an Attestation and never contributes a teller or independent testimonial support. An Assertion sourced only by SourceAuthority is visible or actionable only when that source's principle, subject guard, influence envelope, and erasure state all clear for the caller.
+
+Assertion mode and lifecycle are independent. A quoted Assertion cannot become asserted through a lifecycle fold; a later flat assertion mints a separate Assertion. `candidate` is the versioned lifecycle default when no transition exists. It is not a mutable field or a second copy of creation state.
+
+| Assertion transition | Fold effect |
 |---|---|
-| Claim | a typed triple, or a reference to an [Event](events-and-roles.md) |
-| Frame | which referential layer the claim is made in |
-| Gloss | a reference to the utterance the claim was drawn from |
-| Provenance | who said it, where, and when it was observed against when it was recorded |
-| Validity | the interval over which the claim holds in the world |
-| Credence | how strongly it is held, and on what evidence |
-| Transmission principle | who may learn it, and under what condition |
-| Derivation | for a derived Statement, what it was derived from and under which assumptions |
+| `assertion_settled` | `candidate` becomes `settled` under the named promotion policy. |
+| `assertion_demoted` | a live `settled` Assertion returns to `candidate`; the earlier settlement remains historical. |
+| `assertion_validity_closed` | closes the live validity bound with a cause such as world change, expiry, correction, retirement, or unknown; it does not change lifecycle or source. |
+| `assertion_superseded` | the Assertion becomes `superseded` and names its replacement. |
+| `assertion_retracted` | the Assertion becomes `retracted` without deleting retained payload. |
+| `assertion_invalidated` | the Assertion becomes `invalidated` because an assumption, authorization, or resolution dependency no longer holds. |
+| `assertion_erased` | governed payload is unavailable and only permitted tombstone metadata remains. |
 
-The rest of this chapter takes each in turn. Two of them, the frame and the gloss, exist because [the modelling study](research/2026-08-03/modelling-study.md) found the model without them could not hold real recorded content.
+Transitions name actor/authority, reason, evidence, policy version, and source head. The fold rejects conflicting terminal transitions unless a later governed transition explicitly supersedes the earlier decision.
 
-## The claim
+The Assertion ID remains stable. Repeated disjoint validity periods create separate Assertions over the same Proposition. A correction or refinement appends a replacement or supersession transition. It retains the source Occasion and original words. A validity closure records whether the cause was a real-world end, correction, expiry, retirement, or unknown. It does not rewrite the original Assertion.
 
-A claim takes one of two shapes.
+Candidate promotion is explicit and reversible. A promotion transition names the policy version, evidence, actor, and source head sequence. Default conversational reads return settled Assertions unless the caller requests candidates. Operator views can inspect both. Policy changes rebuild a versioned projection and do not silently alter the historical meaning of a transition.
 
-A triple relates a subject to an object through a registered relation:
+Quotation and assertion stay separate. A quoted Assertion is only visible through its containing attitude or quotation relation. A later flat assertion creates another Assertion and appends promotion or corroboration lineage between them. It never turns the quoted record into an asserted one.
 
-```
-s1  (person/rowan, worked_at, org/northwind)
-```
+## Attestation
 
-An event reference points at an Event node carrying role-edges. That is how a happening with more than one participant is held:
+An Attestation records one teller's support for one Assertion on one Occasion. It contains:
 
-```
-s2  → e1
-e1  event/create
-    agent   person/wren
-    theme   person/quill
-    source  topic/instance_architecture
-    time    [2026-07-14, 2026-07-16)
-```
+- teller;
+- expression strength such as hedged, plain, or emphatic;
+- source locators;
+- transmission principle;
+- witness evidence and dependence lineage;
+- observed and recorded time where these differ from the Occasion;
+- source kind and authority.
 
-The subject is always a memory handle. The object is one of five things:
+One Assertion can have Attestations from different tellers, Occasions, audiences, expression strengths, or distinct source acts by the same teller on the same Occasion. One stable Attestation represents one source act; teller, Occasion, and Assertion alone are not a uniqueness key. A hedge followed by a flat assertion remains two Attestations linked as continuation or refinement. Expression strength qualifies the act of telling. It does not change Proposition identity and does not count as independent corroboration.
 
-- a memory handle, for a claim relating two known entities
-- a typed value: a date, a duration, a measure with a unit, a count over a kind, or a recurrence, each of which is a first-class value rather than a string that happens to parse
-- an opaque literal, for content that has internal structure the store does not model, such as a formula or a code fragment
-- another Statement, for a propositional attitude
-- a gloss or turn reference, for a claim about something that was said
+| Attestation transition | Fold effect |
+|---|---|
+| `attestation_superseded` | replaces one source act's interpretation while retaining the original. |
+| `attestation_retracted` | removes this teller/source act's live support without deleting payload. |
+| `attestation_erased` | removes governed payload and leaves only the permitted tombstone. |
 
-The last of these is what a metalinguistic claim needs. A large part of what a personal agent records is somebody's stance toward a specific past utterance: rating a line, conceding one phrase and disputing another, quoting how they were described. The target is a thing that was said, which the store already holds as a first-class node. Neither of the alternatives works. An opaque literal duplicates text the gloss already carries and cannot be queried. Minting a handle for a passing phrase is the same error that [counting](#counting) exists to avoid.
+If the last visible live Attestation is retracted or erased, the Assertion remains addressable but has no audience-safe testimonial support. The promotion policy may append `assertion_demoted`; the Attestation fold never mutates Assertion lifecycle implicitly. A direct Assertion from an Activity cites SourceAuthority and does not fabricate a human Attestation.
 
-### A Statement as an object
+[Belief](belief.md) computes testimonial support over visible live Attestations. [Privacy and provenance](privacy-and-provenance.md) resolves Attestation and SourceAuthority audiences before either can affect a read or action.
 
-A large part of what a personal agent records is not a claim about the world but a claim about someone's stance toward the world: what they argue, deny, warn about, or concede. The object of such a claim is itself a claim.
+## Source locators
 
-```
-s3  (revolution/1789, was, rewrite_of_legacy_system)
-s4  (person/quill, argues, s3)
-```
+A source locator is a typed union:
 
-`s4` is asserted. `s3` is quoted, not asserted: it is visible only as the object of `s4`, never as a fact about `revolution/1789`, and never returned by a read that asks what the store believes about the revolution. This is the same quotation boundary that governs claims arriving from another agent, applied one level inward.
+| Kind | Target |
+|---|---|
+| `text_part_span` | Stable Occasion text-part ID plus Unicode scalar or registered-tokenizer half-open span |
+| `whole_artefact` | ArtefactReference, whole-Artefact selector ID/version, and resolved Artefact ID |
+| `artefact_selector` | ArtefactReference plus selector ID/version targeting the resolved original or derived Artefact |
+| `tool_observation` | Tool Activity and output field |
+| `agent_observation` | Direct-observation Activity |
+| `operator_assertion` | Governed operator Activity |
+| `derived_conclusion` | Derivation and typed input edge |
 
-Nesting is bounded to one level. A claim about a claim about a claim is expressible as prose in the gloss, and the machinery to hold it structurally is not worth its cost.
-
-The bound costs something real, and the corpus shows where. An attitude toward a position rather than toward a proposition is depth two: rebutting the view that something was a crash, rather than rebutting the claim itself. Flattening it to depth one discards that the disagreement is with a stance somebody holds. Part of the attitude class this mechanism is justified by has that shape, so the fix covers most of the class rather than all of it.
-
-The alternative is to put an unparsed sentence in the object slot. That reinstates prose-as-fact one level down, which is the specific thing this model exists to prevent.
-
-### Counting
-
-"Quill has five ice creams" is neither one claim about an entity nor five claims about five entities. Minting five ice-cream handles nobody will ever refer to individually is unwarranted, and putting the number in the prose puts it beyond every query.
-
-A count over a kind is a typed value in the object slot:
-
-```
-s5  (person/quill, possesses, count(5, kind/ice_cream))
-    valid  [2026-07-14, 2026-07-16)
-```
-
-A count carries an amount, an optional unit, and optional upper and lower bounds. That is Wikidata's quantity shape, adopted wholesale. The bounds are what distinguish "about a hundred thousand words" from "exactly a hundred thousand words", and [the corpus study](research/2026-08-03/modelling-study.md) found both shapes recorded, along with several that were explicitly approximate.
-
-Three further properties make this worth having as a value rather than a qualifier.
-
-A count that changes is a window closing. Eating one does not contradict the claim that there were five; it ends it. The count-of-five interval closes and a count-of-four opens, and both remain readable, which is the same mechanism every other time-bounded claim uses.
-
-A count declares whether it is closed. "Has five" and "has at least five" are different claims, and only the first is contradicted by a sixth. The value carries which was meant, so a later mention of a sixth is either a contradiction to be weighed or an ordinary update.
-
-A count can be refined into individuals. When one member becomes salient, which usually happens when something happens to it, the count is superseded by window-closing and individuated claims take over. The refinement is an ordinary supersession rather than a rewrite, so nothing that referred to the count is orphaned.
-
-This is instance-level cardinality: a fact about one thing at one time. It is distinct from the class-level cardinality declared on a [relation definition](relations.md), which constrains every instance and is enforced by a critic. Both exist, and they are different mechanisms. See [`lineage.md`](lineage.md) for how the distinction descends from OWL's qualified cardinality restrictions.
-
-Measures with units, such as a word count or an elapsed duration, are the neighbouring case and use the same slot. [The corpus study](research/2026-08-03/modelling-study.md) found both written into prose with their units, uninterpretable to any query.
-
-A count over participants is for the unindividuated case only. Where the participants are known people they are role-edges on an [Event](events-and-roles.md), one per participant, each an independently addressable Statement with its own teller and its own audience. Collapsing known participants into a count discards exactly the property the Event node exists to provide. "About thirty people showed up" is a count; "Wren, Rowan, and Quill lifted the piano" is three `agent` edges. A count whose members later become salient individuates by the ordinary refinement above.
-
-The same rule decides how a list is recorded. Nine named authors are individuated by the speaker in the act of listing them, so they are nine Statements rather than one opaque list. The list form is reserved for the case where nobody has individuated anything, where it is the same object as a count over a kind. A list that begins vague and later becomes specific refines exactly as a count does.
-
-Collective and distributive readings are not distinguished in either shape. Whether they lifted it together or separately lives in the gloss.
-
-This is a declined distinction, not an unknown one. Conceptual graphs mark it in the notation, separating a collective plural from a distributive one, and the lattice-theoretic treatment of plurals behind that notation is mature. The design declines to pay for it, and [`research/2026-08-03/counting-and-quantity.md`](research/2026-08-03/counting-and-quantity.md) records where to go if plurals ever become load-bearing.
-
-## The frame
-
-Every Statement declares which referential layer it is made in. The layer is a small closed set:
-
-- `actual`: the claim is about the entity as it exists. A bot's model version, a person's employer, a room's topic.
-- `persona`: the claim is about a character the entity presents. A persona agent's opinions, its stated history, its manner.
-- `source`: the claim is about the material a persona is drawn from. The historical figure behind a character, the corpus behind a voice.
-
-```
-s6  (person/quill, runs_on, model/opus-4.8)          frame actual
-s7  (person/quill, admires, doctrine/single_chamber)  frame persona
-s8  (person/ferrer, executed_in, 1794)                frame source
-```
-
-Without the frame, `s8` written against `person/quill` is well-typed, passes every critic, and is false. Domain and range checks cannot catch it because the types are correct. The error is in which layer the predicate applies to. The study found this failure live, in a corpus where 39% of entries sat on a single persona agent, a quarter of them touching the historical layer and several mixing two layers inside one entry.
-
-The frame is load-bearing in three places. A read defaults to `actual` and must opt into the others, so a question about what a bot runs on never returns what its character believes. A `source` claim never propagates to the entity presenting the persona. A frame mismatch between subject and relation is a checkable condition, so the critic bank has something to check.
-
-The frame is not a hedge and not a credence. A `persona` claim can be perfectly certain; it is simply certain about a character.
-
-What the frame does not fix is a wrong subject. It marks which layer a claim is made in, on a subject already chosen. A claim about the person behind a persona that was filed onto the persona itself is not repaired by any of the three values: the claim is not about the character, and `source` points at the material the character draws on rather than at the principal presenting it. The corpus contains that case: a detail about the operator's household recorded against the persona agent, publicly.
-
-### Redirection to a principal
-
-The fix is not a fourth layer. A value meaning "in the principal's layer" leaves the persona as the triple's subject and asks every reader to re-target, so a question about whose cat it is still has to know to traverse. A second subject coordinate is worse: two subjects is the scope ambiguity the one-level qualifier discipline exists to prevent.
-
-Instead the doctrine already running elsewhere applies: the frame says which layer, the substrate says which handle.
-
-`presents` is a seed [relation](relations.md) from a principal to a persona. `principal` joins the frame's closed set as a redirect marker rather than a layer. It means: re-target this claim at the subject's principal. A hard critic resolves it at write time, reading the `presents` edge, rewriting the subject, and storing the frame as `actual`. What lands is an ordinary claim about the person, with a provenance qualifier recording that it arrived by way of the persona. Nothing downstream ever sees the marker, so the stored frame stays three-valued and every read defaults as before.
-
-Four properties make it safe.
-
-It is declared, never inferred. An extractor may not propose redirection, because a misfire files a claim about a bot onto a human, and that failure direction is severe. Only a writer who understood the conversation sets it.
-
-An unknown principal is a teachable error, not a guess. If no `presents` edge resolves, the write is refused with the question that would fix it, and a persistent failure reaches a person like any other schema gap.
-
-It is revocable. The redirect records as a derivation whose assumption stamp names the `presents` edge, so withdrawing that edge voids the redirected claims on the next fold. This reuses [the severance fold-filter](identity.md) rather than reinventing it.
-
-It makes the subject guard bind the right person. That is the live failure exactly: a household detail about a real person sat publicly on a bot's memory, where no guard about that person applied to it. Under redirection the claim is about the person, so the guard that protects them is the one that runs.
-
-The agent-facing cost is one more value in a small enum. It is the easiest of them to answer, because it maps onto a question a participant in the conversation always knows: is this about the character, or about the human behind it? With it, the closed set covers the persona relationship completely: `persona` for the character, `principal` for the person presenting it, `source` for the material the character draws on.
-
-The approach is also not new. Cyc solved this generally with microtheories, asserting in a fiction context that a character is a fourth-grader while asserting in the real-world context that the same character is a cartoon. The frame is a deliberate simplification of that idea: closed where microtheories are open, three-valued where they are a lattice, and checkable by a critic where a general context logic is not. See [`lineage.md`](lineage.md).
-
-## The gloss
-
-A Statement points at the utterance it was drawn from. It does not contain it.
-
-This distinction is the one the modelling study forced. A single sentence routinely yields many claims: one observed biography entry carried nationality, residence, four employers, two projects, and a name. Those are eight Statements and one utterance. Splitting the sentence eight ways would manufacture eight phrases nobody said, so the gloss is shared:
-
-```
-g1  utterance, turn:01J7…
-    "Australian programmer living in Sweden, worked at Northwind and
-     three others, designed the file format, real name withheld"
-
-s9  (person/rowan, nationality, country/au)      gloss g1
-s10 (person/rowan, resides_in, country/se)       gloss g1
-s11 (person/rowan, worked_at, org/northwind)     gloss g1
-…
-```
-
-The gloss is a second trace, not a fallback. It is indexed in its own right and retrieved alongside the structure rather than consulted when structure fails. The two carry different things and answer different questions: the structure supports precision, and the narrative supports recall. Where a question turns on sequencing, change over time, or synthesis across occasions, the gloss is what carries the answer. Where a question is a single lookup, the gloss adds nothing. See [the two traces](two-traces.md).
-
-Sharing a gloss has a consequence worth stating: visibility is per-Statement, not per-utterance. The biography above yields seven public Statements and one private-to-teller, from one sentence. A compound utterance cannot carry a single transmission principle, and the store does not ask it to.
-
-Some content survives only as a gloss. Metaphor, analogy, and reframing have no claim to extract, and any structural decomposition destroys what was said. A Statement over such an utterance carries a weak claim about its subject and leans on the gloss for everything else. This is a designed outcome rather than a shortfall.
-
-## Provenance
-
-Provenance qualifiers sit exactly one level deep. A qualifier never carries its own qualifier, because a qualifier modifying a qualifier makes scope ambiguous and the ambiguity is not worth what it buys.
-
-```
-s12 (person/wren, keeps_pet, animal/pepper)
-    told_by   person/wren
-    told_in   turn:01J7…
-    expressed hedged
-    observed  2026-07-14
-    recorded  2026-07-16
-```
-
-`expressed` records how firmly the telling was put: hedged, plain, or emphatic. It qualifies the act of telling, not the claim, and it is deliberately not a credence. Two people each saying "probably" are two tellers who both declined to commit, which is a different state from two people asserting flatly, and a model that keeps only the count cannot tell them apart. Keeping it here rather than as a nested attitude matters because hedging is constant: paying for a Statement-in-an-object-slot every time somebody says "I think" would be disproportionate, where a qualifier on the telling costs one field. See [belief](belief.md) for what it does and does not move.
-
-`told_by` names a teller. A Statement with several tellers is a fact a set of people stand behind, which is what an endorsement is. There is no separate attestation object, and each teller's endorsement carries its own transmission principle and its own retraction authority. The last teller's retraction ends the Statement's life; an earlier one's does not.
-
-The observed-against-recorded pair is a genuine axis, not bookkeeping. It is what lets a document authored years ago and ingested today record both truthfully, and it is what relieves the pressure to date a claim by the day it was heard. A claim whose utterance anchors no time leaves its validity open and still sorts correctly, because the occasion of learning is held by the [episode](memory-typology.md) rather than carried inside the claim.
-
-### Who else heard it
-
-Provenance names the teller. Who else was there belongs to the [gloss](two-traces.md) rather than to each Statement, because it is a property of the occasion: one sentence spoken in a room of four yields eight Statements and one account of who heard it.
-
-That account is two sets, because one field cannot serve both readers. The disclosure set is who demonstrably took part, and it is the only one the audience evaluator reads. The exposure set is who the utterance reached, and it is read only by the dependence test. See [privacy and provenance](privacy-and-provenance.md) for why the narrow one licenses and the wide one only suppresses.
-
-```
-g1  utterance, turn:01J7…
-    told_by    person/wren
-    disclosure [person/rowan]
-    exposure   [person/rowan, person/quill]
-```
-
-Two mechanisms read these, and neither is computable without them.
-
-A [transmission principle](privacy-and-provenance.md) is evaluated against the present audience less the disclosure set. Something said in front of four people is not a confidence held from any of the four. Withholding it from someone who was standing there is not discretion, and it is conspicuous to a person who knows better.
-
-[Dependence between attestations](belief.md) is partly determined by the exposure set. Two tellers who were both present when a third said something are not two pieces of evidence, and in a shared channel that is the ordinary case rather than the exception.
-
-The disclosure set widens an audience, which no other field in the model does, so it is built from demonstrated participation rather than from channel membership. See [privacy and provenance](privacy-and-provenance.md).
-
-Two rules about the agent's own place in this follow, and both exist to stop the agent inflating its own evidence.
-
-The agent is a witness to everything told to it, and never an independent teller of it. A claim the agent re-records in its own words is the same claim it was told, so the re-recording adds an occasion and not a teller. Without this rule, a single sentence read back into the store counts as corroboration from two sources, which the live corpus makes a large problem rather than a theoretical one: a substantial fraction of recorded content is agent-told, much of it restating what a participant had just said.
-
-What the agent says is an utterance like any other. Its outbound turns produce glosses whose witnesses are their recipients, which is what makes a relay chain visible. If one person tells the agent something, the agent relays it, and the recipient later tells it back, the second teller is genuinely distinct and their evidence is entirely derived from the first. That is dependence through the agent rather than through a shared occasion, and it is detectable only because the relay left a record. See [belief](belief.md).
-
-## Validity
-
-A claim holds over an interval, which may be open at either end.
-
-```
-s13 (person/rowan, worked_at, org/northwind)  valid [2019-03, 2021-06)
-s14 (person/quill, runs_on, model/opus-4.8)   valid [2026-07-16, …)
-```
-
-Supersession closes a window; it never deletes. Learning that someone has changed employer closes the old interval and opens a new one, and both remain readable. This is what makes "where did they work in 2020" answerable at all, and it is why a time-bounded fact stops having to be prose.
-
-A closure records why it happened, as a small closed set: superseded by a later claim, corrected by one, expired against a stated horizon, retired as no longer worth carrying, or withdrawn by its teller. Without the reason, a claim that was corrected and a claim that simply stopped holding read identically afterwards, which is the same conflation the retraction distinction below exists to prevent, one level down. The values are the decisions [the staleness ladder](time.md) already enumerates, and an explicit unknown is available so declining is recorded rather than guessed.
-
-Two supersession axes stay distinct. Closing a validity window says the claim stopped being true. Retracting says it was never true. Conflating them loses the difference between a person changing jobs and the store having been wrong about their job.
-
-Dates, durations, quantities, and recurrences are typed values throughout, with strings only at the input boundary. See [time](time.md).
-
-## Credence
-
-Credence is derived from evidence, never from a model stating a number. It moves on the count and independence of the tellers who stand behind a claim, weighted by how reliable each has been.
-
-The agent sees a coarse ordinal with its evidence attached, because that is the granularity the distinction supports:
-
-```
-s15 (person/quill, persona_of, person/ferrer)
-    credence  confirmed · two independent tellers
-```
-
-A claim recorded as a hedge does not need the hedge in its text. "Likely drawn from Ferrer" and a later flat assertion of the same relation are one Statement told twice, not two entries whose relationship is invisible. How firmly each telling was put rides the `expressed` qualifier above. The credence moves only if a second independent teller arrives, because one person growing surer is not corroboration. See [belief](belief.md).
-
-Two tellers who are repeating each other are not two pieces of evidence. Dependence between attestations is a provenance determination, and dependent evidence produces no confidence gain. See [belief](belief.md).
-
-## Transmission principle
-
-Each Statement carries the condition under which it may travel, as data rather than as a fixed enum: in confidence, attributed to its teller, public, reciprocal, or restricted to a named purpose.
-
-The evaluator resolves a principle against the present audience and the log's history, cheaply and fail-closed. A principle is a predicate, not a query, and the surface stays a small vocabulary the agent can reason about. See [privacy and provenance](privacy-and-provenance.md).
+Selectors are part of the genesis representation. Initial image policy can use only whole-artefact selectors. Later page, frame, and region policies therefore add behavior without changing old records.
 
 ## Derivation
 
-A derived Statement, one produced by consolidation, distillation, or inference rather than by an utterance, records what it came from:
+A Derivation is produced by one Activity, has typed inputs, and records exactly one computed output. Inputs can be positive Assertions, audience-safe negative query results, aggregates, tool observations, Perceptions, schema definitions, policies, and a unified ResolutionEnvironment with explicit identity and Event components. A direct Activity result may omit Derivation only when it records an uncomputed direct observation or operator assertion. Any transformation, aggregation, inference, extraction, or criterion-dependent result requires a Derivation. A negative result records the exact query, audience, source head, and projection version. Absence outside that bounded context is not evidence.
 
-```
-s16 (person/rowan, collaborates_with, person/wren)
-    derived_from  [s1, s4, e1]
-    activity      link-inference
-    agent         model:…, template:…@v3
-    criterion     co-participation in two or more events
-    assumes       [merge#7]
-```
+Every Derivation records:
 
-Provenance is computed with the conclusion rather than attached afterwards, and it records the evidence and the criterion, not merely which model and template ran. The assumption stamp lists the revocable assumptions the derivation treated as holding, which is what makes retraction propagate: withdrawing `merge#7` voids everything stamped with it and re-derives from what remains.
+- exactly one typed output: an Assertion, a Perception, or a derived Artefact;
+- the producing Activity ID, where one Activity can produce zero or more Derivations and every retry uses a new Activity;
+- for a derived Artefact, the input selector, output Artefact ID, transform pipeline and version, audience decision, and retention and erasure dependency;
+- criterion and implementation version;
+- ontology and policy definition versions;
+- one unified ResolutionEnvironment containing explicit identity and Event resolution components, their accepted hypothesis/composite IDs and versions, conflict and clearance policies, audience identity assurance where relevant, ontology/policy versions, restricted candidates if authorised, and source head;
+- assumptions;
+- complete recorded input edges where available;
+- source head sequence;
+- resulting transmission and influence envelope.
 
-A derived Statement's transmission principle is the intersection of its premises', computed with the conclusion like everything else in the record. This holds wherever a derivation happens, on a turn or in [a pass](off-turn.md). It is what stops an inference from being the aggregate leak the [distillation boundary](privacy-and-provenance.md) exists to prevent: a conclusion that could only have been reached from a confidence is that confidence, restated.
+A withdrawn assumption invalidates dependent Derivations in a rebuilt projection. The transition does not delete or edit the original result. A response to "how do you know?" returns complete recorded lineage when the operation captured it. Other operations return an audit trace and state its limits. The system does not call every trace a proof.
 
-## Equality
+## Mechanical contradiction
 
-Two Statements are the same Statement when their claim, frame, validity interval, and assertedness agree. This is a structural test, not a similarity threshold.
+Contradiction detection covers a small registered subset. The polarity-free proposition core is `(subject, relation, object, frame, modality)`. Full Proposition equality remains the six-coordinate key that also includes polarity.
 
-Assertedness is in the key because leaving it out collapses a quotation into a belief. A proposition quoted as the object of one person's attitude and the same proposition later asserted flatly by someone else share a claim, a frame, and an interval, and they are not the same Statement: one is a fact the store holds and the other is a fact about what somebody said. Collapsing them either makes the store believe what it only quoted, or swallows a real assertion into a node that is never independently retrievable.
+Two Assertions are mechanically contradictory when audience-safe settled records satisfy one of these rules over overlapping validity:
 
-Promotion is therefore explicit. When a quoted proposition is later asserted, the assertion is its own Statement with its own tellers, credence, and transmission principle, and the two are related rather than merged. The quoted one remains what it always was: readable only through the attitude that carries it, and ended by the retraction of that attitude rather than by any authority of its own.
+- they have the same canonical core and opposite polarity;
+- a registered functional or exclusive relation has incompatible objects;
+- registered mutually exclusive kinds apply to the same subject;
+- exact quantities differ, or an exact quantity falls outside another bounded quantity.
 
-The consequence is that a re-mention resolves to the existing Statement rather than appending a near-copy, and that the commonest form of duplication stops needing a similarity threshold to catch. In the observed corpus, sixteen entries were exact textual duplicates of another entry and many more were rewordings of one claim; all of them collapse structurally.
+A changed functional value over disjoint validity is a temporal update, not a contradiction. Two candidates with incompatible wording but no registered mechanical rule are contested. Linguistic negation, conditionals, ambiguous Event identity, context-dependent opposition, and general inconsistency remain review candidates. Belief-revision research supports preserving contested claims and non-prioritised revision. The exact polarity axis and rule subset are design work that require Stage -1 and Stage 7 fixtures ([identity and belief lane](research/2026-07-24/lanes/identity-belief.md), [current arbitration failure](../docs/ontology-failures/2026-07-23.md)).
 
-Deduplicating claims does not deduplicate occasions. Two Statements that resolve to one may still have been learned on two occasions, from two tellers, in two utterances, and all of that is retained: the tellers accumulate on the Statement, and each occasion keeps its own gloss. The distinction is load-bearing, because the redundancy across occasions is what supports cross-checking a claim against its own record, and collapsing it would discard the thing that makes multi-occasion recall work.
+## Worked fixture replay audit
 
-## What a Statement is not
+IDs below are stable fixture symbols, not a proposed wire spelling. `T-*` denotes an appended transition or access decision. Every replay starts from an empty successor log, applies records in the listed order, and must reproduce the same folded state and audience results without model execution.
 
-Five kinds of content are deliberately outside this model.
+### Schema-neutral fixture record grammar
 
-Directives are configuration rather than memory. Instructions about how to behave in a context, and the agent's own charter, both fall here. They have no teller, no truth value, no credence, no validity interval, and no audience. The charter lives in [the self slot](memory-typology.md) and a directive in [its own scoped, versioned container](memory-typology.md), both outside the memory typology, and neither is ever mistaken for a fact. The observed corpus held twenty-two such entries filed as ordinary content, which is a category error this model declines to inherit.
+The table is an inventory and expected-result index. A Stage 1 fixture is executable only when its row is expanded into the following canonical schema-neutral record set. Prose such as “both settle” is not valid harness input by itself.
 
-Formal content is held opaquely. A proof, a formula, or a fragment of code has internal structure the store does not model. It is held as an opaque literal under a typed relation, which is honest: the structure adds nothing, queries nothing, and checks nothing, and modelling it further would be decoration.
+| Fixture record | Required typed fields |
+|---|---|
+| `fixture_header` | `scenario_id`, ordered `record_ids`, `source_head_after_each_record`, `ontology_version`, `policy_versions` for audience, witness, subject guard, support, time, and erasure, `resolution_environment_id`, and expected replay digest |
+| `occasion` | stable ID, observed and recorded typed times, ordered content parts, participant handles, witness-evidence IDs, and source transmission principle |
+| `activity` | stable ID, actor/source kind, implementation version, ordered typed input edges, observed and recorded times, attempted-operation ID when any, and terminal outcome |
+| `source_authority` | stable ID, Activity ID, authenticated actor/source kind, exact locator or typed observation-edge IDs, transmission-principle version, audience-decision ID, InfluenceEnvelope, observed and recorded times, authority-policy version, and fold state |
+| `content_part` | stable ID, zero-based order, kind, text or ArtefactReference ID, and source-locator coordinates. Text examples use exact UTF-8 bytes and half-open byte spans |
+| `artefact` | minted ID, byte length, digest algorithm/version/value fixture, storage state, and byte-key wrapper fixture IDs. Test bytes are fixed by fixture digest |
+| `key_wrapper` | stable wrapper ID, byte or payload key fixture ID, authorising ArtefactReference or retention-obligation ID, authority-policy version, state, and optional destruction-receipt ID |
+| `artefact_reference` | stable ID, Occasion ID, Artefact ID, supplier, order, filename, caption or alt text, transmission-principle version, retention authority, and authorization-wrapper ID |
+| `selector` | stable ID, selector-definition ID/version, target Artefact ID, typed coordinates, and canonical-CBOR hex. Replay asserts that the bytes and target ID are unchanged |
+| `proposition` | canonical subject, registered relation ID/version, typed object, frame, polarity, and modality. The fixture stores the resulting canonical key |
+| `assertion` | stable ID, Proposition key, typed validity with precision and timezone ownership, immutable assertion mode, source ID, and initial candidate state |
+| `attestation` | stable ID, Assertion ID, teller, Occasion ID, exact locator IDs, expression strength, witness evidence, dependence lineage, and transmission-principle version |
+| `event_or_identity_hypothesis` | stable hypothesis ID, ordered stable member IDs, evidence IDs, ResolutionEnvironment components, and optional separately minted composite ID |
+| `perception_or_derivation` | stable ID, producing Activity ID, ordered typed inputs, exactly one typed output, model/tool or criterion and implementation versions, ontology/policy versions, assumptions, source head, audience decision, and influence envelope |
+| `transition_or_decision` | stable transition ID, transition type, target ID, ordered predecessor transition IDs, authority, reason, policy/version, source head, and outcome. A rejected transition records the request and denial but does not target the object's fold |
+| `audience_probe` | stable probe ID, caller handle, exact query scope, ResolutionEnvironment, policy versions, source head, expected visible IDs and rendered fields, expected denied IDs, and expected operator-only trace class |
+| `expected_fold` | every stable object ID, expected state, current successor or composite ID where any, invalidated dependant IDs, surviving key-wrapper IDs, terminal tombstones, and expected projection digest |
 
-Figurative content is carried by the gloss, as described above. Metaphor and analogy have no claim to extract, and extraction would destroy the content.
+The fixture serialisation is canonical JSON with lexicographically ordered object keys, arrays in listed record order, integers in decimal, and timestamps in the typed time encoding defined by [time](time.md). It includes no generated IDs or wall-clock defaults. The harness performs two runs: append the ordered records into an empty store and fold them; then discard projections, replay the same records, and compare the canonical `expected_fold`, every `audience_probe`, selector target and CBOR bytes, surviving wrapper set, and projection digest. Missing required fields, an unlisted default, an unresolved symbolic phrase, or a digest mismatch fails the fixture before model execution.
 
-Dispositions and generics have no representation here. A tendency, a habit, or a recurring dynamic between two people is not a claim that holds over an interval; it is a claim about how things usually go. Someone who tends to talk at length, or a pair whose exchanges reliably spark each other's side projects, has no representation: the subject may be a dyad rather than a handle, the quantification is habitual rather than temporal, and a rate stated as a bound is neither a count over a kind nor a recurrence. These degrade to a thin claim leaning on the gloss. The corpus contains several, and one of them is the fourth entry of the [flagship four-copy case](events-and-roles.md), so this is a known gap rather than a rare one. A habitual modality alongside the frame is the obvious extension and is deliberately not taken here.
+The following values apply to every row unless its canonical input vector overrides them. IDs are the literal symbols printed in the row. `recorded_at` is `2028-01-01T00:00:00Z` with second precision and UTC ownership; ordered records advance `recorded_at` and `source_head` by one second and one integer. `observed_at` equals `recorded_at`. Ontology, audience, witness, subject-guard, support, time, erasure, selector, authority, and implementation versions are the literal stable IDs `ontology/v1`, `audience/v1`, `witness/v1`, `subject-guard/v1`, `support/v1`, `time/v1`, `erasure/v1`, `selector/v1`, `authority/v1`, and `implementation/v1`. The default ResolutionEnvironment is `RE/v1` with empty accepted and candidate identity and Event hypothesis arrays. The default source principle is `public/v1`; `private/P/v1` expands to `include([person/P])/v1 AND exclude(all_fixture_people_except_person/P)/v1`. Default validity is the closed-open interval `[2028-01-01T00:00:00Z, +inf)` at second precision. Default frame, polarity, and modality are `system`, `positive`, and `actual`. Every source locator is an exact whole content part unless the vector gives a half-open UTF-8 byte span. Every transition has `authority=fixture_operator`, `reason=scenario_id`, the applicable `/v1` policy, and the source head at its listed position. Every allowed or denied access is a `transition_or_decision`. Empty lists are explicit empty arrays.
 
-Third-party deontics are Statements rather than [configuration](memory-typology.md). What someone else has forbidden or permitted the agent, told by them, has a teller, a validity interval, an audience, and a truth value, all of which a directive lacks. What flattens is the deontic force. The object is an activity description, which the store holds only as an opaque literal, and the modality ends up in the relation name. This is a recorded cost rather than a solved problem, and filing such a claim as a directive would put another person's constraint into the agent's own charter, which is the worse error.
+The vector notation is a closed template language, not prose abbreviation. Its compiler applies these rules and no others:
 
-Naming these five is part of the model. A representation that accommodates everything constrains nothing, and the value of the Statement lies in what it refuses to hold.
+1. Split a row cell on semicolons outside backticks. An assignment `ID={...}` creates exactly one record whose type is determined by the ID prefix table below. A dotted assignment such as `AR-bytes.wrappers=[...]` replaces the named field on the inherited record. `no TYPE exists` adds that type to the exact forbidden-ID classes in `expected_fold`.
+2. Every bare stable symbol printed in the inventory's source, object, or transition columns must be created once. If its full assignment is absent, the compiler creates it from the prefix template and canonical defaults below. It never invents a random or implementation-selected value. A symbol with no prefix template is a fixture error.
+3. Slash-separated inventory notation such as `P-c1/P-c2` expands to the two literal IDs `P-c1` and `P-c2`; it never denotes one generated ID. A bracket list fixes order. “then”, “followed by”, and the inventory column's comma order fix append order. Words such as “both settle” expand to one transition per named target in target order, with IDs `T-<target>-settled` unless the row already names transition IDs.
+4. An inherited vector copies every record before applying explicit replacement assignments. Copying preserves IDs only when the row names the same identity, such as the one shared `AR-bytes`; otherwise the row must name its new literal ID. “Nearest vector” means the uniquely named vector in the same sentence, not textual proximity.
+5. Each source record gets content-part records. A text Occasion with no explicit part uses `PART-<occasion>-0`; its exact bytes are the source quotation in the vector or inventory. An ArtefactReference part uses the explicitly named `PART-*` record. Missing exact source bytes for a text-bearing Occasion are an error, not a default.
+6. Each Proposition assignment produces its canonical key from the six printed coordinates. Each Assertion template must name an existing Proposition key and source. Each direct Assertion source is `SA-<assertion>` unless overridden; the compiler creates that SourceAuthority from the named Activity and the Activity's principle. Each testimonial Assertion must have at least one named Attestation. A source that is neither direct nor testimonial is an error.
+7. Every caller named by a vector produces `PROBE-<scenario>-<caller>` with the exact query scope equal to all row object IDs unless the vector narrows it. Expected visible IDs are the inventory Visible result's named IDs; expected denied IDs are the Hidden or denied result's named IDs and forbidden classes. If either cell describes a class rather than enumerable IDs, the probe stores that registered assertion predicate verbatim under `expected_predicates`. Operator trace class defaults to `none`; denial uses the named decision class.
+8. `FOLD-<scenario>` enumerates every created object ID in append order, applies the common transition algorithm, and records its exact state. It also records all forbidden classes, invalidated dependant IDs, tombstones, and key wrappers named by the row. Its projection digest is SHA-256 over canonical JSON excluding only the digest field. `fixture_header.expected_replay_digest` is that literal computed digest. The checked-in fixture compiler materialises the digest; a placeholder is forbidden.
+
+| ID prefix | Deterministic record template |
+|---|---|
+| `O-` | `occasion` with default times, explicit source bytes/parts, explicit participants or empty, explicit witnesses or empty, and the row principle |
+| `ACT-` | `activity` with the actor/source kind printed in the vector, `implementation/v1`, explicit inputs or empty, default times, no attempted operation unless named, and `completed` unless the row names denial, failure, or abort |
+| `SA-` | `source_authority` with the named Activity, its actor/source kind, explicit observation edges or empty, the vector principle, decision `DEC-<SA-ID>`, default InfluenceEnvelope over those edges, default times, `authority/v1`, and `live` |
+| `PART-` or `TXT-` | `content_part` with its literal ID, printed order/kind/value, and whole-part locator unless a span is printed |
+| `OBS-` | typed direct or tool observation with literal ID, observation kind, exact bytes or typed value, locator/span, producing Activity or authenticated operator edge, principle, and InfluenceEnvelope |
+| `I-` | stable identity stub with literal ID, platform/namespace kind, opaque platform ID or fixture-local identity value, authority, principle, and initial live state |
+| `AR-` | `artefact` with the printed bytes, length, verified digest, storage state, and exact wrapper list |
+| `DG-` | verified digest assertion with literal ID, Artefact ID, algorithm/version, digest bytes, byte length, verification result, verification Activity, and recorded time |
+| `KW-` | `key_wrapper` with printed shared key, authority reference, `authority/v1`, state `live`, and no destruction receipt unless named |
+| `R-` | `artefact_reference` with explicit Occasion and Artefact IDs, supplier, order, filename, caption, principle, retention authority, and wrapper; omission of either link is an error |
+| `SEL-` | `selector` with printed definition/version, target, coordinates, and canonical CBOR bytes; the compiler decodes and compares all four fields |
+| `P-` | `proposition` with the vector's exact six coordinates and computed canonical key |
+| `A-` | `assertion` with its printed Proposition, default or printed validity, mode, explicit source ID, and initial `candidate` state |
+| `AT-` | `attestation` with its printed Assertion, teller, Occasion, locator, expression, witnesses/dependence, and principle; omitted witnesses and dependence are empty arrays |
+| `E-`, `EH-`, `IH-`, `ER-`, or `IR-` | Event, hypothesis, or composite record with literal ID and every member/evidence/environment field printed in the vector |
+| `PER-` or `D-` | Perception or Derivation with producing Activity, ordered printed inputs, exactly one output, printed model/tool or criterion version, canonical policy versions, assumptions or empty, current source head, access decision, and InfluenceEnvelope |
+| `T-`, `ACCESS-`, `DEC-`, `ERASURE-`, or `DEST-` | transition, decision, erasure authorization, or destruction receipt with literal ID, exact target/scope, predecessor chain, expected prior state, default authority/reason/policy/source head, and printed outcome |
+
+The fixture compiler rejects an omitted required grammar field after expansion, an unresolved natural-language verb, an object without a source, a probe without exact expected IDs or predicates, or an expected fold that omits a created ID.
+
+| Canonical input vector | Exact row-specific typed values |
+|---|---|
+| Compound utterance | `TXT-compound={order:0,kind:text,bytes:"Rowan arrived. Quinn left."}`; locators are `[0,14)` and `[15,26)`; propositions are `(person/rowan,arrived/v1,event/here,system,positive,actual)` and `(person/quinn,left/v1,event/here,system,positive,actual)`; tellers are `person/teller`; both principles are `public/v1`; probes are public and `person/rowan`. |
+| Artefact-only Occasion | `O-image={participants:[],parts:[PART-image-0],principle:private/supplier/v1}`; `PART-image-0={order:0,kind:artefact_reference,value:R-A}`; `AR-bytes={length:4,digest:sha256/v1:054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8,bytes_hex:00010203,storage:available,wrappers:[KW-A]}`; `KW-A={key:BYTEKEY-AR,authority:R-A,policy:authority/v1,state:live}`; `R-A={occasion:O-image,artefact:AR-bytes,supplier:person/supplier,order:0,filename:"image.bin",caption:null,principle:private/supplier/v1,retention:person/supplier,wrapper:KW-A}`; `SEL-whole-A={definition:whole/v1,target:AR-bytes,coordinates:null,cbor_hex:a40001016877686f6c652f7631026841522d627974657303f6}`; callers are supplier and public with scope `[R-A,AR-bytes,SEL-whole-A]`. |
+| Direct agent observation | `P-agent=(place/room,temperature_c/v1,21,system,positive,actual)`; `ACT-agent={actor:agent,source_kind:agent_observation,inputs:[],outcome:completed,principle:public/v1}`; `SA-A-agent={activity:ACT-agent,actor:agent,source_kind:agent_observation,edges:[],principle:public/v1}`; `A-agent={proposition:P-agent,source:SA-A-agent,mode:asserted}`; no Attestation or Derivation record exists; callers are operator and public with scope `[A-agent]`. |
+| Direct tool observation | `P-tool=(service/api,status/v1,"healthy",system,positive,actual)`; `ACT-tool={actor:tool/probe,source_kind:tool_observation,inputs:[tool-endpoint/test],outcome:completed,principle:public/v1}`; `OBS-tool={kind:tool_observation,activity:ACT-tool,bytes:"ok",span:[0,2),principle:public/v1}`; `D-tool={activity:ACT-tool,inputs:[OBS-tool],output:A-tool,criterion:tool-interpretation/v1,principle:public/v1}`; `A-tool={proposition:P-tool,source:D-tool,mode:asserted}`; no SourceAuthority or Attestation exists. The source guard evaluates `D-tool` through its InfluenceEnvelope and output principle before direct-source use. |
+| Direct operator assertion | `P-op=(service/api,maintenance_mode/v1,true,system,positive,actual)`; `ACT-operator={actor:operator,source_kind:operator_assertion,inputs:[],outcome:completed,principle:private/operator/v1}`; `SA-A-op={activity:ACT-operator,actor:operator,source_kind:operator_assertion,edges:[],principle:private/operator/v1}`; `A-op={proposition:P-op,source:SA-A-op,mode:asserted}`; no Attestation exists; callers are operator and public with scope `[A-op]`, expected visible IDs `[A-op]` for operator and `[]` for public, and public expected denied IDs `[SA-A-op,A-op]`. |
+| Per-teller audiences | Proposition is `(person/rowan,visits/v1,place/garden,system,positive,actual)`; `AT-public={teller:person/a,principle:public/v1,locator:O-aud-1/part0}`; `AT-private={teller:person/b,principle:private/b/v1,locator:O-aud-2/part0}`; probes are public and `person/b`. |
+| Hedge then flat assertion | Proposition is `(person/rowan,located_at/v1,place/library,source,positive,actual)`; exact source bytes are `"Maybe Rowan is at the library."` and `"Rowan is at the library."`; same teller `person/a`; expression strengths are `hedged/v1` and `flat/v1`; dependence lineage for the second names the first teller identity, so independent-support count is one. |
+| Quotation then assertion | Proposition coordinates are otherwise equal for `(person/rowan,approved/v1,project/x,source,positive,actual)`; `A-quoted.mode=quoted`, `A-asserted.mode=asserted`; source bytes are `"Quinn said Rowan approved X."` and `"Rowan approved X."`; tellers are `person/quinn` and `person/rowan`; `T-corroborates` links Attestation evidence and does not change mode. |
+| Temporal correction | Proposition is `(event/review,occurs_on/v1,date/2028-02-03,system,positive,actual)`; old validity starts `2028-02-03T00:00:00Z`; new validity starts `2028-02-04T00:00:00Z`; `D-time` consumes `A-time-old` and operator correction `OBS-time`; transition order is settle old, settle new, supersede old by new. |
+| Contradiction versus contest | `A-exact-5` uses `(group/team,member_count/v1,exact(5),system,positive,actual)`; `A-at-least-6` uses `bounded(min=6,max=null)` over the same core and validity; `A-ambiguous` preserves literal `"about six"` under relation `reported_count_wording/v1`; all are settled in listed order. |
+| Ambiguous Event re-mention | `E-1` and `E-2` are separate meeting Events on `2028-03-01T10:00Z` and `2028-03-08T10:00Z`, each with participant Assertions for `person/rowan` and `person/quinn`; `EH-ambiguous={members:[E-1,E-2],evidence:[same_participants,weekly_interval],status:candidate}`; no composite ID or acceptance transition exists. |
+| Event merge then severance | `E-3/E-4` both occur `2028-04-01T10:00Z` and share source re-mention `LOC-rem`; `EH-merge={members:[E-3,E-4],evidence:[explicit_remention,matching_occurrence],composite:ER-34}`; transition order is accept, produce `D-composite`, withdraw, invalidate `D-composite`; probes target each source and the composite before and after withdrawal. |
+| Partial Event disclosure | `E-transfer` has role Assertions buyer=`person/rowan` under `public/v1`, seller=`person/quinn` under `private/quinn/v1`, and amount=`10` under `private/quinn/v1`; Event-type policy `transfer/v1` permits a shell only with buyer and an `incomplete=true` marker; probes are public and Quinn. |
+| Identity severance | `IH-12={members:[person/rowan@a,person/rowan@b],evidence:[operator_confirmation],composite:IR-12,environment:RE-id/v1}`; transition order is accept, produce `D-id`, withdraw, invalidate `D-id`; probes target each stub and the composite before and after withdrawal. |
+| Hidden support | Proposition is `(service/api,reliable/v1,true,system,positive,actual)`; `AT-sup-public` is public and `AT-sup-hidden` is `private/operator/v1`; public support fixture equals `1`, operator support equals `2`, and public rank fixture remains `rank/1` both with and without the hidden record. |
+| Same bytes, two references | Both references use the bytes and digest from the artefact-only vector, but `AR-bytes.wrappers=[KW-A,KW-B]`. `O-share-A.parts=[PART-share-A]`, `PART-share-A={order:0,kind:artefact_reference,value:R-A}`, and `R-A={occasion:O-share-A,artefact:AR-bytes,supplier:person/a,order:0,filename:"a.bin",caption:"A",principle:private/a/v1,retention:person/a,wrapper:KW-A}`. `O-share-B.parts=[PART-share-B]`, `PART-share-B={order:0,kind:artefact_reference,value:R-B}`, and `R-B={occasion:O-share-B,artefact:AR-bytes,supplier:person/b,order:0,filename:"b.bin",caption:"B",principle:private/b/v1,retention:person/b,wrapper:KW-B}`. `KW-A={key:BYTEKEY-AR,authority:R-A,policy:authority/v1,state:live}` and `KW-B={key:BYTEKEY-AR,authority:R-B,policy:authority/v1,state:live}`. Selectors have distinct IDs but the same target, definition/version, and whole-selector bytes; probes are A, B, and public. |
+| Initial Perception through A | `ACCESS-A=allow` for caller `person/a`, scope `R-A`; `ACT-see-A` consumes ordered edge `(R-A,SEL-whole-A,AR-bytes,position=0,ACCESS-A)`; `PER-A={observer:model/vision-v1,operation:"describe",output:"four test bytes",principle:private/a/v1}`; `D-PER-A` outputs `PER-A`. |
+| Denied reinspection through B | `ACCESS-B-deny={caller:person/a,scope:R-B,outcome:deny,reason:explicit_exclude}`; the exact expected ID sets assert absence of an Activity, model request, Perception, Derivation, index row, and output key wrapper. |
+| Authorised explicit reinspection | `ACCESS-A2=allow` for A; `ACT-see-A2` repeats the typed edge under `model/vision-v2`; `PER-A2.output="bytes 00 01 02 03"`; optional correction path is enabled and orders supersession of `PER-A` after `PER-A2` creation. |
+| Derived crop | Input selector is `SEL-region-A={definition:byte_range/v1,target:AR-bytes,coordinates:[1,3),cbor_hex:a40001016d627974655f72616e67652f7631026841522d627974657303820103}`; output bytes are `0102`; `AR-crop={length:2,digest:sha256/v1:a12871fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222,wrapper:KW-crop}`; `D-crop` consumes the selector and outputs `AR-crop`. |
+| Reference withdrawal, restoration, then erasure | `R-life` uses bytes `00010203`, wrapper `KW-life`, and `private/supplier/v1`; ordered records are withdraw, restore allowed, erase allowed with wrapper destruction receipt `DEST-KW-life`, then restore request denied with reason `terminal_erasure`; expected surviving wrappers are empty. |
+| Transition conflict and late transition | Inherit the reference-lifecycle source as `R-fold`. Clean chain: `T-fold-withdrawn={target:R-fold,predecessors:[],prior:authorised,outcome:accepted}`, `T-fold-erased={target:R-fold,predecessors:[T-fold-withdrawn],prior:withdrawn,outcome:accepted}`, `T-fold-restore-denied={target:R-fold,predecessors:[T-fold-erased],prior:erased,outcome:denied,reason:terminal_erasure}`. Stale request: `T-fold-retracted-denied={target:R-fold,predecessors:[],prior:authorised,outcome:denied,reason:stale_predecessor}` after withdrawal. Damaged-import branch is a separate header with `damaged_import=true` and two pre-existing accepted records `T-fold-a/T-fold-b` that both name predecessor `T-fold-withdrawn`; expected state is `quarantined` and serving is denied. |
+| Erase A, retain B | Begin from the two-reference and Perception vectors; erase decision scope is `R-A` and its exclusive dependants; destroy `KW-A`, A-only model/payload/index/crop keys, and retain `KW-B` plus `AR-bytes`; expected tombstones are `R-A`, `PER-A`, `PER-A2`, `D-crop`, and `AR-crop`; probes are A, B, public, restore, and retry. |
+| Perception correction and erasure | Source bytes are `"R0WAN"`; `PER-ocr-1.output="R0WAN"`, `PER-ocr-2.output="ROWAN"`; order is create first, create second, supersede first, erase source reference, erase both outputs and keys; probes cover lexical search, snapshot rebuild, export, and retry context. |
+
+For the remaining inventory rows, their input vector is the nearest vector above plus the exact delta named in the row: `Opposite polarity` uses one canonical core with polarity `positive` then `negative`; `Lexical negation` uses that polarity pair and the one relation `works_at/v1`; `Negative quantity and modality` uses typed signed quantity `-5` and modality `planned`; `Last teller retracts` uses the per-teller vector with one Attestation followed by `attestation_retracted`; `Perception correction and erasure` provides the OCR-specific values. No other implicit value is permitted.
+
+Each inventory row expands to one `fixture_header`, all source and object records named in its first three columns, one typed record for every transition or decision named in its fourth column, one `expected_fold`, and probes for both visible and hidden or denied results. The stable symbols bind the table and canonical vectors one-to-one. The normative table and vectors are the committed fixture input; Stage 1 translates them mechanically into the implementation harness without selecting new semantic values or production wire names.
+
+| Scenario | Occasion or Activity source records | Stable object IDs | Appended transitions or decisions | Folded live state | Visible result | Hidden or denied result | Replay result |
+|---|---|---|---|---|---|---|---|
+| Compound utterance | `O-compound` contains text part `TXT-compound` with two stable spans | `P-c1/P-c2`, `A-c1/A-c2`, `AT-c1/AT-c2` | `T-c1/T-c2 settle` | Both Assertions settled; source utterance unchanged | Each visible Attestation renders from its own span | A restricted span and its existence leave no residue | Same IDs, spans, and audience-specific results |
+| Artefact-only Occasion | `O-image` contains no utterance and content part `R-A` | `AR-bytes`, `R-A`, `SEL-whole-A` | `T-access-A` only when consumption begins | Reference authorised; no Assertion or Perception on arrival | The authorised reference metadata can render | No automatic visual claim; denied callers receive no bytes | Same source-only state before access |
+| Direct agent observation | `ACT-agent` has source kind `agent_observation` and records an uncomputed direct observation | `P-agent`, `A-agent`; no Derivation | `T-agent-settle` | Direct Assertion settled under Activity authority | Assertion cites Activity | No human teller, utterance, or unexplained Derivation exists | Same authority and direct-source lineage |
+| Direct tool observation | `ACT-tool` records tool and input versions; interpretation is computed | `P-tool`, `A-tool`, `D-tool` with output `A-tool` | `T-tool-settle` | Tool-derived Assertion settled | Tool identity, bounded output locator, and Derivation render | No fabricated Attestation | Same source head, versions, and exactly-one-output lineage |
+| Direct operator assertion | `ACT-operator` records authenticated operator authority | `P-op`, `A-op` | `T-op-settle` | Direct Assertion settled | Operator provenance renders where authorised | No participant testimony is inferred | Same authority decision |
+| Per-teller audiences | `O-aud-1/O-aud-2` support one claim | `P-aud`, `A-aud`, `AT-public`, `AT-private` | both settle; no Attestation mutation | One Assertion with two live Attestations | Public read uses `AT-public`; authorised read may use both | Public read cannot reveal `AT-private` or its effect | Same support per audience |
+| Hedge then flat assertion | `O-hedge/O-flat` contain the two tellings | `P-hedge`, `A-hedge`, `AT-hedge/AT-flat` | `T-hedge-settle` | One Assertion, two live same-teller Attestations | Latest expression can render as plain | Independent-support count remains one | Same expression and dependence fold |
+| Quotation then assertion | `O-quote/O-assert` | `P-quote`, `A-quoted/A-asserted`, `AT-q/AT-a` | `T-q-settle`, `T-a-settle`, `T-corroborates` | Separate quoted and asserted Assertions | Flat assertion renders from `A-asserted` | `A-quoted` never silently becomes flat testimony | Same two IDs and lineage |
+| Temporal correction | `O-time` and correcting `ACT-time` | `P-time`, `A-time-old/A-time-new`, `D-time` | `T-old-settle`, `T-new-settle`, `T-old-superseded-by-new` | Old historical; new current | Corrected validity renders with lineage | Old value is absent from current reads but remains in authorised audit | Same source words and supersession |
+| Opposite polarity | `O-pos/O-neg` | `P-pos/P-neg` share positive core; `A-pos/A-neg` | both settle | Both live over overlapping validity | Query reports mechanical contradiction | Neither is silently discarded | Same contradiction set |
+| Lexical negation | `O-work/O-not-work` | `P-work-pos/P-work-neg` use relation `works_at` and object `org-X` | both settle | Opposite polarity over one canonical core | Mechanical contradiction | No duplicate `does_not_work_at` relation is accepted | Same canonical keys |
+| Negative quantity and modality | `O-qty/O-plan` | signed quantity Proposition and separate negative-polarity planned Proposition | settle independently | Quantity sign remains in value; proposition negation remains polarity; modality remains `planned` | Each distinction renders explicitly | No conversion of `not planned` into an actual negative fact | Same typed distinctions |
+| Contradiction versus contest | `O-count-1/O-count-2/O-wording` | `A-exact-5`, `A-at-least-6`, `A-ambiguous` | all settle | First pair contradictory; ambiguous wording contested | Both classifications render | General linguistic contradiction is not asserted | Same rule-version result |
+| Last teller retracts | `O-last` | `P-last`, `A-last`, `AT-last` | `T-last-settle`, then `T-AT-last-retracted` | Assertion addressable with no live support; absent from settled default | Operator audit shows transition | Conversational read omits it without implying deletion | Same unsupported fold |
+| Ambiguous Event re-mention | `O-meet-1/O-meet-2` describe overlapping weekly meetings | `E-1/E-2`, `EH-ambiguous` with members `[E-1,E-2]` | no resolution transition | Hypothesis `candidate`; two Event source views | Authorised audit can show candidate status | Ordinary read does not collapse Events or expose hidden candidate evidence | Same two Events and candidate ID |
+| Event merge then severance | `O-event-1/O-event-2`, later `ACT-sever` | `E-3/E-4`, `EH-merge`, composite `ER-34`, `D-composite` | `T-EH-accepted`, then `T-EH-withdrawn`, `T-D-invalidated` | Source Events live; composite no longer live; dependent Derivation invalid | Both restored Event views render | Composite-only conclusion cannot migrate to either source | Same acceptance-then-withdrawal fold |
+| Partial Event disclosure | `O-transfer` grounds independently public, attributed, and confidential role Assertions | `E-transfer`, role Assertions `A-r1/A-r2/A-r3` | settle each under its Attestation audience | One Event with audience-resolved attributes | Public safe shell or independently meaningful fields only | Hidden role and hidden cardinality leave no residue; unsafe shell suppresses Event | Same projection-policy-version result |
+| Identity severance | `O-id-1/O-id-2`, later `ACT-id-sever` | stubs `I-1/I-2`, hypothesis `IH-12`, composite `IR-12`, dependent `D-id` | accept, withdraw, invalidate dependant | Separate identities restored | Each stub regains only its licensed history | Composite-derived output stays invalid and does not migrate | Same severed identity environment |
+| Hidden support | `O-sup-public/O-sup-hidden` | `A-supported`, `AT-sup-public/AT-sup-hidden` | both live | Global audit may see both; audience-safe support uses public only | Public rank equals the result computed without hidden support | No rank, count, omission, action, or queue residue from hidden support | Same audience-safe projection |
+| Same bytes, two references | `O-share-A/O-share-B` contain `R-A/R-B` with different audiences | one `AR-bytes`; `R-A/R-B`; `SEL-whole-A/SEL-whole-B` | independent reference creation | Both authorised for their own audiences | Each eligible audience sees its own supplier, caption, and policy | Audience A cannot consume through unauthorised `R-B`, even though bytes match | Same one-Artefact/two-reference state |
+| Initial Perception through A | `ACT-see-A` consumes ordered part 0 through `R-A` | `PER-A`, `D-PER-A`, `ACCESS-A` | `T-access-A allow` | `PER-A current` with A's influence envelope | Authorised A read may return prior Perception without reloading bytes | B-only or excluded audience cannot infer it | Same consumed-reference edge and output |
+| Denied reinspection through B | proposed `ACT-see-B-denied` targets `R-B` | `ACCESS-B-deny`; no Activity or Perception ID is minted | `T-access-B deny` | Prior state unchanged | Operator audit sees a denied access envelope | No bytes, model call, Perception, index row, or visible failure detail is created | Same denial and absence of outputs |
+| Authorised explicit reinspection | `ACT-see-A2` consumes `R-A` after a new audience decision | `PER-A2`, `D-PER-A2`, `ACCESS-A2` | allow; optionally `T-PER-A-superseded-by-A2` for a correction | New Perception current; old one historical when superseded | New observation renders with Activity, selector, pipeline, and reference | Unauthorised audiences receive neither observation nor changed ranking | Same new IDs and fold |
+| Derived crop | `ACT-crop-A` consumes `R-A/SEL-region-A` | output `AR-crop`, `D-crop`, digest assertion `DG-crop` | `T-access-crop allow` | Derived Artefact available while A lineage remains authorised | Crop can be consumed only through an authorised reference or derived access edge | Bare output digest grants no access | Same transform lineage and availability |
+| Reference withdrawal, restoration, then erasure | `O-reference-life` contains `R-life`; `ACT-erase-life` executes only after an allowed erasure decision | `AR-life`, `R-life` | `T-R-life-withdrawn`, `T-R-life-authority-restored`, `T-R-life-erased`; later `T-R-life-restore-rejected` records denial without changing the reference fold | Restoration returns the reversibly withdrawn reference to `authorised`; erasure then folds it terminally to `erased`; the post-erasure restoration request is denied | Before erasure, the restored reference renders only to its authorised audience; after erasure, permitted tombstone metadata only | Withdrawal and erasure deny bytes; completed erasure cannot restore payload or authority. A later sharing must mint a new reference | Replay reproduces withdrawal, valid pre-erasure restoration, terminal erasure, and the rejected post-erasure restoration without reconstructing payload |
+| Transition conflict and late transition | `O-fold` contains `R-fold`; a damaged-import fixture is separately marked as such | `AR-fold`, `R-fold` | valid `T-fold-withdrawn`; stale `T-fold-retracted-denied` names the creation head instead of the withdrawal head; damaged accepted fork `T-fold-a/T-fold-b` shares one predecessor; clean path `T-fold-erased` then late `T-fold-restore-denied` | Clean log folds withdrawn then terminal erased; stale and late requests have no effect. Damaged fork folds `quarantined` until a governed conflict-resolution record selects a branch or erases it | Operator trace identifies denial or quarantine without source payload | No conversational projection selects a branch, applies stale retraction, or restores erased authority | Replay reproduces the accepted predecessor chain, denied decisions, damaged-fork quarantine, and terminal erasure exactly |
+| Erase A, retain B | `ACT-erase-A` is authorised by `ERASURE-A` | `R-A`, `PER-A/PER-A2`, `AR-crop`, model payloads and index keys derived only from A; surviving `R-B` | `T-R-A-erased`, Perception erasures/invalidations, `T-D-crop-invalidated`, payload-key shredding, projection rebuild | A terminal tombstone remains; A-derived observations and crop unavailable; `R-B` authorised; `AR-bytes` retained by B | B's independently authorised reference and physical bytes survive with B's caption and policy | A model-call payload, Perceptions, derived Artefact, embeddings, support effects, access paths, and reference authority cannot render or resurrect | Restore filters erased keys; replay reproduces A tombstones, invalid dependants, surviving B, and no A payload or authority |
+| Perception correction and erasure | `ACT-ocr-1/ACT-ocr-2`, then authorised erasure | `PER-ocr-1/PER-ocr-2` | supersede first; erase source reference; erase or invalidate both | No current source-authorised OCR remains | Authorised audit may show permitted tombstones only | Old text cannot return through search, snapshot, export, or retry context | Same tombstones; erased output is never reconstructed |
+
+## Representational limits
+
+Directives and the agent charter are configuration, not Assertions. [Memory typology](memory-typology.md) owns their versioned containers. Formal content can remain an opaque literal or Artefact. Figurative content can remain in an utterance. Non-actual modality is representable from genesis even when initial inference treats it opaquely. These limits prevent an extractor from filling required fields with unsupported structure.

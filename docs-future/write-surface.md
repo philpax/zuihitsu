@@ -1,113 +1,99 @@
 # The write surface
 
-The agent writes through two verbs. Everything else about the write path, extraction, critics, deduplication, and provenance, happens behind them.
+The conversational write surface has two operations: `record` and `claim`. Both create durable proposal transactions governed by [the verified-write state machine](verified-write.md#proposal-state-machine). The surface does not define Occasion, Activity, Proposition, Assertion, Attestation, Event, ArtefactReference, Perception, or Derivation identity. [The assertion model](statements.md) and [artefacts and perceptions](artefacts-and-perceptions.md) own those definitions.
 
-## Recording what was said
+## `record`
 
-This is the common case. The agent supplies an utterance and the fields no extractor can infer, and receives the parse:
+`record` stores an external social input as an Occasion. The Occasion can contain an utterance, zero or more ArtefactReferences, or both. An artefact-only share is valid. `record` does not require a synthetic utterance for it.
 
 ```lua
-local r = quill:record(
-  "wren built quill in two days after rowan shared the architecture",
-  { frame = "actual", visibility = "public" }
-)
+local proposal = quill:record({
+  utterance = "wren built quill after rowan shared the architecture",
+  artefacts = attachments,
+  frame = "system",
+  transmission = "public",
+})
 ```
 
-The return value is the central element of the design. It carries what was committed:
+The call returns a durable proposal handle immediately. The current system records model calls durably and batches writes inside a block, which supplies the execution seam ([current write path](../docs/write-path.md), [model-call storage](../docs/events-and-storage.md#event-sourcing)). The durable proposal handle, later-block review, state transitions, and atomic publication are design synthesis required by permanence; Stage 3 crash, retry, and source-only fixtures validate them.
 
-| | |
-|---|---|
-| `r.gloss` | the utterance, stored once and shared by everything below |
-| `r.event` | the Event, if one was extracted |
-| `r.statements` | the typed claims, each addressable |
-| `r.rejected` | what the critics refused, each with its reason |
-
-Today a write is fire-and-forget, and whatever structure is eventually derived from it is derived by passes the agent never sees, long after it has forgotten what it meant. Here the parse comes back inside the same turn, while the context that produced it is still in hand, and it can be corrected:
+Extraction runs once per block over the buffered Occasions. A later block reads the proposal after it reaches `awaiting_review`:
 
 ```lua
-r:amend(r.statements[3], { role = "source" })    -- wrong role
-r:amend(r.statements[5], { frame = "persona" })  -- the character, not the bot
-r:drop(r.statements[6])                          -- not something I meant to assert
+local review = proposal:review()
+review:amend(review.assertions[3], { role = "source" })
+review:drop(review.assertions[6], "the utterance does not assert this")
+review:accept()
 ```
 
-An amendment is an ordinary write and passes the same critics. Dropping a Statement before the block commits removes the proposal; after commit it is a retraction like any other.
+The review contains proposed Proposition, Assertion, Attestation, Event, Perception, and Derivation handles, critic diagnostics, and the current proposal state. It does not report these objects as committed until the publication record commits. Dropped and replaced proposal versions remain in the audit trace.
 
-## Asserting a claim
+The write surface never makes rejected proposals available through ordinary structured queries. The source Occasion remains available through the source lane from `source_buffered` onward. If extraction fails, every proposal is dropped, the retry bound is exhausted, or review cannot complete, the state machine appends `source_only`. Source-first retention is forced by current prose storage and by the observed limits of neural verification, but this exact fallback state and its publication boundary are design synthesis ([current data model](../docs/data-model.md#contententry), [writer failure](../docs/ontology-failures/2026-07-23.md#the-neural-writer-is-unverified), [welding research](research/2026-07-24/lanes/welding.md)). Source-only storage is a valid durable outcome rather than a partial commit.
 
-When the agent knows exactly what it means, it states that structure directly, and nothing is extracted:
+## `claim`
+
+`claim` writes explicit structure from a non-Occasion source. The caller supplies a source kind and the source Activity fields:
 
 ```lua
-quill:claim("runs_on", "model/opus-4.8", {
-  frame      = "actual",
+local proposal = quill:claim("runs_on", "model/opus-4.8", {
+  source = "agent_observation",
+  frame = "system",
+  modality = "actual",
+  polarity = "positive",
   valid_from = "2026-07-16",
 })
 ```
 
-This path involves no model call. It is a direct structural write, checked by the critics and committed. It is what the agent reaches for when correcting itself, when recording its own observations, and when a conversation has already made the structure explicit.
+The admitted source kinds are `agent_observation`, `operator_assertion`, `tool_observation`, and `derivation`. Each kind has its own authority and grounding requirements. `claim` never fabricates an utterance, teller, text span, or Occasion. A tool observation names the tool Activity and result. A derivation supplies the typed input and execution environment required by [verified writes](verified-write.md#derivation-records).
 
-## What the agent must supply
+`claim` avoids extraction, but it does not bypass critics, review, atomic publication, audience checks, or compare-at-commit. A correction after publication appends the applicable Assertion or Attestation transition. It does not mutate the published record.
 
-Three fields cannot be extracted, because they are judgements about the conversation rather than facts about the sentence.
+## Required caller decisions
 
-The first field is the frame. It records whether a claim is about an entity, the character it presents, the material that character draws from, or [the person behind the character](statements.md). A sentence about a persona agent's opinions is indistinguishable, on its own, from a sentence about the agent's configuration, and a detail about the human running the persona looks like both. Only the participant in the conversation knows which was meant, which is why the redirect is declared here and never inferred by an extractor.
+The caller supplies judgements that source extraction cannot establish safely:
 
-The second field is the audience: who may learn this. The utterance rarely says, and one utterance rarely has one answer.
+- the frame, including an explicit principal redirect when applicable;
+- the default transmission principle for an Occasion;
+- the teller when the speaker relays another person's words;
+- the source kind for `claim`;
+- explicit `unknown` or `not_applicable` values where the schema permits them.
 
-A compound utterance cannot carry a single transmission principle, so the write does not ask it to. The call's `visibility` is a default for the parse, and the parse does not commit until every proposal's principle is settled: the agent either accepts the default for all of them or sets the ones that differ. Declining to look is not available, because the field is required per Statement rather than per call.
+A compound Occasion can produce proposals with different transmission principles. The call-level value is only a default. Review cannot accept the publication set until every Attestation and derived output has an audience result. [Privacy and provenance](privacy-and-provenance.md) owns the compilation and influence rules.
 
-This is the [rule that load-bearing behaviour moves off the prompt](verified-write.md) applied to the behaviour that carries the privacy commitment. Noticing that one clause of a sentence is sensitive is a judgement whose failure is silent and whose consequence is a leaked confidence, so it becomes a required field rather than a habit the prompt asks for. The corpus's principal case has exactly this shape: one biography sentence yielding seven public claims and one that had to be held back, split by hand months later.
+The source kind and teller are independent. An agent restatement of a participant's words remains grounded in the original Attestation and does not create independent support. A direct agent observation uses an Activity and has no human teller.
 
-The third field is the teller, where the teller is not the obvious speaker. Relaying what someone else said is a different claim from saying it.
+## Block and retry behaviour
 
-These are required fields, not optional ones, and a write cannot complete without them. Each has an explicit "not applicable" or "unknown" value, so declining is a recorded decision rather than an empty slot the model fills with something plausible.
+Several `record` calls in one block can share one extraction Activity. The durable proposal handles remain empty until that Activity and the hard critics complete. Review therefore occurs in a later block. This preserves batching without hiding the proposal lifecycle.
 
-## Where the structuring happens
+Each failed attempt appends its failure class and attempt number. Retriable infrastructure failure enters `retry_wait`. A deterministic critic rejection returns to review or accepts an amendment; rerunning the same extraction without changed input does not consume retries. The bounded retry policy is versioned. Exhaustion produces `source_only`.
 
-Structuring happens inside the write transaction. It does not happen in the agent's own reasoning, and it does not happen in a maintenance pass afterwards.
+A caller can supersede a pending proposal with a replacement. Supersession names both proposal IDs. The old proposal can never publish. An abort records the actor and reason. Neither operation removes the durable source.
 
-`record` runs a schema-constrained model call at record time, which emits typed proposals, which meet the critics, which may reject them. This is the same treatment ordinary model calls receive: the call and its response are written to the log, and replay consumes the recorded response without calling anything.
+Crash recovery resumes from the folded proposal state. It reuses recorded model outputs and stable temporary IDs. It does not repeat a nondeterministic call whose Activity result is already durable. Recording nondeterministic activity is corroborated by the current event log and durable-execution research; the exact temporary-ID, compare-at-commit, and crash fold are local synthesis ([current model-call contract](../docs/events-and-storage.md#event-sourcing), [durable activity research](research/2026-07-24/verification/part-b.md)). Atomic publication and compare-at-commit follow [the canonical protocol](verified-write.md#proposal-state-machine) and must pass Stage 3 fault injection.
 
-The change against the current system is not who produces structure. It is when, how often, and whether it can fail:
+## Teachable errors
 
-| | today | here |
-|---|---|---|
-| when | later, in maintenance passes | at write time, in the transaction |
-| how often | repeatedly, every pass, indefinitely | once |
-| determinism | re-derived nondeterministically each time | recorded once, replayed from the log |
-| visibility of failure | silent | a teachable error, in the same turn |
+A hard-critic error identifies the proposal, critic version, violated definition, source locator, and expected correction. It can name a domain or range mismatch, deprecated relation, malformed validity value, unsupported selector, insufficient authority, unresolved audience, ambiguous Event co-reference, or stale compare head.
 
-The last row is what the correction loop provides. A misparse today becomes a fact nobody notices until it is relayed back to someone months later. A misparse here comes back while the agent still knows what it meant.
+The error does not teach ontology-language that the agent may activate. The agent can propose a missing relation or role definition, but activation is a governed schema operation described by [relations](relations.md). Persistent rejection enters the operator exception queue.
 
-## The cost, and the failure mode it produces
+## Excluded operations
 
-Putting a model call on the write path is a real cost and a real risk. The design states both rather than passing over them.
+The conversational surface does not provide:
 
-The model call is not on the read path. No read produces stored state from a model call. That is the fixed point, and nothing here touches it.
+- a critic bypass or force flag;
+- arbitrary Event identity construction or raw role-edge mutation;
+- caller-supplied support or credence;
+- caller-selected identity merges;
+- bulk document or media ingestion;
+- self-slot or charter mutation;
+- automatic Assertion creation from an arriving artefact.
 
-The fixed point is about derivation, not about latency. A read may consult a model for a transient ranking input that is never stored and never folded, which is the same exemption [`overview.md`](overview.md) already grants query embedding and which now also covers the reranking pass in [the query surface](query-surface.md). Anything a read computes this way is discarded when the read returns; nothing downstream may depend on it having happened.
+Bulk ingestion uses the job protocol in [memory typology](memory-typology.md) and [off-turn work](off-turn.md). Artefact arrival creates an ArtefactReference. Image-derived memory requires a recorded Perception and source lineage. Governed schema activation, identity resolution, and charter changes use their canonical owner surfaces.
 
-The failure mode of concern is thrashing. A rejected write produces a teachable error, the agent retries, the retry runs another extraction, and the loop can spin. This is the existing teachable-error retry shape with a model call added to each iteration.
+## Cost boundary
 
-Four things bound it:
+The model call is on the proposal path and never on the state fold. Replay consumes the recorded Activity. A read can use a transient model reranker only when its output is discarded and no stored state depends on the call. [The query surface](query-surface.md) defines read accounting for content that reaches model context.
 
-- Extraction is per block, not per call. Several `record` calls in one block structure together, so a block writing six facts pays once. The consequence is that `r` is a deferred handle: it is empty until the block ends, and the parse is read and amended in a later block of the same turn. The correction loop is same-turn, not same-block, which is what preserves the context that produced the write while still batching the extraction.
-- A structuring failure never loses the utterance. If extraction fails or the critics reject everything, the gloss is committed alone, with no structure. The agent's words survive; only the structure is missing, and a later pass can supply it. A write path that can lose what someone said in order to protect its own schema has its priorities inverted.
-- Retries are capped. A bounded number of structuring attempts per block, after which the write degrades to gloss-only and the agent is told so.
-- `claim` is always available and always cheap. When the extractor keeps rejecting a write, the agent states the structure directly instead.
-
-If it still thrashes, an adjustment is available. Structuring can move to end-of-turn, or back to a pass, at the cost of losing the same-turn correction loop. The eager-against-lazy question is recorded as open in [`confidence.md`](confidence.md) precisely because it is an empirical call, and the constraint-tax measurement in [`evolution.md`](evolution.md) stage 2 is where it gets made. What must not happen is structuring-from-committed-prose becoming the routine path, because that reinstates the re-derivation tax the whole design exists to end. Structuring an utterance whose extraction failed is the exception the rule is drawn around: it is queued once, retried once, and either succeeds or stays gloss-only. The tax is a pass that re-reads everything indefinitely, not a queue that drains what fell through.
-
-## Rejection is a teaching surface
-
-A rejected proposal names what was wrong and what would have been right: which argument violated a declared range, which relation is deprecated in favour of which canonical form, which interval was malformed, which duplicate resolution was ambiguous and what would disambiguate it.
-
-A persistent rejection that the agent cannot resolve is one of the four conditions that reach a person, because it usually indicates a schema gap rather than a mistake: a missing relation, a role the universal set lacks, or a frame the closed set does not cover.
-
-## What is not on this surface
-
-- No direct Event construction. Events arise from `record`, or from `claim` against an existing one. Hand-authoring role-edges is ontology-language, and the agent does not speak it.
-- No credence. The agent cannot set how strongly a claim is believed. Credence is derived from evidence, and letting the writer assert it would reintroduce verbalised confidence through the back door.
-- No handle selection. The agent writes to the handle it was given. Identity resolution happened before the turn started.
-- No critic bypass. There is no force flag. An operator has a separate path; the agent does not.
-- No bulk ingestion. A long document goes through [`ingest`](memory-typology.md), which is a job rather than a call: it batches extraction, carries one transmission principle for the whole source instead of a decision per Statement, and reports through a handle rather than a parse. Everything above describes the conversational path.
-- No charter writes. The [self slot](memory-typology.md) is not reachable from the memory verbs. The agent can observe something about itself, which is an ordinary Statement, and it can propose a new version, which reaches a person.
+The eager review loop remains an empirical policy. It can move to end-of-turn or a bounded background retry if measurement shows unacceptable latency or constraint tax. Such a policy change does not change persisted Occasion, Activity, proposal, or publication meanings. Routine indefinite re-extraction of committed sources remains excluded because it creates nondeterministic drift and cost proportional to stored history.

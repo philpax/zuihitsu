@@ -1,93 +1,77 @@
 # The two traces
 
-Every recorded occasion leaves two traces: the structure extracted from it, and the narrative of the occasion itself. Neither is subordinate to the other. They are indexed separately, retrieved together, and they answer different questions.
+The two traces are the durable source record and an optional generated mnemonic narrative. Structured Assertions are linked to the source record but are not themselves “the other trace”: they are semantic interpretations with their own lifecycle.
 
-Structure serves precision. Deduplication by structural equality, reads that traverse role-edges to answer who did what, critics that can type-check a write, and audience conditions that evaluate deterministically all need a claim to be a claim rather than a sentence.
+An external social input is an [Occasion](statements.md). It owns one ordered interleaved sequence of text and [ArtefactReference](artefacts-and-perceptions.md) content parts; either kind may be absent. An agent, operator, tool, or model action with no external Occasion is an [Activity](statements.md). [Statements](statements.md) owns these identities and the Proposition/Assertion/Attestation/Derivation cardinalities. This chapter owns only the boundary between source material and generated episodic narrative.
 
-Narrative serves recall. Distinctiveness between similar memories, temporal anchoring, and the sequencing and synthesis that spans occasions run on the elaborated language of the occasion, and structure alone does not supply them.
+## The source trace
 
-## Complementary rather than ranked
+The source trace preserves what arrived or happened without pretending that extraction is lossless. For an Occasion it includes participants, witness evidence, ordering, observed and recorded time, the original utterance when present, and ArtefactReferences. For an Activity it includes actor, inputs, implementation or model version, tool observations, and outputs.
 
-One reading treats prose as a fallback for when structure is wrong, kept but demoted. The evidence indicates the two carry different load.
+Assertions cite typed source locators into this trace. One compound utterance can ground several Attestations and Assertions; one utterance can also ground none. The [modelling study](research/2026-08-03/modelling-study.md#compound-entries-fragment-and-the-gloss-stops-being-one-to-one) found a single entry carrying eight claims and established that source prose cannot honestly be split into one invented gloss per claim. It also found figurative content for which source prose is the only faithful representation ([figurative content](research/2026-08-03/modelling-study.md#figurative-content)).
 
-In a controlled experiment ([`research/2026-08-03/dual-trace.md`](research/2026-08-03/dual-trace.md)) pairing each structured record with an elaborated narrative, against a structured-record-only control at matched coverage, the pair gained 40 points on temporal reasoning, 30 on multi-session aggregation, and 25 on tracking how information changed. On single-occasion lookup the gain was exactly zero, with no discordant questions in either direction.
+Source retention does not assert source content. Quotation, participant Attestation, agent observation, Perception, and Derivation remain distinct under [statements](statements.md). A repeated claim may reuse a Proposition while producing another Attestation or Assertion as appropriate; the second Occasion always remains independently addressable.
 
-The null result is what makes the finding usable. A treatment that improved everything would be indistinguishable from simply having more text available. A treatment that helps only where a question spans occasions, and demonstrably not where one lookup suffices, identifies something specific about what the second trace does: it distinguishes and orders memories rather than making individual facts easier to find.
+### Compound and source-only fixtures
 
-Two caveats travel with this and are recorded in [`confidence.md`](confidence.md). The experiment is a single unreplicated study on one benchmark with an automated judge. And it could not separate whether the benefit comes from generating the narrative at encoding or from reading it at retrieval, which is the difference between a design that costs a model call per occasion and one that costs almost nothing. [`evolution.md`](evolution.md) resolves that with an experiment before committing to the expensive arm.
+| Input | Required representation |
+|---|---|
+| “Rowan moved to York and now works at Northwind.” | One Occasion and utterance; at least two source locators; separate Propositions/Assertions/Attestations so validity and audience can differ. No synthetic per-claim utterances. |
+| “The failure was a blade that kept rising.” | One Occasion and utterance; zero structured Assertions is valid if decomposition would misrepresent the metaphor. |
+| A tool reports `17.2 °C` without a participant message | One Activity and tool observation; any Assertion is sourced or derived from that Activity. No fabricated utterance or human teller. |
 
-## A gloss belongs to an utterance
+## Artefacts, captions, and Perceptions
 
-A gloss is not a property of a Statement. Many Statements point at one gloss.
+An artefact share has three possible descriptive layers that must not collapse:
 
-This follows from how people talk. One sentence routinely carries many claims: [the corpus study](research/2026-08-03/modelling-study.md) found a single observed entry carrying eight, and twenty entries in a 198-entry corpus carrying three or more. Attaching a private gloss to each of the eight would mean inventing eight phrases nobody uttered, which is worse than useless: it manufactures evidence.
+1. **Primary source artefact.** Immutable bytes identified as an Artefact and shared through an ArtefactReference on an Occasion.
+2. **Human caption or alt text.** Participant-authored source text on that Occasion. It may ground an Attestation, but it is not mechanically true merely because it accompanies the bytes.
+3. **Machine Perception.** A fallible observation such as a caption, OCR result, object label, or region description produced by a versioned model/tool Activity. It is not participant testimony.
 
-```
-g1  utterance, turn:01J7…
-    disclosure [person/rowan]
-    exposure   [person/rowan, person/quill]
-s8, s9, s10, …  →  g1
-```
+A generated thumbnail, crop, page rendering, OCR text file, or extracted frame is a derived Artefact with explicit lineage. The canonical identities, selectors, access checks, and erasure rules belong to [artefacts and perceptions](artefacts-and-perceptions.md).
 
-Three consequences matter.
+### Multimodal fixtures
 
-Visibility stays per-Statement. One utterance can yield claims with different audiences, and the corpus contains the case: a biography recorded as one public entry including a private detail, later split so the detail could be held back. Structure fragments, and the transmission principle rides the fragments.
+| Scenario | Required result |
+|---|---|
+| A participant sends an image with no text | An artefact-only Occasion is valid. The ArtefactReference records supplier and ordering. Inspection may create a Perception; arrival alone creates no Assertion. |
+| A participant captions an image “Pepper at the harbour”; the model sees an indoor room | Preserve the human caption as source text and any Attestation it grounds; preserve the conflicting machine Perception under its model version. Do not attribute the Perception to the participant or mechanically call the two contradictory without a grounded proposition comparison. |
+| The same bytes are shared twice | One Artefact, two ArtefactReferences, two Occasions. Their suppliers, captions, audiences, and retraction/erasure paths remain separate. |
+| The agent later reinspects a region | Record an explicit audience-checked Activity consuming the ArtefactReference and selector, then a new Perception. Do not silently replace the earlier Perception. |
+| One share is erased while another authorised reference survives | Retract or erase the affected reference and its dependent records; retain bytes only as authorised by the surviving reference. Never use content identity as proof of access. |
 
-Who heard it rides the gloss. Presence is a property of the occasion, not of each claim drawn from it. It is kept as two sets: a narrow disclosure set the audience evaluator reads, and a wider exposure set only the dependence test in [belief](belief.md) reads. See [Statements](statements.md).
+## The optional generated trace
 
-Some content is only a gloss. Metaphor, analogy, and reframing have no claim to extract, and decomposing them destroys what was said. A Statement over such an utterance carries a thin claim and leans on the narrative for everything. This is a designed outcome, and the corpus study found it independently: a real fraction of what a personal agent records is content whose only faithful representation is the prose.
+A generated episode is a synthetic mnemonic scene or narrative produced from selected source records by an Activity and recorded as a separate Derivation output. It may help distinguish, sequence, or aggregate occasions. It is not raw experience, an Assertion, an Attestation, or evidence.
 
-## Deduplicate claims, preserve occasions
+The supporting study reported gains of 40 points on temporal reasoning, 30 on multi-session aggregation, and 25 on update tracking, with no single-session gain ([dual-trace results](research/2026-08-03/dual-trace.md#the-experiment)). The evidence is narrow: one unreplicated benchmark, an automated judge, about twenty questions per category, no privacy dimension, and no ablation separating encoding-time generation from retrieval-time reconstruction ([limitations](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Reported cost neutrality depended on a context-heavy harness and does not transfer to a durable event log.
 
-This is where the two traces pull against each other, and it is stated here because getting it wrong reinstates a failure the model exists to fix.
-
-A re-mention of a known fact resolves to the existing Statement. It does not create a second one. That is what ends the observed failure of one happening recorded four times in subject-appropriate rephrasings.
-
-A re-mention is nonetheless a second occasion, and the occasion is kept: its own gloss, its own turn reference, its own teller added to the Statement. The store ends with one claim and two occasions.
-
-The distinction is load-bearing in both directions.
-
-Collapsing occasions along with claims discards the redundancy that lets an agent cross-check a claim against its own record. The dual-trace study reports a case where an agent retrieved the wrong answer, then corrected itself because a second occasion's narrative carried an incidental anchor that contradicted the first. That mechanism requires two narratives of overlapping content to survive.
-
-Failing to collapse claims reinstates the copies. If "a second occasion" is read loosely enough, every rephrasing qualifies, and the store fills with near-duplicates again under a new name.
-
-The boundary is that the same claim, the same frame, and the same validity interval mean one Statement, regardless of how many times or how differently it is said. Everything else about the occasion is retained. Where the boundary is genuinely unclear, the resolution is a rejectable proposal and the ambiguity is a teachable error, not a silent choice.
-
-## Episodes
-
-An occasion is addressable. A session that warrants it produces an episode: a first-class memory carrying the session's span, its participants, the salient turn references, and a narrative body.
-
-Episodes are the unit the second trace is organised around. A Statement knows the occasion that produced it, and an occasion knows its Statements, so retrieving either surfaces the other structurally rather than through a second search. This is a linked companion relationship, not a fallback tier consulted when structure fails, which is what the experimental evidence supports: the gain lives where both traces are present and their anchors can be cross-referenced.
-
-Not every session earns an episode. In the study's protocol roughly four in five sessions correctly produced nothing, and the same experiment found that increasing coverage bought a few points while increasing depth bought twenty. A low episode rate is the correct outcome rather than a coverage failure to be tuned away.
+Generation also invites concrete invention by design. The study's non-evidence disclaimer and protocol are prompt-sensitive, and long narrative occupies the embedding regime with observed geometry variance. These caveats make generated episodes an open experiment pending Stage 0a, not required genesis state.
 
 ## The episodic wall
 
-A narrative is composed by the agent, which makes it the surface where invention is most likely and most consequential. The current system has already produced the failure in its unelaborated form: content invented for a document that was never read, and attributed to the person who mentioned it.
+If generated episodes are enabled, mechanical rules enforce the boundary:
 
-Generating narrative deliberately asks a model to commit to concrete detail it was not given. That licence needs a structural boundary, not a sentence in a template asking the model to be careful.
+- a generated episode is attributed to its producing Activity and Derivation, never to a participant;
+- it cannot be an input to a semantic Assertion Derivation or accrue Attestations;
+- it is labelled as reconstruction on every read surface;
+- its lineage names all source Occasions, Activities, Perceptions, and policy versions used;
+- its transmission restriction is no wider than the intersection of its inputs;
+- generation over content whose principle cannot safely govern an indivisible narrative is rejected;
+- correction appends a replacement or disables the generated result without editing source records.
 
-An episodic trace:
+A narrative body is indivisible prose. If omitting restricted material would change its account, the whole body is suppressed. Unlike an Event projection, it cannot safely reveal selected “edges”. Central audience resolution must run before the narrative is rendered.
 
-- is always told by the agent, never by a participant, so it cannot launder an inference into someone's testimony
-- is never a premise in a derivation
-- is never distilled into a description of another memory
-- never accrues attestation or corroboration
-- is marked as a reconstruction wherever it surfaces
-- is composed under the intersection rule, and never over anything held in confidence
+Generated prose cannot claim completeness. It is a selective reconstruction and may omit salient details, combine anchors poorly, or invent scene geometry. A source link lets a reader audit it; the link does not turn it into evidence.
 
-These are enforced by the critic bank, not by instruction. See [the verified write](verified-write.md).
+## Retrieval and deduplication
 
-## The narrative is a distillation
+Retrieval may co-return semantic Assertions, source Occasions, prior Perceptions, and an authorised generated episode through explicit links. A generated episode is not a fallback whose absence lowers confidence in an otherwise supported Assertion. Source records remain available whether generation ran or not.
 
-The sixth rule is the one that costs something, so it is worth stating why it is there and what it takes away.
+Proposition equality and Assertion lifecycle are defined in [statements](statements.md). They must not be used to collapse Occasions. Re-mentioning a proposition preserves the new Occasion and may add a distinct Attestation with its own teller, expression strength, source locator, audience, and retraction authority.
 
-A narrative body recounts an occasion, and an occasion routinely contains claims with different audiences. Without the rule, a session in which someone said one public thing and one thing in confidence produces a body carrying both, and that body then rides every search result touching the session as an [episode anchor](query-surface.md). That is a second read path with no audience computed on it, which is precisely the "handed content it must remember not to repeat" the query surface promises never happens. Withholding after the fact is how residue leaks.
+Event co-reference is stricter still. Similar descriptions remain separate Events unless a reversible resolution hypothesis is accepted under [events and roles](events-and-roles.md). Generated narrative never supplies the evidence needed to merge them.
 
-An episode is a synthesis of an occasion, which makes it a distillation by another name, and a distillation is a derivation. So it takes the rule derivations already take: [a derived Statement's transmission principle is the intersection of its premises'](statements.md). An episode drawing on public and attributed content is attributed, surfaces to anyone, and discharges its obligation by naming its tellers, which an account of an occasion does anyway.
+## Enablement gate
 
-A confidence is the exception, and the only one. A narrative body cannot be partially surfaced: unlike an Event, whose edges assemble per audience, prose is one object that is either rendered or not. A body drawing on something told in confidence would therefore either leak it or be silenced whole, and neither is acceptable, so an episode is never composed over an `in_confidence` Statement at all.
-
-The distinction matters more than it looks, and measuring the live corpus is what made it visible. Of the recorded content, the overwhelming majority is public, a fifth is attributed, and a single entry is a confidence. A public-only rule would therefore have excluded a fifth of the corpus, concentrated in the two richest sessions, to protect one entry. Attributed content is repeatable content with a naming obligation, not withheld content, and excluding it buys no privacy whatever while costing exactly the depth the second trace was adopted for.
-
-The residual risk is that narrative prose is a weaker attribution surface than a rendered field, so a teller's name can dissolve into a sentence. Two guards address it, in the design's usual division of labour: a hard critic requires an episode drawing on any non-public Statement to carry its teller list structurally beside the body, and a soft critic checks that the prose itself attributes. The structural list is what the audience model relies on; the prose is a courtesy.
+Generated episodes remain disabled unless an in-repository experiment shows encoding-side value over source-window retrieval at matched source coverage. The gate must measure temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. A passing aggregate score is insufficient: fixtures must show that no generated detail becomes an Assertion, Attestation, Event co-reference input, or hidden-content signal.

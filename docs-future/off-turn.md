@@ -1,104 +1,112 @@
 # Off-turn work
 
-The store changes when nobody is talking. Consolidation, re-derivation after a severance, episode composition, structuring retries, decay, wake-ups, exploration, and whatever the agent decides to do on its own initiative all run outside a turn.
+Off-turn work executes durable jobs when no conversational turn is active. Jobs perform mechanical projections, propose derived Assertions, or propose retractions. These authorities are separate. A job receives only the permissions declared by its job kind.
 
-None of it is a separate write path. Off-turn work inherits every commitment the on-turn path carries, and two of those constrain it more tightly here, because no participant is present to notice a mistake.
+[The assertion model](statements.md) owns Activity, Assertion, Attestation, and Derivation identity. [Verified writes](verified-write.md) owns proposal publication. [Privacy and provenance](privacy-and-provenance.md) owns transmission and influence rules. Off-turn jobs refer to those records and do not define substitute identities.
 
-## A pass is an ordinary writer
+## Authority classes
 
-Every pass meets the same critics and can be rejected. There is no maintenance bypass, no privileged verb, and no pass-only authority.
+A `mechanical_projection` job updates a rebuildable projection from recorded events. It cannot append an Assertion, Attestation, Perception, or retraction transition.
 
-Five rules follow, and each closes a way a pass could otherwise evade a constraint.
+A `derived_assertion` job can open a verified-write proposal with an Activity that produces a Derivation as its source. It records typed inputs, criterion and implementation versions, ontology and policy versions, unified ResolutionEnvironment, assumptions, and source head sequence. It cannot claim human testimony or publish without the ordinary critics.
 
-A pass writes as the agent. It is never a teller on someone's behalf, and its output is a derived [Statement](statements.md) carrying `derived_from`, its activity, its criterion, and its assumption stamp. "How do you know?" answers for pass-written content exactly as it answers for anything else, which is the difference between curation and accretion.
+A `retraction_proposal` job can propose withdrawal or invalidation for a record it did not author. It records the target, authority basis, evidence, and requested transition. It cannot substitute a replacement value. The authorised teller, subject, operator, or policy reviewer accepts the transition through the applicable owner surface.
 
-A pass may not widen an audience. A synthesis carries no more than the intersection of what it drew on, a description is restricted further to public content because it cannot name a teller, and no pass extends a [disclosure set](privacy-and-provenance.md). An audience is widened by evidence arriving, never by tidying.
+All classes can append job transitions and Activity records. None can widen an audience, cross the episodic wall, modify the self slot, activate schema, accept an identity merge, or bypass a critic.
 
-A pass may not cross the [episodic wall](two-traces.md). An episode is not a premise, and no amount of off-turn deliberation promotes a reconstruction into a fact.
+## Job identity and key
 
-A pass may not touch the [self slot](memory-typology.md). The one piece of state that conditions every turn is out of reach of the machinery that decides what to drop.
+Current maintenance passes repeatedly inspect stored prose and supply the observed workaround and scaling constraint ([maintenance passes](../docs/maintenance-passes.md), [current write machinery](../docs/write-path.md)). Durable-activity and large-system research support recording nondeterminism and avoiding constant per-fact sweeps ([welding research](research/2026-07-24/lanes/welding.md), [scaling survey](research/2026-07-24/lanes/survey-giants.md)). The stable key, leasing, compare-at-commit, supersession, and poison protocol below are design synthesis with no direct local implementation analogue. Stage 11 crash, race, and idempotency tests are its evidence gate.
 
-A pass may withdraw a value it did not author, and may never substitute one. Where a pass judges a field wrong, it retracts the field and records why, leaving the Statement without it. Writing a replacement value is refused. The two errors do not cost the same: a withdrawn occurrence disarms a wake-up and leaves a claim a reader still reaches, where a substituted one arms a different wrong wake-up under the authority of whoever wrote the original. The current system reached this rule from the same asymmetry, after finding that a date the agent wrote at append time was never examined at all, which left a date lifted from a namesake standing unchallenged ([`research/2026-08-06/current-system-fixes.md`](research/2026-08-06/current-system-fixes.md)).
+Each logical job has a stable job ID and a unique job key:
 
-## The work list replaces the sweep
+```text
+(job_kind, target_id, target_head_sequence, policy_version, implementation_version)
+```
 
-A pass that sweeps the store re-reads everything on every run, so its cost per fact is constant at best and rising in practice. That is the graveyard lesson in [`lineage.md`](lineage.md), and it decides the shape of off-turn work: passes drain queues that write-time marks fill.
+The target head sequence states the source state the job intends to process. Enqueueing the same key is idempotent. A changed evidence, time, schema, policy, or identity head creates a new key and supersedes obsolete pending work when the job kind declares that relationship.
 
-The marks already exist, or are cheap consequences of things that do:
+The job record carries its authority class, transmission domain, priority, attempt bound, poison policy, and compare-at-commit inputs. A lease record carries the worker ID, attempt number, acquisition sequence, and expiry. Lease expiry permits another worker to append a new attempt. It never removes the abandoned attempt.
 
-| | |
-|---|---|
-| owing recomputation | a derivation whose premises gained support since it ran |
-| support weakened | a derivation whose premises lost credence, through unreliability or discovered dependence |
-| voided | a derivation stamped with a withdrawn merge, awaiting re-derivation |
-| window closed | a Statement whose validity interval ended, awaiting whatever succeeds it |
-| gloss-only | an utterance committed without structure after a structuring failure, retried once |
-| contested | a contradiction pair coexisting, awaiting evidence or a person |
-| candidate | a merge or a resolution below its threshold, awaiting corroboration |
-| pending structure | a span of an [ingested document](memory-typology.md) committed to the source layer, kept off every read surface until its job completes |
-| unreflected | a working note awaiting the promote-or-discard pass |
-| unsummarised | a closed session that met the bar for an episode and has not been composed |
+## Job state machine
 
-A tick that finds empty queues costs a queue read. A tick that finds work does exactly that work, and the cost is proportional to what changed rather than to what is stored.
+Every transition appends an event. The fold derives current state by job ID.
 
-Whole-store sweeps do not disappear, but they stop being the routine path. The [drift](verified-write.md) machinery, canaries and re-derivation audits, is inherently whole-store, and it is a diagnostic run rarely rather than curation run constantly. Confusing the two is how a maintenance budget becomes a scaling problem.
+| State | Appended record | Permitted successor |
+|---|---|---|
+| `queued` | job key, target head, authority, versions, priority, and retry policy | `leased`, `cancelled`, `superseded` |
+| `leased` | worker, attempt, and lease expiry | `running`, `queued`, `cancelled`, `superseded` |
+| `running` | Activity start and consumed input IDs | `prepared`, `retry_wait`, `poisoned`, `cancelled`, `superseded` |
+| `prepared` | deterministic projection delta or verified-write proposal ID, plus expected commit heads | `committing`, `retry_wait`, `cancelled`, `superseded` |
+| `committing` | compare-at-commit attempt | `completed`, `stale`, `retry_wait`, `poisoned` |
+| `retry_wait` | failure class, attempt count, and next eligible time | `queued`, `poisoned`, `cancelled`, `superseded` |
+| `stale` | observed head mismatch and replacement key, if needed | `superseded`, `queued` |
+| `completed` | output IDs, committed head, and completion digest | terminal |
+| `cancelled` | actor and reason | terminal |
+| `superseded` | replacement job ID and reason | terminal |
+| `poisoned` | terminal failure class, diagnostics, and operator disposition | terminal |
 
-## The heartbeat
+A worker must hold the latest unexpired lease before it appends `running` or `prepared`. Completion compares the target, policy, schema, identity, and relevant output heads with the values recorded in `prepared`. A mismatch appends `stale`; it never commits a result against changed premises. Mechanical projection commits are idempotent by job key and output version. Derived and retraction outputs use the verified-write proposal's stable IDs and atomic publication protocol. These race semantics are normative synthesis, not behavior inherited from the current passes; Stage 11 must exercise lease expiry immediately before prepare and commit, duplicate workers, cancellation races, and a crash on both sides of the commit marker.
 
-The timer is a scheduler, not a deliberator. What it runs splits cleanly by whether a model is involved.
+A crash before `prepared` leaves an expired lease that another worker can retry. A crash after `prepared` reuses the recorded Activity result. A crash during commit resolves by reading the output commit marker before another attempt. A worker never repeats a recorded nondeterministic call solely because it lost its lease.
 
-Mechanical work calls nothing: closing windows, propagating a void, resolving aliases, updating access-recency ranking, expiring a candidate. It is deterministic, cheap, and can run on any tick.
+Transient infrastructure failures enter `retry_wait` with bounded exponential delay. Deterministic critic failures do not retry until an input or version changes. Exhausted attempts enter `poisoned`. Poisoned jobs remain visible to the operator, do not block unrelated keys, and require an explicit discard, replacement, or policy change.
 
-Judgement work calls a model: synthesis, weighing a contradiction, composing an episode, retrying a structuring that failed. Each is a record-at-call-time activity whose prompt and response land in the log, so every one of these is permanent log volume as well as a model call. It is metered per tick rather than drained to empty.
+Cancellation prevents a future commit. If output committed first, cancellation cannot erase it and must use the canonical retraction or correction transition. Supersession links the old and replacement jobs. The old job cannot commit after the supersession sequence because compare-at-commit includes the job state head.
 
-Wake-ups ride the same timer and are not maintenance. A [trigger](time.md) is a commitment the agent made, and a queue of tidying must never starve one. Triggers are drained first, and a tick that runs out of budget drops maintenance rather than deferring a commitment.
+## Queue marks
 
-## Consolidation gets smaller
+Writes enqueue work from specific changes rather than from whole-store sweeps.
 
-Most of what consolidation does today is recovering structure that was never captured, and capturing it at write time takes the work away rather than moving it.
+| Mark | Relevant change | Job response |
+|---|---|---|
+| `recompute_owed` | a derivation input or criterion version changes | derive again against the new head |
+| `support_weakened` | visible support, dependence, or reliability changes | re-evaluate the affected derived result |
+| `resolution_invalidated` | an identity or Event resolution is withdrawn | rebuild affected projections and derivations |
+| `validity_boundary_due` | recorded time reaches a declared boundary | apply the versioned temporal policy |
+| `source_only` | a proposal ended without structure | perform the one bounded structuring retry allowed by policy |
+| `pending_ingest` | a source-first ingest segment is durable | process the named segment under its source audience |
+| `working_review_due` | a working item reaches its review condition | propose promotion or discard |
+| `episode_due` | a session meets the optional episode policy | compose under the episodic wall |
 
-Structural deduplication disappears. Same claim, same frame, same validity interval is one Statement at write time. There is nothing for a pass to detect afterwards, and the similarity threshold that currently decides it stops existing.
+A tick over empty queues costs a queue read. Whole-store canaries and replay audits remain diagnostic operations. They do not become routine curation passes.
 
-Cross-audience merging disappears. Today a narrower entry is retired into a wider one because a fact recorded by two tellers is two entries. Under this model it is one Statement with two tellers, each carrying their own transmission principle and their own retraction authority, so the tier that reconciles them has nothing to reconcile.
+## Dormant contested items
 
-Near-miss resolution remains, and is the genuine residue: the overlapping-but-not-agreeing [Event](events-and-roles.md) participant sets, alias-equivalent relations, and claims a critic flagged as candidates rather than resolving. These are judgements, they are queued as candidates, and an unresolved one reaches a person rather than being decided by a threshold.
+A contested Assertion, Event co-reference, or identity hypothesis runs classification once for a named evidence and policy head. If classification cannot resolve it mechanically, the item enters `dormant_contested`. Time alone does not requeue it unless the relevant policy declares a temporal condition.
 
-Distillation remains, under the rule in [privacy and provenance](privacy-and-provenance.md): the intersection in general, public-only for a description, which cannot attribute what it summarises.
+The store requeues a dormant item only when one of these dependencies changes:
+
+- a cited Assertion, Attestation, Perception, or source arrives, changes status, or is retracted;
+- the applicable contradiction, support, or promotion policy changes version;
+- a relevant relation, role, kind, modality, or Event definition changes version;
+- either component of the unified ResolutionEnvironment changes;
+- a declared temporal boundary is reached.
+
+The wake record names the changed dependency and creates a new job key. Repeated heartbeat ticks do not reconsider an unchanged contest.
+
+## Scheduling
+
+The scheduler drains due Triggers before maintenance jobs. A Trigger is a recorded commitment rather than maintenance work. Exhausting the tick budget drops or defers maintenance capacity and does not defer a due Trigger.
+
+Mechanical jobs consume no model budget. Judgement jobs use a bounded per-tick model budget. Every model call is a durable Activity whose recorded result replay consumes. Priority cannot override audience, authority, lease, retry, or compare-at-commit checks.
 
 ## Exploration
 
-Every queue above is fed by a mark, and a mark is left when something changes. A store driven only by marks is structurally incapable of noticing that two things it has known separately for months are connected, because nothing changed to say so.
+Exploration is an open experiment and is disabled by default. It is not part of the remedy for failed extraction, contested items, or missed maintenance. Those cases have explicit marks and jobs.
 
-Exploration is the one pass with no mark behind it. It samples a pair of memories, asks what connects them, and keeps a note if the answer is worth anything.
+When enabled, exploration operates only within one compatible transmission domain selected before candidate pairing. It cannot combine records merely by intersecting incompatible audiences after inference. Its output is a working item with complete influence lineage. It cannot publish an Assertion, promote itself, initiate a message, or consume capacity reserved for due Triggers and marked jobs.
 
-Four constraints make it affordable and safe, and each of them is a rule the design already has rather than a new one.
-
-It runs on what is left over. Exploration consumes the judgement budget remaining after the queues drain, never competing with them and never a reason to raise the budget.
-
-This is the design's one declared exception to the falling-cost commitment, and the scope of the exception is worth stating exactly. Every other mechanism does work proportional to what changed, so its cost per fact falls as the store grows. Exploration does not: its cost is unrelated to what changed, and the space it samples grows with the store, which is the shape [the graveyard lesson](lineage.md) warns about. What bounds it is a fixed budget rather than a falling rate, so total cost stays flat while yield per unit of it declines. That is a weaker guarantee, taken deliberately, for the one mechanism that buys something no mark-driven pass can. It is metered by construction, switched off first under pressure, and [registered](confidence.md) as possibly not worth running at all.
-
-It samples structurally, not randomly. Random pairing is the crude form of the idea, and a typed graph can do better: two memories with no path between them but neighbouring in embedding space, two Events sharing one participant and nothing else, a claim whose relation has no instances in a neighbourhood full of them. These are queries rather than guesses, and they are available precisely because [a fact stopped being a sentence](overview.md).
-
-Its output is a working note, never an utterance and never a settled claim. An exploration writes into [the scratchpad](memory-typology.md), so it inherits promotion by reflection, a taint set, and the audience arithmetic that goes with them. It never speaks: what it produces is something the agent might later have a reason to say, not a reason to say it.
-
-It cannot promote itself. A daydreamed link has exactly one signal behind it, the model that proposed it, and [agreement before promotion](verified-write.md) requires two independent ones. So an exploration's output stays a candidate until ordinary evidence arrives to corroborate it, and if none ever does it decays with the rest of the scratchpad. This is stricter than scoring the idea for novelty and keeping the good ones, and it is the correct strictness: a plausible connection between two true facts is exactly what a language model produces when there is no connection at all.
-
-The privacy consequence needs stating, because the pairing sampler is the first mechanism here that deliberately reaches across memories with unrelated audiences. The most interesting pair is often the cross-person one, and that is also the disclosure hazard: pairing a confidence with a public fact yields a note that encodes the confidence. The [intersection rule](statements.md) covers it, the taint set carries it into promotion, and the sampler is not exempt from either. An exploration that pairs across audiences produces a note no wider than the narrower of them.
+The experiment has a fixed budget, a yield gate, a privacy non-interference gate, and a disable switch. Its cost does not fall with store growth, so it remains optional even if the safety gates pass.
 
 ## Agent-initiated work
 
-This is the hardest case. The design constrains it rather than settling it.
+An off-turn message requires an explicit initiating event such as a due Trigger, a commitment, or an operator exception request. Spare scheduler capacity is not an initiating event. The audience evaluator checks the proposed complete recipient set and fails closed.
 
-An off-turn message is not a reply. The agent is choosing the audience rather than being handed one, which inverts the usual evaluation: instead of asking what may be said to the people present, it asks who this may be said to at all. The evaluation is fail-closed over the audience it proposes, and a message it cannot justify to that audience is not sent, rather than being sent in a softened form.
+The outbound message creates an Occasion with the recipients supported by connector witness evidence. Assertions made by the agent use agent-authored Attestations only where the assertion model permits them. The operation cannot cross an unresolved identity boundary because no live challenge-response is available.
 
-Three hard limits:
+The policy that decides which eligible item warrants interruption remains an open experiment. The job and audience invariants apply before that policy can be enabled.
 
-- No off-turn disclosure across an identity boundary. That path requires challenge-response, which requires a live counterpart. A pass cannot clear it.
-- An off-turn message is an ordinary occasion. It produces a gloss, its witnesses are whoever it actually reached, and anything the agent asserts in it is a Statement told by the agent.
-- Initiative is exception-triggered, never ambient. A wake-up fired, a commitment came due, a queue item needs a person. An agent that speaks because a timer fired and spare capacity existed produces drift on a schedule.
+## Replay
 
-What is deliberately not settled here is which thoughts deserve initiation: the salience judgement that decides a thought is worth someone's attention. That question is older than this design and is recorded as open in [`confidence.md`](confidence.md). The constraints above hold whatever answer it eventually gets.
-
-## What this does not change
-
-The fold stays model-free. Every off-turn model call is a record-time activity, written to the log with its response, and replay consumes the record without calling anything. A pass that changed what the fold computes, rather than appending events the fold reads, would break the one commitment the whole design rests on.
+The fold remains model-free. Replay folds job transitions, leases, Activities, proposal states, and commit markers. It never reruns a model, infers a missing historical field, or changes the meaning of an old job key after a policy version changes. New job kinds and policies use additive versions.

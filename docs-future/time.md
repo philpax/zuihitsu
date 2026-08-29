@@ -1,65 +1,128 @@
 # Time
 
-The design keeps three axes apart. Conflating any two of them is what makes an agent wake up for someone else's calendar.
+Time belongs to different objects for different reasons. The canonical [assertion model](statements.md) owns object identity and lifecycle; this chapter defines temporal value types and the policies that interpret them.
 
-- Occurrence: when the thing a claim describes happens in the world.
-- Task: something the agent itself is meant to do, with a due time.
-- Trigger: what actually fires, expressed relative to a Task.
+- An [Assertion](statements.md) carries validity: when its Proposition applies in the modelled world.
+- An Occasion carries observed time for the external social or input event and recorded time for ingestion.
+- An Attestation carries the time of the telling within its Occasion when finer precision is available, plus recorded time if it differs.
+- A [Perception](artefacts-and-perceptions.md) carries observation and recorded times for the model or tool Activity that produced it.
+- Event-attribute Assertions carry occurrence values: when a happening occurs. An Event read projects an audience-safe occurrence; Event identity owns no occurrence field.
+- An agent-authored Task carries due or target time.
+- A Trigger carries the condition and action that may fire relative to a Task.
 
-A description has an occurrence and nothing else. Only a Trigger fires, and a Trigger only ever hangs off a Task the agent authored for itself. A fact about another system's nightly job, or the birth year of a historical figure, has an occurrence, no Task, no Trigger, and therefore no path to waking anything.
+Validity, observation, recording, occurrence, due time, and firing condition are not interchangeable.
 
-The current system has one occurrence field carrying two meanings, and the predicted failure is the observed one: a daily recurrence extracted from a fact describing a third party's routine, which then woke the agent at every boot until the occurrence was withdrawn by hand. The scheduler arms on the descriptive axis because there is no other axis to arm on.
+## Typed temporal values
 
-## Bitemporal, plus decision time
+Temporal values are typed from genesis. Strings exist only at input and rendering boundaries. Every value records its precision, uncertainty, and timezone ownership rather than manufacturing exactness.
 
-Each [Statement](statements.md) carries three temporal coordinates, and they answer different questions.
-
-| | |
+| Type | Required semantics |
 |---|---|
-| `valid` | the interval over which the claim holds in the world |
-| `observed` | when the claim was made or the thing was noticed |
-| `recorded` | when the store learned it |
+| `CivilDate` | Calendar date with calendar and no implied instant. |
+| `LocalDateTime` | Civil date and time whose timezone is unknown or owned by a named person, place, connector, or policy. |
+| `ZonedDateTime` | Civil date and time plus IANA zone and calendar; resolves to an instant under a named timezone database version. |
+| `Instant` | Absolute timeline point. |
+| `Interval` | Bounds that may be open, inclusive, or exclusive, each with precision and uncertainty. |
+| `Duration` | Fixed elapsed quantity where that interpretation is valid. |
+| `CalendarSpan` | Years, months, weeks, or days resolved against an anchor and calendar. |
+| `QualitativeInterval` | A relation such as before, after, during, overlaps, meets, or equals against another temporal object. |
+| `RecurrenceIntent` | A typed recurrence plus explicit ambiguity and exceptional-date policies. |
 
-Separating `observed` from `recorded` is what makes delayed ingestion coherent: a document written years ago and read today records both, and neither is a lie.
+Precision includes at least year, month, day, minute, second, and exact instant. Uncertainty may be an explicit bound, qualitative estimate, or unknown. Timezone ownership distinguishes “09:00 in Rowan's current zone” from “09:00 Europe/Stockholm” and records the policy used to resolve the former. A later timezone or database change produces a new projection; it does not alter the original value.
 
-It also relieves a specific pressure. A claim whose utterance anchors no time leaves `valid` open, and the store still knows when it was learned, because the occasion is held by the [episode](memory-typology.md). The current system, lacking that, pushes the model to date claims by the day it heard them, and it does exactly that: an undated past event stamped with the day it was mentioned, then relayed the next day as though it had happened yesterday, with the correction costing two turns of the person's time.
+Civil and absolute time must remain distinct. A birthday is a civil date, not an instant. Calendar spans are anchor-aware: adding one month to January 31 invokes the recorded month policy rather than becoming 30 days. These rules follow established temporal-database and date-time-library practice ([research lane](research/2026-07-24/lanes/time-memory.md#1-bitemporal-and-tri-temporal-database-theory-vs-zuihitsus-assertedoccurred-split); [typed-value research](research/2026-07-24/lanes/time-memory.md#3-typed-temporal-values-at-an-llm-interface-103)).
 
-## Typed values
+## Validity, observation, and recording
 
-Dates, durations, quantities, and recurrences are first-class typed values end to end. Strings appear only at the input boundary.
+An Assertion's validity is an interval or qualitative temporal constraint over the Proposition. It answers when the asserted content applies. Repeated disjoint periods are separate Assertions over the same Proposition. A changed interpretation of validity appends a correction or supersession transition; it does not edit the source Occasion or Attestation.
 
-The distinction between civil and absolute time is honoured rather than flattened. A day is a civil date; a moment is an instant. Treating a birthday as an instant produces the timezone bugs that make an anniversary land on the wrong day for half the world.
+Observed and recorded time belong to source and observation records:
 
-Durations are anchor-aware. A month resolves against the date it is measured from, so "three months from January 31" has one correct answer rather than a fixed 90-day approximation.
+- Occasion observed time says when the external input event happened according to connector or operator evidence.
+- Attestation observed time may identify a span within the Occasion.
+- Perception observed time says when the tool or model made its observation, which may differ from the Artefact's creation or sharing time.
+- recorded time says when each record entered the log.
 
-Recurrences are built through constructors rather than parsed from strings. The constructors cannot express the pathological cases, so a monthly recurrence anchored on the 31st is unrepresentable rather than silently skipping February. What cannot be constructed cannot be stored.
+Delayed ingestion can therefore represent a document authored in 2019, shared in 2025, perceived in 2026, and recorded later without treating any one time as the Assertion's validity. If an utterance does not establish validity, the Assertion remains temporally open or unknown; the system does not date it by the day it was heard.
 
-The corpus study found quantities in the same position dates once were: written into prose with their units, uninterpretable to any query. Word counts, elapsed hours, and ratings all appear as text. They are typed for the same reason dates are.
+Temporal databases support validity and transaction-time separation. The additional observed/source distinctions and their assignment to these objects are this design's synthesis ([research lane](research/2026-07-24/lanes/time-memory.md#the-canonical-two-axes)).
+
+## Occurrence, Task, and Trigger
+
+Occurrence, Task, and Trigger are mechanically separate in the required genesis substrate.
+
+An Event occurrence Assertion describes when a happening occurs. It never fires by itself. An agent-authored Task is a minted immutable instruction source containing the specified action, actor, arguments, authority, audience, source, and optional due or target time. Its transitions fold from `proposed` to `active`, `completed`, `cancelled`, `superseded`, or `erased`. A Trigger is a separately minted immutable condition/action binding owned by one Task. Its transitions fold from `inactive` to `armed`, `fired`, `cancelled`, `superseded`, or `erased`. Only an `armed` Trigger whose Task is `active` may invoke the bound action. A Trigger cannot target an Assertion or Event directly.
+
+A description of another system's nightly job can therefore contain an actual habitual or recurring occurrence without creating a Task. A historical birth date can be an Event occurrence without a Trigger. Only an authorized Task with a live Trigger enters the scheduler.
+
+The current system's overloaded occurrence field produced the observed failure: a third party's recurring routine woke the agent. iCalendar's mature VEVENT/VTODO/VALARM separation establishes the solution shape, although the exact successor objects are a local design decision ([current failure](../docs/ontology-failures/2026-07-23.md#schedule-and-description-conflate-in-the-temporal-model); [research lane](research/2026-07-24/lanes/time-memory.md#2-the-schedule-vs-description-conflation-failure-class-4); [verification](research/2026-07-24/verification/part-b.md#verdict-table)). Trigger separation must exist before structured Assertions can become authoritative; adding it later would leave old descriptive recurrence capable of acquiring new firing semantics.
+
+## Modality
+
+Time does not encode modality. [Proposition identity](statements.md) includes a registered modality axis from genesis. At minimum it distinguishes:
+
+- `actual`: asserted to hold in the modelled world;
+- `planned`: intended future occurrence, without asserting completion;
+- `hypothetical`: considered or conditional content;
+- `habitual`: a disposition or recurring pattern, not a claim about every instant;
+- `deontic`: an obligation or permission;
+- `cancelled`: a plan or scheduled Event whose cancellation is asserted.
+
+`cancelled` is a registered Proposition modality and remains mechanically distinguishable from `planned` and `actual`. A planned Event does not become actual merely because its date passes. Event cancellation creates a new Assertion with `cancelled` modality and provenance; it does not mutate the planned Assertion. Task and Trigger cancellation use their own lifecycle transitions and are not inferred from proposition modality. Third-party deontic content remains an Assertion; only an authorised agent-authored Task with a live Trigger can cause action.
+
+Initial inference treats non-actual modalities opaquely except for rendering and scheduling guards. Rich plan reasoning is a gated extension. Reserving and populating the modality identity slot is required at genesis because it cannot be reconstructed reliably from old prose later.
 
 ## Qualitative anchoring
 
-Not everything has a date, and forcing one manufactures precision.
+Not all time has a date. Assertions and Events may be constrained relative to other temporal objects using a registered tractable subset of interval relations: before, after, during, overlaps, meets, and equals. Composition is deterministic under the definition version recorded for the relation set.
 
-Real recorded language anchors relatively far more often than absolutely: something happened before something else, during a period, a few weeks after a thing that itself has no date. The store holds these as interval relations rather than discarding them or inventing timestamps.
+The full interval algebra is not adopted. The maximal tractable subclass is established, but whether this smaller subset is sufficient remains an implementation choice ([research lane](research/2026-07-24/lanes/time-memory.md#the-missing-piece-3-allens-interval-algebra-for-qualitative-anchoring); [verification](research/2026-07-24/verification/part-b.md#verdict-table)). Unknown or ambiguous anchoring remains explicit rather than being replaced with an invented timestamp.
 
-The relations available are a tractable subset: before, after, during, overlaps, meets, and equals, with a composition table so orderings can be inferred transitively. Full interval reasoning is intractable, and the maximal tractable subclass containing all the basic relations is a settled result rather than a design choice.
+## Recurrence intent
 
-This matters for more than tidiness. The dual-trace evidence attributes its largest gain to temporal reasoning, and the mechanism it reports is narrative anchors of exactly this kind: a detail placing one thing relative to another, with no date anywhere. A model that only accepts absolute times cannot record what people actually say.
+A recurrence is constructed from typed intent rather than accepted as an unchecked RRULE string. The value records frequency, interval, anchors, bounds, timezone ownership, calendar, and explicit policies for exceptional dates.
 
-## Correcting a date
+Supported policy choices include:
 
-Changing when something happened is a first-class operation on the occurrence, not a rewrite of the claim.
+- `last_day`: choose the final civil day of each target month;
+- `skip`: omit periods in which the requested civil value does not exist;
+- `clamp`: use the final valid civil value in the period;
+- `business_adjust(calendar, direction)`: move according to a named, versioned business calendar and direction;
+- explicit gap/fold policy for daylight-saving transitions.
 
-The current system offers only full replacement, and the cost is visible in the log: asked to fix one date, the agent looped over entries guessing at the stored format, then rewrote an entire entry's text to move the date, discarding and re-authoring content it had no reason to touch.
+“Last day of every month” is valid intent and compiles to `last_day`; it is not banned because some months lack a 31st. “Monthly on the 31st” is rejected as ambiguous unless the writer chooses `skip`, `clamp`, or `last_day`. Impossible civil dates are never silently rolled. A business adjustment without a calendar version is invalid.
 
-Under this model the occurrence is a field on a Statement whose text is a separate concern. Correcting it touches the occurrence. The [gloss](two-traces.md) is untouched, because the person's words did not change: only the store's reading of them did.
+These policies preserve ordinary intent while addressing the RRULE pathologies identified in the temporal research ([research lane](research/2026-07-24/lanes/time-memory.md#rrule-pathologies-to-guard-at-the-typed-boundary)).
+
+## Correction and refinement
+
+A temporal correction changes an interpretation, not the source. Suppose an Occasion contains “we shipped on Tuesday,” and an Assertion initially resolves validity or Event occurrence to the wrong Tuesday. The correction appends:
+
+1. evidence for the corrected temporal value;
+2. a replacement or supersession transition from the old Assertion or occurrence interpretation;
+3. a new Assertion or Event attribute using the corrected value;
+4. a Derivation naming the temporal parser, policy, ontology, unified ResolutionEnvironment, and source locator.
+
+The Occasion, utterance span, Attestation, and old record remain unchanged. If no corrected value is supported, withdrawal without substitution is valid. The current system's cue and withdrawal work shows why evidence should be requested and why unsupported substitution is unsafe ([current-system evidence](research/2026-08-06/current-system-fixes.md#span-justification)).
+
+A world change is different from a correction. If someone actually changes employer, close the old Assertion's validity and add a new Assertion. If the old employer was recorded incorrectly, supersede or retract the old Assertion. Both are append-only, but their transition reasons differ.
 
 ## Staleness and volatility
 
-A claim with an open validity interval is not automatically true forever.
+An open validity interval does not imply permanent truth. Volatility is a registered property of relation or Assertion policy, with expected review horizons and domain-specific evidence requirements. Passing a horizon does not mutate the source or silently close its interval. It creates a candidate Activity that may:
 
-Volatility is a property of the claim's kind rather than a flag someone remembers to set. Where a claim is inherently transient, its interval carries an expected horizon, and passing that horizon makes it a candidate for revisiting rather than a fact to keep asserting.
+- append a derived replacement with bounded validity when evidence supports a historical reading;
+- append a closure or supersession transition with that evidence;
+- annotate the current Assertion as stale under a named policy;
+- queue a re-verification request;
+- leave the Assertion unchanged when evidence is insufficient.
 
-A retroactive pass over aged claims chooses from a ladder. Temporalise where the claim is sound but untimed, closing its window at the date it can be shown to have held. Annotate where it is plausibly still current but unverified. Re-verify by queueing it for the next contact with someone who would know. Retire where it has no temporal reading at all.
+Temporalisation is therefore a derived operation with complete lineage. It never edits the original Assertion or participant words. Policy changes rebuild the stale projection and may generate new proposals; they do not make historical records mean something new.
 
-Temporalising is the common case and the one that resolves cleanly. Most aged claims are not false, they are undated: an activity someone was doing, a plan someone had. Closing the window turns a claim that reads as current into dated history, which is permanent and no longer decays.
+## Genesis and policy boundary
+
+Required at genesis: typed values with precision, uncertainty, timezone ownership, validity on Assertions, source observation and recording times, occurrence represented by Event-attribute Assertions, modality identity, and mechanically separate Task and Trigger records.
+
+Initial policy: conservative actual/planned/cancelled rendering, no firing from descriptive occurrence, explicit safe recurrence constructors, and source-preserving correction.
+
+Gated extensions: richer qualitative inference, business calendars, volatility automation, habitual and deontic reasoning, and autonomous recurrence interpretation. Their required raw fields exist from genesis, so disabling a policy changes projections and automation, not persisted meaning.

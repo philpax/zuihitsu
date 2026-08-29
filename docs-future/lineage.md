@@ -1,15 +1,15 @@
 # Lineage
 
-Almost nothing in this design is new. What follows is where each piece came from, and what was deliberately left behind.
+The [evidence map](confidence.md#evidence-map) records the normative owner, internal observation, external research, status, qualification, and gate for every load-bearing design family. This file is an ancestry index. It does not supply rationale that is absent from a normative owner.
 
-The principle running through the whole set is to take representations and disciplines and to refuse reasoners. The most comparable prior system ran for fifteen years, and what survived was its storage and bookkeeping layer, while its general inference engine was abandoned and restarted more than once. Reasoning here is focused, task-specific model calls plus sound critics, and there is no general symbolic reasoner anywhere in the design.
+The design takes representations and operational disciplines from prior systems. It does not take their general reasoners. The most comparable prior system ran for fifteen years. Its storage and bookkeeping survived while its general inference engine was replaced more than once. The successor uses focused model calls and bounded critics rather than a general symbolic reasoner.
 
 ## What each ancestor contributed
 
 | Source | Taken | Left behind |
 |---|---|---|
 | OWL | Cardinality constraints, inverse properties, symmetry and reflexivity, binary arity, and the deprecation vocabulary that became [deprecate-and-alias](relations.md) | The reasoner, the open-world assumption, and the absence of a unique-name assumption, which together make an exact count mean something other than what this design intends. Above all `owl:sameAs`, whose unrestricted transitive substitution is the exact amplifier that makes one bad merge corrupt a whole identity class |
-| Wikidata | The reified [statement](statements.md) carrying qualifiers and references, the hard-won discipline of keeping qualifiers one level deep, and the quantity datatype with its uncertainty bounds, taken wholesale for [counts and measures](statements.md) | Ranks as a credence proxy. A three-value filter is not a belief model, and this design counts evidence instead |
+| Wikidata | Its historical reified statement model establishes addressable claims with qualifiers and references. The successor maps that lesson to [Propositions, Assertions, and Attestations](statements.md). The quantity datatype supplies uncertainty bounds for counts and measures. | Ranks as support. A three-value filter is not an evidence model. |
 | RDF n-ary patterns | Reification as [Events with role-edges](events-and-roles.md), which is the standard answer to binary-only relations | The triple store itself |
 | TypeDB | Role-typed relations with enforced filler types | The vendor performance and scaling claims, which were never relied on. Only the architecture is taken |
 | PROV | The derivation record shape: entity, activity, agent, and a plan slot for the template | Its descriptiveness. PROV records that an assumption was used, not that a conclusion's truth is contingent on it, which is the gap the assumption stamp fills |
@@ -39,7 +39,7 @@ The principle running through the whole set is to take representations and disci
 
 ### Cardinality moved from the class to the individual
 
-OWL expresses cardinality as a restriction on a class: every person has exactly two biological parents, a committee has at least three members. That is a schema-level statement, checked against every instance.
+OWL expresses cardinality as a restriction on a class: every person has exactly two biological parents, or a committee has at least three members. This is a schema-level constraint checked against every instance.
 
 What a personal agent mostly needs is the other thing: a fact about one individual, at one time. Someone has five ice creams. A corpus holds nine authors. A session produced three of something.
 
@@ -53,7 +53,7 @@ The value's shape is Wikidata's: an amount, an optional unit, and optional bound
 
 Relations are binary, exactly as OWL properties are. Nothing in this design has a three-place edge.
 
-N-ary content goes through Event nodes with role-edges, which is the reification answer the RDF community converged on and which TypeDB implements natively. The gain over a wider edge is that each role becomes independently addressable, so each carries its own provenance, credence, and audience. A three-place edge could not hold three tellers.
+N-ary content goes through Event nodes with role Assertions. This is the reification pattern used by RDF and implemented natively by TypeDB. Each role Assertion is independently addressable and can carry separate Attestations, validity, and audience resolution. A single three-place edge cannot preserve per-role support and audience.
 
 ## The graveyard lessons
 

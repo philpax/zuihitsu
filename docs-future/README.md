@@ -1,47 +1,70 @@
 # docs-future
 
-Nothing in this tree describes zuihitsu as it is built. The tree describes a proposed successor to the data model, written in the present tense as though it already existed. Every claim about how memories are stored, how facts are shaped, how identity resolves, or how the agent writes to the store is a claim about a system that does not exist and may never be built in this form.
+This tree specifies a proposed successor architecture. It does not describe zuihitsu as currently built. Current behavior is documented in [`../docs/`](../docs/).
 
-For the system that actually runs, read [`../docs/`](../docs/), which is maintained as as-built documentation and is the only place to look for current behaviour.
+The chapters use present tense as normative design language. Implementation status is recorded separately in [`coverage.md`](coverage.md), [`confidence.md`](confidence.md), and [`evolution.md`](evolution.md).
 
-## Why the present tense
+## Scope and permanence
 
-A design written as "the system would carry a validity interval" reads as speculation and does not commit. The same design written as "a relation carries a validity interval" commits, and the places where it cannot commit become visible as gaps rather than hiding behind a conditional. The normative voice is a drafting discipline, not a claim of implementation status.
+The running pre-successor instance is not migrated. The successor starts at genesis. After genesis, persisted meanings and stable identities cannot be changed incompatibly. Later capabilities must be additive and versioned. Replay cannot invent omitted historical values, and no stage can require an already-born successor agent to reset. [`overview.md`](overview.md#permanence-contract) defines the full contract.
 
-The discipline has a cost. A reader who lands here from a search result could reasonably mistake this tree for a description of reality. The tree is therefore quarantined out of `docs/` and named for what it is.
+Status labels have fixed meanings:
 
-## Contents
-
-The chapters below are the design. [`overview.md`](overview.md) is the entry point. The rest can be read in any order.
-
-| | |
+| Status | Meaning |
 |---|---|
-| [`statements.md`](statements.md) | the keystone: one object carrying a claim, its frame, its gloss, its provenance, its validity, its credence, and its audience |
-| [`events-and-roles.md`](events-and-roles.md) | a happening as one node with role-edges, not a copy per participant |
-| [`two-traces.md`](two-traces.md) | structure and narrative as complementary rather than ranked |
-| [`relations.md`](relations.md) | attribute-bearing, interval-scoped, domain-constrained, and repairable |
-| [`identity.md`](identity.md) | revocable graded merges, held below a substrate wall |
-| [`belief.md`](belief.md) | credence from counting evidence, never from a model stating a number |
-| [`time.md`](time.md) | occurrence, task, and trigger kept apart, so a description cannot fire |
-| [`memory-typology.md`](memory-typology.md) | four kinds with four lifecycles, and the self in a slot outside all of them |
-| [`privacy-and-provenance.md`](privacy-and-provenance.md) | transmission conditions as data, zero residue, retraction against erasure |
-| [`verified-write.md`](verified-write.md) | the model proposes structure, the critics accept or reject it, and drift is watched from outside |
-| [`query-surface.md`](query-surface.md) | structural questions, structural answers, and a deliberately small API |
-| [`write-surface.md`](write-surface.md) | two verbs, structuring inside the transaction, and the parse handed back for correction |
-| [`off-turn.md`](off-turn.md) | passes as ordinary writers, queues instead of sweeps, and initiative that is exception-triggered |
-| [`lineage.md`](lineage.md) | what each ancestor contributed, and what was deliberately left behind |
+| `required at genesis` | Permanent substrate or raw input required before the successor runs. |
+| `initial policy` | Behavior enabled in the first usable successor. |
+| `gated extension` | Later behavior whose required raw inputs exist from genesis. |
+| `open experiment` | Uncommitted behavior that requires an evidence gate. |
 
-The supporting material:
+## Canonical glossary
 
-- [`coverage.md`](coverage.md) grades the design against the surveyed failures of the current ontology, class by class, and maps it onto the open issues. The grading is deliberately uneven; several classes are answered in design but not yet validated.
-- [`confidence.md`](confidence.md) registers every load-bearing claim with its evidence and its status. The normative voice above is what makes this file necessary: a design that states everything flatly needs somewhere to record that some of it rests on one paper, one benchmark, or one lane's judgement.
-- [`evolution.md`](evolution.md) is the prospective build order for getting from the current codebase to this one, with each stage's gating evidence and main risk.
-- [`research/`](research/) holds the design research this is built on, preserved at the date it was conducted rather than rewritten to match the design it produced. Most of it is literature; one piece is not. The [corpus study](research/2026-08-03/modelling-study.md) tested this model against the running instance's own recorded data before these chapters were written, and changed them: it falsified one design assumption and found two expressiveness gaps that none of the literature lanes anticipated.
+| Term | Definition and owner |
+|---|---|
+| Occasion | Durable external social or input event with an optional utterance and zero or more ArtefactReferences. [Assertions](statements.md#occasion-and-activity) owns the definition. |
+| Activity | Durable agent, operator, tool, or model action. [Assertions](statements.md#occasion-and-activity) owns the definition. |
+| Artefact | Minted identity for one immutable byte sequence, with versioned verified digest assertions for lookup and deduplication. [Artefacts and perceptions](artefacts-and-perceptions.md) owns the definition. |
+| ArtefactReference | Occasion-specific act of sharing an Artefact. [Artefacts and perceptions](artefacts-and-perceptions.md) owns the definition. |
+| Perception | Versioned fallible model or tool observation of an Artefact or selector. It is not testimony. [Artefacts and perceptions](artefacts-and-perceptions.md) owns the definition. |
+| Event | Stable happening identity whose roles and attributes are Assertions. [Events and roles](events-and-roles.md) owns the definition. |
+| Task | Authorised agent action intent with an append-only lifecycle. [Time](time.md#occurrence-task-and-trigger) owns the temporal contract. |
+| Trigger | A separately minted condition/action binding that can fire only for a live Task. [Time](time.md#occurrence-task-and-trigger) owns the temporal contract. |
+| Proposition | Canonical subject, relation, object, frame, polarity, and modality. [Assertions](statements.md#proposition) owns the definition. |
+| Assertion | Proposition situated in validity and immutable asserted/quoted mode, with a separate append-only lifecycle. [Assertions](statements.md#assertion) owns the definition. |
+| Attestation | One teller's support for an Assertion on one Occasion. [Assertions](statements.md#attestation) owns the definition. |
+| Derivation | Immutable result produced by a versioned Activity from typed inputs and explicit resolution, ontology, policy, and implementation versions. [Assertions](statements.md#derivation) owns the definition. |
 
-## Scope
+Earlier dated research uses `Statement` for combinations of Proposition, Assertion, and Attestation. Normative chapters do not use it as a catch-all term. Research snapshots remain historical evidence and are not rewritten.
 
-The design targets a new instance at genesis. The existing instance is not migrated, so no upcasting path from the current event log is owed, and several choices here take advantage of that freedom. `evolution.md` is a codebase path, not a data path.
+## Reading order
 
-This tree is temporary. Each change drains into [`../docs/`](../docs/) in the commit that implements it, the meta-documents are deleted once the chapters are empty, and `research/` returns to `docs/` with its dates. [`evolution.md`](evolution.md) states the rule.
+1. [`overview.md`](overview.md) defines the architecture and permanence contract.
+2. [`statements.md`](statements.md) defines the assertion layer, lifecycle, contradiction subset, and source locators.
+3. [`artefacts-and-perceptions.md`](artefacts-and-perceptions.md) defines multimodal evidence and records current attachment behavior.
+4. [`privacy-and-provenance.md`](privacy-and-provenance.md) defines audience resolution, influence, and erasure.
+5. [`evolution.md`](evolution.md) defines the staged research and build order.
 
-The failure survey that grounds the whole exercise is [`../docs/ontology-failures/2026-07-23.md`](../docs/ontology-failures/2026-07-23.md), which stays in `docs/` because it records real failures of the real system.
+The remaining normative chapters apply those definitions:
+
+| Chapter | Subject |
+|---|---|
+| [`events-and-roles.md`](events-and-roles.md) | Event identity, role Assertions, and reversible co-reference |
+| [`relations.md`](relations.md) | Registered definitions and schema evolution |
+| [`identity.md`](identity.md) | Platform stubs, merge hypotheses, and resolution environments |
+| [`belief.md`](belief.md) | Audience-safe support, dependence, and reliability evidence |
+| [`time.md`](time.md) | Assertion validity, Event occurrence, Tasks, Triggers, and recurrence |
+| [`two-traces.md`](two-traces.md) | Source material and generated episodic narrative |
+| [`memory-typology.md`](memory-typology.md) | Semantic, episodic, procedural, and working lifecycles |
+| [`verified-write.md`](verified-write.md) | Append-only proposal and critic transaction |
+| [`write-surface.md`](write-surface.md) | Agent-facing write operations |
+| [`query-surface.md`](query-surface.md) | Audience-resolved reads and access accounting |
+| [`off-turn.md`](off-turn.md) | Event-sourced background jobs and bounded authority |
+
+Supporting registers:
+
+- [`coverage.md`](coverage.md) maps current failures and issues to mechanisms, evidence, gates, and residual risk.
+- [`confidence.md`](confidence.md) records genesis blockers, stage gates, deferred work, adversarial obligations, and the evidence map.
+- [`lineage.md`](lineage.md) is an ancestry index into the evidence map.
+- [`research/`](research/) contains dated evidence snapshots. The [corpus modelling study](research/2026-08-03/modelling-study.md) tests the earlier model against recorded data.
+
+The failure survey remains in current-system documentation because it records observed failures: [`../docs/ontology-failures/2026-07-23.md`](../docs/ontology-failures/2026-07-23.md).

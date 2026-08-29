@@ -1,59 +1,81 @@
 # The query surface
 
-The substrate is rich. The surface is not. Keeping the surface small is a design constraint rather than an oversight.
+Reads operate on audience-resolved projections. The caller never receives hidden records for local filtering. [The assertion model](statements.md) owns Assertion, Attestation, Derivation, and transition identity. [Privacy and provenance](privacy-and-provenance.md) owns audience resolution. [Identity](identity.md) owns the unified ResolutionEnvironment.
 
-The agent addresses people and memories by handle, asks a small number of structured questions, and learns the edges of the API from errors at the point of failure. It never writes ontology-language, never names a frame it was not given, and never sees the machinery behind identity, credence, or audience resolution.
+## Read state machine
 
-## Structural questions get structural answers
+The current system has multiple read paths and has leaked withheld metadata when one path applied an incomplete policy ([current leak](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path), [current visibility contract](../docs/visibility.md), [brief composition](../docs/conversations-and-briefs.md)). Central audience resolution follows from that observation. The exact stable read ID, lifecycle, delivery accounting, and deduplication key below are design synthesis. Stage 2 non-interference, replay, retry, and cancellation fixtures must validate them before they become authoritative.
 
-The change from today is that a question about structure is answered by traversing structure, rather than by searching prose and taking whatever the search returns.
+Each read has a stable read ID. Its append-only states separate candidate generation from disclosure and access accounting.
 
-- Who did this? Traverses the `agent` role-edges of an [Event](events-and-roles.md).
-- When did this hold? Reads a [relation](relations.md) instance's validity interval.
-- What happened between these two? Walks the events they both have roles in.
-- How do you know? Reads the derivation record: the premises, the criterion, the tellers, and the assumptions in force.
-- What changed? Compares validity windows across supersessions of the same claim.
+| State | Recorded content | Visibility and accounting | Permitted successor |
+|---|---|---|---|
+| `requested` | query shape, caller, complete audience membership, purpose, policy versions, unified ResolutionEnvironment, witness/presence assurance snapshot, source head, and live erasure/tombstone/key-wrapper watermark | no content has been disclosed | `resolving`, `denied`, `cancelled` |
+| `resolving` | projection and search versions used to generate candidates plus the canonical authorization-input digest | candidates remain inside the audience resolver; candidate generation is not an access | `resolved`, `denied`, `cancelled` |
+| `resolved` | visible result IDs, result kinds, ranks, redacted operator trace reference, and the authorization-input digest that licensed them | no access is counted until content is rendered | `rendering`, `superseded`, `cancelled` |
+| `rendering` | the exact result fields selected for model or user context | access is pending | `rendered`, `failed` |
+| `rendered` | a digest of the exact content envelope delivered, destination kind, and completion status | access recency and frequency update once for each delivered object | terminal |
+| `failed` | failure phase and whether any content was delivered | only content confirmed as delivered is counted | terminal |
+| `denied` | the failed policy class without hidden object IDs or counts | no access is counted | terminal |
+| `superseded` | the replacement read ID | no access is counted for the superseded read unless it already rendered content | terminal |
+| `cancelled` | cancellation actor and phase | only previously delivered content is counted | terminal |
 
-Each of these is a deterministic graph query. None of them calls a model, and none of them depends on a similarity threshold.
+A retry after failure uses a new attempt under the same read ID. Reuse requires byte equality of a canonical authorization-input digest over: the caller and complete ordered audience membership; authentication and identity-assurance records; the complete ResolutionEnvironment and its hypothesis/status versions; every witness, presence, delivery, acknowledgement, and consent record consulted; transmission, subject-guard, support, Event-projection, and purpose policy versions; source and projection heads; and the live erasure epoch, tombstone watermark, readable key-wrapper set, and retention-hold state for every candidate source. The retry recomputes this digest immediately before rendering. Any changed input, unavailable replica watermark, unprovable freshness, `erasing` scope, withdrawn wrapper, or missing record discards the resolved envelope and returns to `resolving` or `denied`; source and policy heads alone are insufficient. If a fresh retry renders the same envelope again, the log records another delivery, but the access projection can deduplicate repeated delivery to the same model-call context by `(read_id, object_id, destination_id)`. A superseded or hidden candidate does not affect access recency.
 
-"How do you know?" is worth singling out. It is currently unanswerable in any useful way, because judgement provenance records which model and template ran but not the evidence or the criterion. Making it answerable is what turns the store from something the agent trusts into something it can interrogate, and it is the same record that makes retraction propagate.
+Retry fixtures vary one input at a time: audience membership, caller authentication, tentative identity membership, witness presence, consent revocation, policy version, source head, erasure epoch, tombstone watermark, wrapper state, and hold state. Every variation forces re-resolution. A missing freshness proof denies. A control with an identical digest may reuse the envelope and produces the same rendered digest.
 
-## Search as one signal among several
+The access unit is content actually rendered into model or user context. Candidate generation, hidden matches, internal rank fusion, and operator-only diagnostics are not accesses. Current brief composition demonstrates that content can enter context without an explicit semantic read event, so this unit is a decided policy rather than an observed current invariant ([brief composition](../docs/conversations-and-briefs.md), [log measurements](research/2026-08-06/log-measurements.md)). Stage 0e classifies real turns, and Stage 2 replay fixtures must prove that retries, supersession, and hidden candidates update no recency except for confirmed delivery.
 
-Semantic search is one signal among several rather than the ranking.
+## Audience-resolved Assertions
 
-A result is ranked on similarity, on structural proximity to what is already in play, and on access recency and frequency. The latter two are independent of any embedding model and deterministic under replay, which matters because a similarity constant is a constant in one model's geometry and silently means something different after that model changes.
+A structured read returns Assertions aggregated from Attestations visible to the complete audience. It returns the folded Assertion status under named transition, support, ontology, policy, and ResolutionEnvironment version. It does not reveal that hidden Attestations exist. Hidden support cannot change an agent-visible ordinal, rank, explanation, or action unless the result inherits the hidden transmission restriction.
 
-Access counts are foldable because an agent-visible read appends an event. The alternative, deriving them from state no fold reproduces, would break the first commitment for the sake of an event log line. The cost is small and stays small: a read event is a memory-id list against a log whose payload is dominated by recorded model calls two orders of magnitude larger, so reads add a fraction of a percent of bytes while raising the event count by roughly a tenth. The unit is deliberately the read the agent asked for, never the substrate lanes underneath it, so a fused multi-signal search stays one event however many rankings it merged.
+An Event read applies the Event type's disclosure-safe projection. The resolver can omit independently omissible role Assertions. It returns an explicit incomplete shell or suppresses the Event when omission would manufacture a stronger or false proposition. [Events and roles](events-and-roles.md) owns these projection rules.
 
-The signals combine by fusing their rank orders, not their scores. Each signal produces a ranking, the rankings merge on rank position, and only the head of the merged list is worth a reranking pass. Fusing ranks is what keeps the combination embedder-independent: a rank order survives a change of embedding model, where a weighted sum of scores is a weighted sum in one model's geometry and means something different in the next. This is the convergent design in production retrieval, and it is the same argument the [drift](verified-write.md) section makes about calibrated thresholds, applied one level up from the threshold to the combination.
+Identity resolution produces an operational handle under a named resolution environment. Conversational reads do not expose sibling stubs, candidate merge counts, or hidden merge evidence. Authorised operators can request a separate resolution trace.
 
-Every search result carries its episode anchor. A returned claim names the occasion it came from, so the agent can descend from the claim to the occasion to the verbatim turns without a second search. This is the retrieval side of [the two traces](two-traces.md), and it is why episodes are companions rather than a fallback tier.
+## Structural queries
 
-## Reads resolve before the agent sees them
+Structural questions traverse typed records:
 
-Three resolutions happen in the substrate, and the agent sees only the result.
+- an agent-role query answers who participated in an Event;
+- an Assertion validity query answers when a Proposition held;
+- a shared-Event query answers what happened between resolved entities;
+- a transition query answers what changed across correction, supersession, promotion, or retraction;
+- a lineage query answers how a result was produced.
 
-Identity resolves to one handle per person. Sibling stubs, class membership, and merge credence are invisible.
+These queries do not require a model. Their response records the source head sequence and all projection versions needed to reproduce the result.
 
-Frame resolves to a default of `actual`, and a read must opt into `persona` or `source`. A question about what a bot runs on does not return what its character believes.
+A lineage response distinguishes complete lineage from an audit trace. Complete lineage lists every typed input, including positive Assertions, scoped negative query results, aggregates, tool observations, Perceptions, ontology and policy versions, the identity-resolution environment, assumptions, implementation or criterion version, and source head sequence. An audit trace names the recorded boundary when an older or external activity lacks complete inputs. The surface does not describe either form as a proof of truth.
 
-Audience resolves to the visible set, computed against who is present before anything is rendered. The agent is not handed content it must remember not to repeat, because withholding after the fact is exactly how residue leaks.
+## Search result kinds
 
-## Errors teach
+Search combines structural proximity, source text, semantic indexes, artefact metadata, and gated multimodal indexes. Every result labels the matched lane:
 
-A rejected write returns a teachable error naming what was wrong and what would be right: which argument violated a declared range, which relation has been deprecated in favour of which canonical form, which interval was malformed, which resolution was ambiguous and what would disambiguate it.
+- `human_utterance` for an Occasion text span;
+- `structural_assertion` for Proposition or Assertion fields;
+- `perception` for OCR, captions, or other model or tool observations;
+- `visual_embedding` for a gated cross-modal index;
+- `artefact_metadata` for mechanically known metadata.
 
-This is the existing pedagogy, with one change: the errors are now backed by sound checks rather than by convention, so the lesson is reliable. An error is the syllabus for a mistake rare enough that pre-teaching it in the prompt would cost more than it saves, which is the same reason the prompt stays small.
+The label identifies why the result matched. It does not change the result's provenance. Generated OCR and captions remain Perceptions rather than human utterances. [Artefacts and perceptions](artefacts-and-perceptions.md) owns these distinctions.
 
-## What is not on the surface
+Signals produce versioned rankings. Rank fusion combines rank positions rather than incomparable raw scores. Rank-order fusion is corroborated as a production retrieval shape, but no surveyed gain is adopted as a target ([production-system survey](research/2026-07-24/lanes/survey-issue7.md), [dual-trace retrieval evidence](research/2026-08-03/dual-trace.md)). The chosen lane set, weights, and reranker boundary are design policy and remain Stage 0e/Stage 2 gated. A transient model reranker may inspect only the already audience-resolved head. Its output is discarded after the read and cannot become stored evidence. Similarity and reranking remain ranking inputs rather than authority to merge, settle, or disclose.
 
-Deliberate omissions, each because exposing it would push judgement onto the agent that the substrate should own:
+## Source retrieval and reinspection
 
-- Class and merge internals. Nothing to second-guess.
-- Numeric credence. A coarse ordinal with its evidence attached, never a number the agent cannot interrogate.
-- Raw similarity scores. Ranking is the substrate's business; exposing the score invites threshold reasoning in the prompt.
-- Assumption stamps and derivation internals, except through "how do you know?", which renders them as an account rather than as structure.
-- The episodic wall's mechanics. An episode is marked as a reconstruction; the enforcement is not the agent's concern.
+A result can return a source reference and an existing visible Perception without reading original bytes again. Original Artefact bytes require an explicit `inspect` operation. `inspect` performs audience and retention checks, records the Activity, names the selector and transformation pipeline, and records any resulting Perception or derived Artefact. It never runs as an implicit consequence of search.
 
-The test for anything proposed for this surface is whether the agent could make a wrong decision with it that the substrate would otherwise have made correctly. If so, it stays inside.
+Historical reinspection, OCR, region grounding, and visual embeddings are separately gated capabilities. The permanent result kind and Activity shapes can exist while these policies remain disabled.
+
+## Operator traces
+
+An authorised operator can inspect candidate generation, audience decisions, identity resolution, ranking contributions, and suppression reasons. The conversational agent receives only the resolved result and a non-sensitive explanation. The agent-visible response does not disclose hidden cardinality, hidden object IDs, suppressed ranks, or whether a denied candidate existed.
+
+Operator trace access is itself a rendered read and uses the operator's audience and purpose. A trace cannot use operator authority to widen a later conversational result.
+
+## Errors
+
+A query error identifies the request field, registered definition, policy class, or ambiguity that prevented resolution. It can suggest a narrower time range, an explicit frame, a known handle, or an authorised inspection operation. A denial does not distinguish no match from a hidden match when that distinction would disclose protected state.
+
+The surface omits raw similarity scores, numeric support, merge internals, hidden Attestations, and unfiltered derivation inputs. The substrate owns those decisions because exposing them would move privacy and identity policy into prompt behaviour.
