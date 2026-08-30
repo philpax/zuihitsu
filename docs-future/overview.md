@@ -2,7 +2,7 @@
 
 zuihitsu is a neurosymbolic personal-agent harness. Its append-only event log is the source of truth. Deterministic replay materialises projections. Language models operate through recorded Activities when their output affects durable state. One instance is one agent and one log.
 
-The architecture in this tree is a proposed successor. It does not describe the current implementation. Current behavior is documented in [`../docs/`](../docs/).
+The architecture in this tree is a proposed successor. It does not describe the current implementation. Current behaviour is documented in [`../docs/`](../docs/).
 
 ## Permanent object boundaries
 
@@ -27,9 +27,11 @@ Semantic memory has three assertion layers. A Proposition contains canonical con
 
 ## Permanence contract
 
-The current instance is outside the successor boundary. It is not migrated or dual-read. A successor instance starts at genesis.
+The current instance is outside the successor boundary. It is neither migrated nor dual-read, and it is not a compatibility target. A successor instance starts at its first real genesis.
 
-After successor genesis, persisted meaning and stable identity cannot change incompatibly:
+Before the genesis freeze, successor state is experimental and disposable. The implementation may replace canonical encodings, event variants, stable-ID schemes, folds, projections, snapshots, and module boundaries when evidence falsifies the current design. Experimental logs and fixtures may be regenerated. Measurements, fixture inputs, expected results, failures, and decision rationales remain evidence, but their wire formats have no compatibility guarantee. Each increment must leave the repository buildable and its relevant automated tests passing, but it need not leave a usable agent.
+
+The genesis freeze is the compatibility boundary. After the first real successor genesis, persisted meaning and stable identity cannot change incompatibly:
 
 - an event payload version retains its original meaning;
 - a stable object or definition ID is never repurposed;
@@ -38,18 +40,18 @@ After successor genesis, persisted meaning and stable identity cannot change inc
 - policy changes create versioned projections or Derivations rather than changing old conclusions silently;
 - no stage requires resetting an agent born on the successor substrate.
 
-The design records broad immutable source data and applies narrow versioned interpretation. Existing event-sourcing and durable-activity behavior supports append-only replay. The exact no-incompatible-change contract is an operator constraint and design decision ([current storage contract](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [migration cost](research/2026-07-24/lanes/survey-giants.md)).
+The design records broad immutable source data and applies narrow versioned interpretation. Existing event-sourcing and durable-activity behaviour supports append-only replay. The exact no-incompatible-change contract is an operator constraint and design decision ([current storage contract](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [migration cost](research/2026-07-24/lanes/survey-giants.md)).
 
 ## Status labels
 
 Every capability uses one of four labels:
 
-- `required at genesis`: permanent identity or raw data that must exist before the successor can run safely;
-- `initial policy`: behavior enabled in the first usable successor;
-- `gated extension`: behavior added later because genesis records its required inputs;
-- `open experiment`: behavior outside the committed architecture until evidence passes its gate.
+- `required at genesis`: permanent identity or raw data that must exist before the first real successor genesis;
+- `initial policy`: behaviour enabled at the first real successor genesis;
+- `gated extension`: behaviour added later because genesis records its required inputs;
+- `open experiment`: behaviour outside the committed architecture until evidence passes its gate.
 
-[Evolution](evolution.md) assigns these statuses to the build stages. A gated or experimental policy cannot require retrospective invention.
+[Evolution](evolution.md) assigns these statuses to the experimental increments and late genesis phases. A gated or experimental policy cannot require retrospective invention. The current instance remains outside this boundary.
 
 ## System commitments
 

@@ -82,6 +82,6 @@ Scene-graph extraction remains furthest deferred because it creates a broad grap
 | OCR error | Original OCR Perception remains immutable. A corrected Perception and supersession lineage are appended. |
 | Later reinspection | Audience is checked before bytes enter model context. The Activity and new Perception record versions and access. |
 | Transformed crop | The crop is a derived Artefact with source selector and Derivation lineage. |
-| Shared-blob erasure | One withdrawn reference loses authorization. Bytes remain while another authorized reference requires retention. |
+| Shared-reference erasure | One erased reference loses authorisation. Managed live bytes remain while another authorised reference requires retention. A terminally erased reference cannot restore authority. |
 
 Research supports content-addressed provenance and durable nondeterministic activities. The exact Artefact/Reference/Perception boundary, governed reinspection, selector representation, and multimodal erasure closure are design decisions that remain subject to the gates in [evolution](evolution.md) ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md), [confidence evidence map](confidence.md#evidence-map)).

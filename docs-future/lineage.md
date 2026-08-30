@@ -4,7 +4,7 @@ The [evidence map](confidence.md#evidence-map) records the normative owner, inte
 
 The design takes representations and operational disciplines from prior systems. It does not take their general reasoners. The most comparable prior system ran for fifteen years. Its storage and bookkeeping survived while its general inference engine was replaced more than once. The successor uses focused model calls and bounded critics rather than a general symbolic reasoner.
 
-## What each ancestor contributed
+## Contributions from each ancestor
 
 | Source | Taken | Left behind |
 |---|---|---|

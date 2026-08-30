@@ -123,43 +123,68 @@ The erasure model is sized for the deployment the successor serves: one operator
 
 A request wider than a teller's own supply is recorded as an ordinary Occasion and resolved by the operator. The operator's decision is an immutable authorization record naming requester, resolved scope, decision, and source head. Closure accepts only an `allowed` decision. A `denied` decision causes no destructive action and is the only form of hold.
 
-### Storage baseline
+### Storage classes
 
-Stage -1 freezes this baseline and Stage 2 implements it:
+The erasure and restore contract distinguishes three storage classes:
 
-- Each event envelope stores type, version, stable IDs, times, routing metadata, and a commitment hash over its payload. The payload lives in a separate table keyed by the envelope. Erasure deletes the payload row and appends the tombstone. The hash chain over envelopes is untouched, so tamper evidence survives deletion.
-- Artefact bytes are stored once per Artefact. The Artefact's retention projection is the set of its live authorised references. Bytes are deleted when that set becomes empty and never while a member survives.
-- Encryption at rest is a deployment option with no semantic content. It does not change what erasure means or what a restore must do.
-- A tombstone ledger listing every erased payload and Artefact ID is kept beside the log and included in every backup. A restore applies the ledger before serving: it loads the envelopes, drops every payload the ledger names, rebuilds projections from what remains, and only then opens reads. A backup older than an erasure therefore cannot resurrect the payload.
-- Backups, exports, and eval packages are outside the erasure boundary. The system records that an export happened, with its scope and recipient, and reports an erasure whose scope intersects a recorded export as bounded rather than complete. Retaining, expiring, or deleting those copies is the operator's responsibility.
+1. `managed live state` contains event payload rows, live Artefact bytes, model and proposal records, derived records, indexes, projections, snapshots, caches, and scheduled work controlled by the running deployment;
+2. `managed restore material` contains payload and blob backups that grant no read authority and can enter a running deployment only through the restore procedure;
+3. `external copies` contain exports, API or console downloads, connector-delivered content, debug captures, eval packages, test captures, and other copies outside restore control.
 
-### Execution
+The genesis freeze fixes this storage baseline. A pre-genesis implementation may replace its candidate representation while preserving the evidence that tests the contract.
 
-Erasure is an offline operator action. It takes the single-writer log lock, so the agent is stopped or quiesced and nothing appends concurrently. An in-flight turn is aborted by cooperative supersession at its next boundary and recorded as aborted. Because nothing appends during execution, one pass over the dependency graph is a fixed point.
+- Each event envelope stores type, version, stable IDs, times, routing metadata, and a commitment hash over its payload. The payload lives in separate managed live state keyed by the envelope. Semantic erasure deletes the payload row and appends the tombstone. The hash chain over envelopes remains intact, so tamper evidence survives deletion.
+- Artefact bytes are stored once per Artefact. The Artefact's retention projection is the set of its live authorised references. Managed live bytes are deleted when that set becomes empty and never while a member survives.
+- Encryption at rest is a deployment option with no semantic content. It does not change erasure or restore semantics.
+- The authoritative tombstone ledger advances through monotonically ordered positions. It is retained and replicated independently of ordinary payload and blob backups. Every snapshot and backup records the ledger position current at creation.
+- Managed restore material never grants read authority. The restore procedure filters it through the independently current authoritative ledger before any payload enters managed live state. An older payload backup is usable only because the current ledger filters erasures recorded after that backup. Restore remains blocked when the authoritative position or its freshness cannot be proved.
+- Managed restore material may retain historical bytes until its ordinary retention process removes them. The operation reports that state explicitly and does not describe backup media as physically deleted. The ledger prevents those bytes from restoring authority or reaching a serving surface.
+- External copies participate in bounded accounting rather than managed deletion closure. The deployment records scope, recipient or owner, control class, and notification state. An intersecting erasure reports `external_copy_unresolved` rather than claiming external deletion.
 
-1. Take the lock. Resolve the authorization record and its scope at the current head.
-2. Traverse the log once from the scoped records to every payload that depends on them: consumed-reference edges, Derivation input edges, InfluenceEnvelopes, locators, and job and Task arguments. The closure is the scoped records plus every dependant with no surviving independent lineage.
-3. In one transaction, append the terminal tombstones, the ledger entries, and the cancellation records for scheduled work, and delete the closure's payload rows and any Artefact bytes whose retention set is now empty.
-4. Rebuild the indexes, projections, and snapshots from surviving payloads and release the lock.
+### Restore fence
 
-A crash before the transaction leaves the store unchanged and the request pending. A crash after it leaves the tombstones durable, and recovery repeats the rebuild.
+A restore is unavailable until authoritative-ledger filtering and projection rebuilding finish under a serving fence:
 
-### Closure
+1. The restore process obtains an authenticated authoritative ledger snapshot at position `N` for filtering. The snapshot alone is never a serving fence.
+2. The process applies every tombstone through `N`, removes affected payloads and Artefacts, and rebuilds projections without opening reads, jobs, or model or tool input.
+3. Before the final position check, the process acquires exclusive coordination with erasure-ledger publication. The fence remains held across the authoritative-position check and the atomic transition that opens reads, jobs, and model or tool input.
+4. While holding the fence, the process rechecks the authoritative ledger position. If the position advanced, the process remains blocked, applies the additional tombstones, rebuilds affected projections, and repeats the check without releasing the fence or opening a serving surface.
+5. Serving begins through one atomic handoff only when the applied and authoritative positions match under the publication fence. Ledger publication after that handoff follows the running system's ordinary erasure protocol. Losing the fence or failing to prove freshness returns the restore to `blocked`.
 
-An allowed erasure computes closure over six surfaces. The last column is audience resolution ([subject guard](#subject-guard), [influence envelopes](#influence-envelopes)), restated here because the same surfaces must deny a hidden input before render: a payload hidden from a caller is treated for that caller exactly as an erased one.
+The `restore-publication-at-serve-handoff` fixture attempts publication after the final recheck but before the serving handoff. Publication must block behind the exclusive fence, or the restore must remain unavailable. No schedule may publish a tombstone in an unprotected post-check window.
 
-| Surface | Payload deleted | Envelope metadata that survives | Dependants | Hidden input |
+### Execution and completion
+
+Erasure is an offline operator action. It takes the single-writer log lock, so the agent is stopped or quiesced and nothing appends concurrently. An in-flight turn is aborted by cooperative supersession at its next boundary and recorded as aborted. One pass over the dependency graph therefore reaches a fixed point for the locked source head.
+
+1. The operation takes the lock and resolves the authorisation record and scope at the current head.
+2. It traverses the log from the scoped records to every payload that depends on them: consumed-reference edges, Derivation input edges, InfluenceEnvelopes, locators, and job and Task arguments. Closure contains the scoped records and every dependant with no surviving independent lineage.
+3. One database transaction appends terminal tombstones and authoritative-ledger entries, removes managed database payload rows, cancels scheduled work, and marks unretained Artefacts inaccessible.
+4. Physical blob deletion from managed live stores may occur outside that database transaction. Tombstones and the retention projection deny reads and Activities while deletion is pending. Recovery retries deletion without restoring reference authority.
+5. The operation rebuilds indexes, projections, snapshots, and caches from surviving payloads. It releases the lock only after the semantic commit and required rebuild complete.
+
+A crash before the database transaction leaves the store unchanged and the request pending. A crash after it leaves semantic erasure durable. Recovery repeats projection rebuild and any pending physical deletion. The operator action does not report physical deletion complete until every promised managed-live deletion succeeds. An irrecoverable deletion failure for bytes under deployment control is `blocked`, not an external-copy bounded result.
+
+Semantic erasure removes authority and access from managed live state and advances the authoritative ledger. Physical-deletion completion applies to live blob stores and other managed-live copies the deployment promises to delete. Managed restore material remains non-authoritative until ordinary media expiry, and bounded external-copy reporting is reserved for copies outside deployment control.
+
+### Managed-live closure and external-copy accounting
+
+An allowed erasure computes deletion closure over five managed-live surfaces. The final row is a separate external-copy accounting surface and does not participate in deletion closure. The last column also restates audience resolution ([subject guard](#subject-guard), [influence envelopes](#influence-envelopes)): a payload hidden from a caller is treated for that caller exactly as an erased one.
+
+| Surface | Storage class | Payload treatment | Envelope metadata that survives | Dependants and hidden input |
 |---|---|---|---|---|
-| source payloads: text parts, ArtefactReferences, Artefact bytes | governed text, reference metadata, and bytes with no surviving reference | record IDs, types, times, digests where permitted, authorization decision, and tombstone | Invalidate locators and Attestations over the erased part. Retain independent references to the same bytes unchanged. | Deny rendering and source query before support aggregation. |
-| model and proposal records: requests, responses, proposals, critic diagnostics | prompt parts, rendered images, reasoning, replies, candidate content, and diagnostic text | Activity and proposal IDs, versions, timing, outcome class, influence envelope, and tombstone | Invalidate outputs and retry context. A retry starts from surviving inputs only. | Deny call construction and retry-context render. |
-| derived records: Perceptions, Derivations, derived Artefacts, and Assertions or Attestations grounded only in erased source | observation output, derived bytes, negative-result detail, and the payload of any record with no surviving lineage | stable IDs, transition class, pipeline or criterion version, and input tombstones | Fold to `erased` or `invalidated`. A conclusion survivable from independent authorised inputs is re-recorded as a new Derivation. | Deny output whose direct input is uncleared. A hidden input yields no visible ordinal change. |
-| indexes, projections, snapshots, and caches | vectors, lexical rows, thumbnails, materialised rows, and snapshot copies | projection version, sequence bound, and ledger position | Delete and rebuild from survivors before serving. | Deny insertion into an audience-broader index. Hidden rows cannot affect visible rank. |
-| scheduled work: Tasks, Triggers, jobs, pending actions | arguments, conditions, and message bodies derived only from erased input | stable IDs, cancellation transition, and outcome class | Cancel before firing. Restore never re-arms. A completed external effect is recorded as completed and generates remediation work; the log never claims reversal. | Deny arming, enqueueing, or initiation from an uncleared input. |
-| external copies: backups, exports, eval packages | none by the system | export ID, scope, recipient, and the erasure's bounded-failure record | Restore applies the ledger. Other copies are the operator's. | Deny export before delivery when a direct input is uncleared. |
+| source payloads: text parts, ArtefactReferences, and Artefact bytes | managed live state | Delete governed text and reference metadata. Delete bytes only when no surviving authorised reference retains them. | Record IDs, types, times, permitted digests, authorisation decision, and tombstone. | Invalidate locators and Attestations over the erased part. Retain independent references unchanged. Deny rendering and source query before support aggregation. |
+| model and proposal records: requests, responses, proposals, and critic diagnostics | managed live state | Delete prompt parts, rendered images, reasoning, replies, candidate content, and diagnostic text. | Activity and proposal IDs, versions, timing, outcome class, InfluenceEnvelope, and tombstone. | Invalidate outputs and retry context. A retry starts from surviving inputs only. Deny call construction and retry-context rendering. |
+| derived records: Perceptions, Derivations, derived Artefacts, and solely grounded Assertions or Attestations | managed live state | Delete observation output, derived bytes, negative-result detail, and payload with no surviving lineage. | Stable IDs, transition class, pipeline or criterion version, and input tombstones. | Fold to `erased` or `invalidated`. Re-record a survivable conclusion as a new Derivation over independent authorised inputs. Deny output influenced by uncleared input. |
+| indexes, projections, snapshots, and caches | managed live state | Delete vectors, lexical rows, thumbnails, materialised rows, snapshot copies, and cache entries. | Projection version, sequence bound, and ledger position. | Rebuild from survivors before serving. Deny insertion into an audience-broader index. Hidden rows cannot affect visible rank. |
+| scheduled work: Tasks, Triggers, jobs, and pending actions | managed live state | Delete arguments, conditions, and message bodies derived only from erased input. | Stable IDs, cancellation transition, and outcome class. | Cancel before firing. Restore never re-arms. Record completed external effects and remediation without claiming reversal. Deny initiation from uncleared input. |
+| external copies: exports, downloads, connector deliveries, debug captures, eval packages, and test captures | external copies | No system deletion guarantee. Record scope, recipient or owner, control class, notification state, and bounded result. | Copy-accounting record and `external_copy_unresolved` result where applicable. | Deny creation before delivery when a direct input is uncleared. Report bounded failure after delivery instead of claiming deletion closure. |
+
+Managed restore material is not a closure row because it grants no read authority and cannot enter managed live state without authoritative-ledger filtering under the restore fence.
 
 An Artefact's minted ID is stable internal identity. Verified digest assertions locate and deduplicate bytes; neither the ID nor a digest grants authorisation. Every byte read checks the caller's audience against an ArtefactReference before serving.
 
-Derived outputs lose erased support and are re-evaluated against what remains. A conclusion that can survive from independent, authorised inputs may remain only as a newly recorded Derivation with replacement lineage; one that encodes only erased input must not. The baseline above is required before Stage 2 accepts any restricted source or Artefact. Stage 8 may add richer transmission policy; it cannot change what erasure means.
+Derived outputs lose erased support and are re-evaluated against what remains. A conclusion that survives from independent authorised inputs may remain only as a newly recorded Derivation with replacement lineage. A conclusion that encodes only erased input cannot remain. The complete contract is required at the genesis freeze before the first real successor genesis. A later richer transmission policy cannot change what erasure means.
 
 ## Inter-agent status and revocation
 

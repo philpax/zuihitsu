@@ -1,21 +1,25 @@
 # docs-future
 
-This tree specifies a proposed successor architecture. It does not describe zuihitsu as currently built. Current behavior is documented in [`../docs/`](../docs/).
+This tree specifies a proposed successor architecture. It does not describe zuihitsu as currently built. Current behaviour is documented in [`../docs/`](../docs/).
 
 The chapters use present tense as normative design language. Implementation status is recorded separately in [`coverage.md`](coverage.md), [`confidence.md`](confidence.md), and [`evolution.md`](evolution.md).
 
 ## Scope and permanence
 
-The running pre-successor instance is not migrated. The successor starts at genesis. After genesis, persisted meanings and stable identities cannot be changed incompatibly. Later capabilities must be additive and versioned. Replay cannot invent omitted historical values, and no stage can require an already-born successor agent to reset. [`overview.md`](overview.md#permanence-contract) defines the full contract.
+The running instance remains outside the successor boundary. It is neither migrated nor used as a compatibility target. The successor starts at a first real genesis.
+
+Before the genesis freeze, every successor log, event variant, stable-ID encoding, fold, projection, snapshot, and fixture is experimental and disposable. Evidence can falsify the current design and require incompatible replacement. Experimental logs and fixtures can be regenerated. Measurements, fixture inputs, expected results, failures, and decision rationales remain evidence, but their wire formats have no compatibility guarantee. A pre-genesis increment must leave the repository buildable and its relevant automated tests passing, but it need not leave a usable agent.
+
+The genesis freeze is the boundary between experimental design and permanent state. After the first real successor genesis, persisted meanings and stable identities cannot be changed incompatibly. Later capabilities must use additive versioned mechanisms. Replay cannot invent omitted historical values, and a post-genesis stage cannot require an already-born successor agent to reset. [`overview.md`](overview.md#permanence-contract) defines the full contract.
 
 Status labels have fixed meanings:
 
 | Status | Meaning |
 |---|---|
-| `required at genesis` | Permanent substrate or raw input required before the successor runs. |
-| `initial policy` | Behavior enabled in the first usable successor. |
-| `gated extension` | Later behavior whose required raw inputs exist from genesis. |
-| `open experiment` | Uncommitted behavior that requires an evidence gate. |
+| `required at genesis` | Permanent substrate or raw input required before the first real successor genesis. |
+| `initial policy` | Behaviour enabled at the first real successor genesis. |
+| `gated extension` | Later behaviour whose required raw inputs exist from genesis. |
+| `open experiment` | Uncommitted behaviour that requires an evidence gate before the genesis freeze or a later extension gate. |
 
 ## Canonical glossary
 

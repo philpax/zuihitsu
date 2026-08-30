@@ -10,6 +10,7 @@ The exact split is a permanence-driven design decision. Research supports addres
 |---|---|---|---|---|---|
 | Occasion | One minted ID for one external input event. It grounds zero or more Attestations. | One ordered interleaved typed-content-part sequence, participants, witness evidence, and observed and recorded time. Text or media may be absent. | `recorded` | `occasion_invalidated` applies to malformed or unauthorised source; `occasion_erased` outranks invalidation. There is no semantic correction or restoration transition. | Erasure removes governed parts and leaves the same Occasion ID as a terminal tombstone. Correction mints a new Occasion and links it; replay never reuses the erased ID. |
 | Activity | One minted ID for one execution attempt. It produces zero or more direct Assertions or Derivations. A Perception is always the output of a Derivation, never a direct product. | Actor/source kind, implementation and input versions, observed and recorded time, and outcome envelope. | `started`, then `completed`, `failed`, or `aborted` from its terminal outcome record | Exactly one terminal outcome wins by append validation; duplicate or conflicting terminal records make the fold `quarantined`. `activity_erased` outranks retained outcome payload. Retries mint new Activity IDs linked to the attempted operation. | Erasure strips governed input/output payload and leaves the same Activity ID, outcome class, and permitted audit tombstone. It cannot become runnable again. |
+| SourceAuthority | One minted ID for one direct Assertion authority record. It names one producing Activity and may authorise zero or more direct Assertions. | Actor or source kind, direct observation edges, transmission principle, access decision, InfluenceEnvelope, versions, and times. | `live` after the named Activity and access decision exist | `source_authority_invalidated` withdraws direct-source use; terminal `source_authority_erased` outranks invalidation and rejects restoration. | Erasure removes governed observation payload and leaves the same SourceAuthority ID and permitted authority tombstone. A replacement direct source mints a new ID. |
 | Artefact | One algorithm-independent minted ID for one immutable byte sequence. Many references and digest assertions can identify it. | Byte identity and mechanically observed metadata. | Availability `unavailable` until verified storage exists; retention is the set of live authorised references. | Verified locations produce `available`; collision evidence produces `quarantined` and outranks availability; loss produces `unavailable`; terminal erasure outranks all. | Erasure leaves the same Artefact ID and permitted digest tombstone. New bytes always mint a new ID. See [artefacts and perceptions](artefacts-and-perceptions.md). |
 | ArtefactReference | One minted ID for one Occasion-specific sharing act. | Supplier, ordered part position, filename, media type, and transmission principle. A caption is a text part on the Occasion. | `authorised` | `reference_withdrawn` or `reference_retracted` deny use; `reference_authority_restored` may follow only either reversible state; terminal `reference_erased` outranks all and rejects restoration. | Erasure leaves the same reference ID as a terminal tombstone. A later sharing mints a new reference. One reference's fold never alters another. |
 | Perception | One minted ID for one fallible model/tool observation, the typed output of one Derivation. | Consumed-reference edge, selector, pipeline, versions, output, and influence envelope. | `current` | `perception_superseded`, `perception_retracted`, or `perception_invalidated` replace `current`; terminal `perception_erased` outranks them. Conflicting current successors quarantine the projection. | Erasure removes output and governed selector payload under the same terminal ID. A correction mints a new Perception and appends supersession. It is never testimony. |
@@ -157,7 +158,7 @@ A source locator is a typed union:
 | `operator_assertion` | Governed operator Activity |
 | `derived_conclusion` | Derivation and typed input edge |
 
-Selectors are part of the genesis representation. Initial image policy can use only whole-artefact selectors. Later page, frame, and region policies therefore add behavior without changing old records.
+Selectors are part of the genesis representation. Initial image policy can use only whole-artefact selectors. Later page, frame, and region policies therefore add behaviour without changing old records.
 
 ## Derivation
 
@@ -253,6 +254,86 @@ The vector notation is a closed template language, not prose abbreviation. Its c
 | `T-`, `ACCESS-`, `DEC-`, or `ERASURE-` | transition, decision, or erasure authorization with literal ID, exact target/scope, predecessor chain, expected prior state, default authority/reason/policy/source head, and printed outcome |
 
 The fixture compiler rejects an omitted required grammar field after expansion, an unresolved natural-language verb, an object without a source, a probe without exact expected IDs or predicates, or an expected fold that omits a created ID.
+
+### Operational fixture namespace
+
+Operational fixtures specify restore, erasure, physical deletion, and external-copy accounting. [Privacy and provenance](privacy-and-provenance.md#storage-classes) owns their semantics. These records are executable specification inputs for a future storage harness and are separate from the successor's permanent domain object model. They do not execute or prove runtime storage behaviour.
+
+Each vector is one canonical JSON object with lexicographically ordered object keys, ordered arrays, decimal integers, explicit empty arrays, explicit `null`, and literal stable symbols. It contains `scenario_id`, one ordered `records` array, and one typed `expected_operational_state`. Generated defaults are forbidden.
+
+| Operational record | Exact required fields |
+|---|---|
+| `backup` | `blob_ids`, `creation_head`, `ledger_position_at_creation`, `payload_ids`, `record_type`, and stable `symbol` |
+| `ledger_snapshot` | `authority_status`, `freshness_status`, `ordered_position`, `record_type`, stable `symbol`, `tombstoned_artefact_ids`, and `tombstoned_payload_ids` |
+| `restore_attempt` | `acquired_ledger_snapshot`, `applied_position`, `fence_state`, `outcome`, `pre_serve_recheck_position`, `record_type`, `selected_backup`, and stable `symbol` |
+| `restore_rebuild_pass` | `applied_position`, `projection_rebuild`, `record_type`, and stable `symbol` |
+| `blob_deletion_attempt` | `activity_authority`, `artefact_id`, `deletion_result`, `read_authority`, `record_type`, `retry_state`, `semantic_commit`, and stable `symbol` |
+| `external_copy` | `bounded_result`, `control_class`, `notification_state`, `owner_or_recipient`, `record_type`, `source_scope`, and stable `symbol` |
+| `restore_material_access` | selected `backup_symbol`, `read_authority`, `record_type`, `serving_gate`, and stable `symbol` |
+| `ledger_publication_attempt` | `attempted_position`, `fence_state`, `publication_result`, `record_type`, and stable `symbol` |
+| `reference_retention` | `artefact_id`, `erased_reference_ids`, `live_reference_ids`, `physical_deletion_result`, `read_authority`, `record_type`, and stable `symbol` |
+| `managed_erasure_step` | `affected_ids`, `deletion_surface`, `record_type`, `result`, and stable `symbol` |
+| `expected_operational_state` | `applied_ledger_position`, `completion_result`, `external_copy_result`, `live_payload_ids`, `pending_deletion_ids`, `projection_rebuild`, `readable_artefact_ids`, `serving_gate`, and `terminal_tombstone_ids` |
+
+Closed enums are `fence_state` with `unacquired`, `held`, and `lost`; `publication_result` with `blocked_behind_fence` and `published`; `physical_deletion_result` with `not_attempted_live_reference`, `pending`, `succeeded`, and `failed`; `deletion_surface` with `source_payload`, `model_proposal`, `derived`, `projection_index`, and `scheduled_work`; `managed_erasure_result` with `closed`, `pending`, and `blocked`; `serving_gate` with `blocked` and `open`; `restore_outcome` with `filtered`, `blocked`, and `restart_required`; `deletion_result` with `pending`, `succeeded`, `failed_retriable`, and `failed_blocked`; `retry_state` with `none`, `scheduled`, and `exhausted`; `read_authority` and `activity_authority` with `denied` and `allowed`; `projection_rebuild` with `not_started`, `running`, `complete`, and `restart_required`; and `bounded_result` with `none` and `external_copy_unresolved`. `authority_status`, `freshness_status`, `semantic_commit`, `control_class`, `notification_state`, and `completion_result` are also closed by the fixture table: their values are exactly those used below.
+
+The parser rejects unknown fields, omitted required fields, unresolved prose, duplicate stable symbols, non-canonical key order, an unordered or inconsistent position sequence, implicit defaults, unknown enum values, and an expected state inconsistent with the scenario oracle. Ledger positions never decrease in record order. A restore attempt may apply an earlier snapshot and then repeat under a later snapshot, but its applied and recheck positions must name positions already introduced by ordered ledger records.
+
+#### `restore-old-backup-current-ledger`
+
+The backup is created at head 10 and ledger position 1 before payload `PAYLOAD-erased` and Artefact `AR-erased` are erased at ledger position 2. The restore filters the old backup through the independently current ledger, rebuilds projections while blocked, and opens only after the applied and rechecked position both equal 2.
+
+```json operational-fixture:restore-old-backup-current-ledger
+{"expected_operational_state":{"applied_ledger_position":2,"completion_result":"semantic_and_live_physical_complete","external_copy_result":"none","live_payload_ids":["PAYLOAD-live"],"pending_deletion_ids":[],"projection_rebuild":"complete","readable_artefact_ids":["AR-live"],"serving_gate":"open","terminal_tombstone_ids":["PAYLOAD-erased","AR-erased"]},"records":[{"blob_ids":["AR-erased","AR-live"],"creation_head":10,"ledger_position_at_creation":1,"payload_ids":["PAYLOAD-erased","PAYLOAD-live"],"record_type":"backup","symbol":"BACKUP-old"},{"backup_symbol":"BACKUP-old","read_authority":"denied","record_type":"restore_material_access","serving_gate":"blocked","symbol":"ACCESS-old"},{"authority_status":"authoritative","freshness_status":"current","ordered_position":2,"record_type":"ledger_snapshot","symbol":"LEDGER-current-2","tombstoned_artefact_ids":["AR-erased"],"tombstoned_payload_ids":["PAYLOAD-erased"]},{"acquired_ledger_snapshot":"LEDGER-current-2","applied_position":2,"fence_state":"held","outcome":"filtered","pre_serve_recheck_position":2,"record_type":"restore_attempt","selected_backup":"BACKUP-old","symbol":"RESTORE-old-current"}],"scenario_id":"restore-old-backup-current-ledger"}
+```
+
+#### `restore-missing-current-ledger`
+
+The only ledger snapshot is stale and unverifiable. The restore cannot prove the authoritative position, does not rebuild a serving projection, and remains blocked.
+
+```json operational-fixture:restore-missing-current-ledger
+{"expected_operational_state":{"applied_ledger_position":1,"completion_result":"blocked_missing_authoritative_ledger","external_copy_result":"none","live_payload_ids":[],"pending_deletion_ids":[],"projection_rebuild":"not_started","readable_artefact_ids":[],"serving_gate":"blocked","terminal_tombstone_ids":[]},"records":[{"blob_ids":["AR-unknown"],"creation_head":10,"ledger_position_at_creation":1,"payload_ids":["PAYLOAD-unknown"],"record_type":"backup","symbol":"BACKUP-stale"},{"backup_symbol":"BACKUP-stale","read_authority":"denied","record_type":"restore_material_access","serving_gate":"blocked","symbol":"ACCESS-stale"},{"authority_status":"unverifiable","freshness_status":"stale","ordered_position":1,"record_type":"ledger_snapshot","symbol":"LEDGER-stale-1","tombstoned_artefact_ids":[],"tombstoned_payload_ids":[]},{"acquired_ledger_snapshot":"LEDGER-stale-1","applied_position":1,"fence_state":"unacquired","outcome":"blocked","pre_serve_recheck_position":null,"record_type":"restore_attempt","selected_backup":"BACKUP-stale","symbol":"RESTORE-missing-current"}],"scenario_id":"restore-missing-current-ledger"}
+```
+
+#### `restore-ledger-advances-during-rebuild`
+
+The restore first applies position 2. Publication advances the authoritative ledger to position 3 before the pre-serve recheck. The first attempt stays blocked, and a second filtering and rebuild pass applies position 3 under the held fence before serving.
+
+```json operational-fixture:restore-ledger-advances-during-rebuild
+{"expected_operational_state":{"applied_ledger_position":3,"completion_result":"semantic_and_live_physical_complete","external_copy_result":"none","live_payload_ids":["PAYLOAD-live"],"pending_deletion_ids":[],"projection_rebuild":"complete","readable_artefact_ids":["AR-live"],"serving_gate":"open","terminal_tombstone_ids":["PAYLOAD-erased-2","PAYLOAD-erased-3","AR-erased-3"]},"records":[{"blob_ids":["AR-erased-3","AR-live"],"creation_head":10,"ledger_position_at_creation":1,"payload_ids":["PAYLOAD-erased-2","PAYLOAD-erased-3","PAYLOAD-live"],"record_type":"backup","symbol":"BACKUP-before-advance"},{"backup_symbol":"BACKUP-before-advance","read_authority":"denied","record_type":"restore_material_access","serving_gate":"blocked","symbol":"ACCESS-before-advance"},{"authority_status":"authoritative","freshness_status":"current_at_acquisition","ordered_position":2,"record_type":"ledger_snapshot","symbol":"LEDGER-pass-2","tombstoned_artefact_ids":[],"tombstoned_payload_ids":["PAYLOAD-erased-2"]},{"applied_position":2,"projection_rebuild":"running","record_type":"restore_rebuild_pass","symbol":"REBUILD-pass-2"},{"attempted_position":3,"fence_state":"held","publication_result":"published","record_type":"ledger_publication_attempt","symbol":"PUBLICATION-pass-3"},{"authority_status":"authoritative","freshness_status":"current","ordered_position":3,"record_type":"ledger_snapshot","symbol":"LEDGER-pass-3","tombstoned_artefact_ids":["AR-erased-3"],"tombstoned_payload_ids":["PAYLOAD-erased-2","PAYLOAD-erased-3"]},{"acquired_ledger_snapshot":"LEDGER-pass-2","applied_position":2,"fence_state":"held","outcome":"restart_required","pre_serve_recheck_position":3,"record_type":"restore_attempt","selected_backup":"BACKUP-before-advance","symbol":"RESTORE-pass-2"},{"applied_position":3,"projection_rebuild":"complete","record_type":"restore_rebuild_pass","symbol":"REBUILD-pass-3"},{"acquired_ledger_snapshot":"LEDGER-pass-3","applied_position":3,"fence_state":"held","outcome":"filtered","pre_serve_recheck_position":3,"record_type":"restore_attempt","selected_backup":"BACKUP-before-advance","symbol":"RESTORE-pass-3"}],"scenario_id":"restore-ledger-advances-during-rebuild"}
+```
+
+#### `restore-publication-at-serve-handoff`
+
+The restore holds the exclusive publication fence across the final position check and serving handoff. A publication attempted in that interval blocks behind the fence. The fixture therefore opens at position 4 with no unprotected post-check publication window.
+
+```json operational-fixture:restore-publication-at-serve-handoff
+{"expected_operational_state":{"applied_ledger_position":4,"completion_result":"publication_blocked_until_handoff","external_copy_result":"none","live_payload_ids":["PAYLOAD-live"],"pending_deletion_ids":[],"projection_rebuild":"complete","readable_artefact_ids":["AR-live"],"serving_gate":"open","terminal_tombstone_ids":["PAYLOAD-erased"]},"records":[{"blob_ids":["AR-live"],"creation_head":20,"ledger_position_at_creation":3,"payload_ids":["PAYLOAD-erased","PAYLOAD-live"],"record_type":"backup","symbol":"BACKUP-handoff"},{"backup_symbol":"BACKUP-handoff","read_authority":"denied","record_type":"restore_material_access","serving_gate":"blocked","symbol":"ACCESS-handoff"},{"authority_status":"authoritative","freshness_status":"current","ordered_position":4,"record_type":"ledger_snapshot","symbol":"LEDGER-handoff-4","tombstoned_artefact_ids":[],"tombstoned_payload_ids":["PAYLOAD-erased"]},{"acquired_ledger_snapshot":"LEDGER-handoff-4","applied_position":4,"fence_state":"held","outcome":"filtered","pre_serve_recheck_position":4,"record_type":"restore_attempt","selected_backup":"BACKUP-handoff","symbol":"RESTORE-handoff"},{"attempted_position":5,"fence_state":"held","publication_result":"blocked_behind_fence","record_type":"ledger_publication_attempt","symbol":"PUBLICATION-handoff-5"}],"scenario_id":"restore-publication-at-serve-handoff"}
+```
+
+#### `erase-one-reference-retain-another`
+
+Two authorised references retain equal bytes. Erasing `R-A` creates its tombstone but leaves `AR-shared` readable through `R-B`; physical deletion is not attempted while the surviving retention authority exists.
+
+```json operational-fixture:erase-one-reference-retain-another
+{"expected_operational_state":{"applied_ledger_position":5,"completion_result":"semantic_complete_bytes_retained_by_live_reference","external_copy_result":"none","live_payload_ids":["R-B"],"pending_deletion_ids":[],"projection_rebuild":"complete","readable_artefact_ids":["AR-shared"],"serving_gate":"open","terminal_tombstone_ids":["R-A"]},"records":[{"blob_ids":["AR-shared"],"creation_head":30,"ledger_position_at_creation":4,"payload_ids":["R-A","R-B"],"record_type":"backup","symbol":"BACKUP-two-references"},{"authority_status":"authoritative","freshness_status":"current","ordered_position":5,"record_type":"ledger_snapshot","symbol":"LEDGER-reference-5","tombstoned_artefact_ids":[],"tombstoned_payload_ids":["R-A"]},{"artefact_id":"AR-shared","erased_reference_ids":["R-A"],"live_reference_ids":["R-B"],"physical_deletion_result":"not_attempted_live_reference","read_authority":"allowed","record_type":"reference_retention","symbol":"RETENTION-shared"}],"scenario_id":"erase-one-reference-retain-another"}
+```
+
+#### `pending-live-blob-deletion`
+
+Semantic erasure commits before physical deletion. The failed live-store deletion leaves reads and Activities denied, reports the operation as blocked, and schedules retry without restoring authority.
+
+```json operational-fixture:pending-live-blob-deletion
+{"expected_operational_state":{"applied_ledger_position":6,"completion_result":"blocked_pending_live_blob_deletion","external_copy_result":"none","live_payload_ids":[],"pending_deletion_ids":["AR-pending"],"projection_rebuild":"complete","readable_artefact_ids":[],"serving_gate":"open","terminal_tombstone_ids":["PAYLOAD-pending","AR-pending"]},"records":[{"authority_status":"authoritative","freshness_status":"current","ordered_position":6,"record_type":"ledger_snapshot","symbol":"LEDGER-pending-6","tombstoned_artefact_ids":["AR-pending"],"tombstoned_payload_ids":["PAYLOAD-pending"]},{"activity_authority":"denied","artefact_id":"AR-pending","deletion_result":"failed_retriable","read_authority":"denied","record_type":"blob_deletion_attempt","retry_state":"scheduled","semantic_commit":"committed","symbol":"DELETE-pending-1"}],"scenario_id":"pending-live-blob-deletion"}
+```
+
+#### `external-copy-bounded`
+
+An erasure intersects a previously delivered external copy. Managed live state closes normally, while the external copy produces the bounded `external_copy_unresolved` result rather than a complete-deletion claim.
+
+```json operational-fixture:external-copy-bounded
+{"expected_operational_state":{"applied_ledger_position":7,"completion_result":"semantic_and_live_physical_complete","external_copy_result":"external_copy_unresolved","live_payload_ids":[],"pending_deletion_ids":[],"projection_rebuild":"complete","readable_artefact_ids":[],"serving_gate":"open","terminal_tombstone_ids":["PAYLOAD-exported"]},"records":[{"bounded_result":"external_copy_unresolved","control_class":"outside_restore_control","notification_state":"recorded","owner_or_recipient":"recipient/external-fixture","record_type":"external_copy","source_scope":["PAYLOAD-exported"],"symbol":"COPY-exported"},{"affected_ids":["PAYLOAD-exported"],"deletion_surface":"source_payload","record_type":"managed_erasure_step","result":"closed","symbol":"ERASURE-external"},{"authority_status":"authoritative","freshness_status":"current","ordered_position":7,"record_type":"ledger_snapshot","symbol":"LEDGER-external-7","tombstoned_artefact_ids":[],"tombstoned_payload_ids":["PAYLOAD-exported"]}],"scenario_id":"external-copy-bounded"}
+```
 
 | Canonical input vector | Exact row-specific typed values |
 |---|---|
