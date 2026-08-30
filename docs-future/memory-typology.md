@@ -42,7 +42,7 @@ This is conservative because a model cannot report which visible input actually 
 
 An image or document shared during conversation first creates an ArtefactReference on an Occasion. Model inspection produces a Perception through a recorded Activity. Neither arrival nor inspection automatically creates a semantic Assertion. If the agent deliberately records an image-derived claim, the Derivation cites the Perception and underlying ArtefactReference and retains their audience restrictions.
 
-This ordinary conversational path preserves the current ability to inspect a supplied image while adding durable provenance. Historical reinspection, OCR, generated captions, region grounding, and visual retrieval are separately gated capabilities. Their exact model belongs to [artefacts and perceptions](artefacts-and-perceptions.md).
+This ordinary conversational path lets the model inspect a supplied image during the turn and records durable provenance for the inspection. Historical reinspection, OCR, generated captions, region grounding, and visual retrieval are separately gated capabilities. Their exact model belongs to [artefacts and perceptions](artefacts-and-perceptions.md).
 
 Bulk ingestion is a different operation. It is a bounded, source-first job over an Artefact, normally a long document or media object. The source and its ArtefactReference become durable before selection or extraction. The job records deterministic segmentation or transforms, selection decisions, extraction Activities, Perceptions where applicable, and per-unit success or source-only fallback. It does not simulate hundreds of conversational Occasions or fabricate utterances.
 

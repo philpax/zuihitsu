@@ -75,9 +75,9 @@ Audience resolution happens before Event rendering. It selects visible Attestati
 
 Each Event type registers a projection policy for partial visibility:
 
-- **Independently omissible roles** may be absent without changing the meaning of the visible Assertions. A public meeting may omit one confidential attendee and render as explicitly incomplete.
-- **Jointly meaningful roles** must render with an incomplete shell that does not imply a hidden filler. A transfer with a visible item but hidden parties may be shown only as “a restricted transfer occurred”, if that shell is itself licensed.
-- **Meaning-changing omissions** suppress the whole Event. Showing a visible `buyer` while hiding the only `seller`, for example, may manufacture a stronger or false account of the transaction.
+- An independently omissible role may be absent without changing the meaning of the visible Assertions. A public meeting may omit one confidential attendee and render as explicitly incomplete.
+- A jointly meaningful role set renders with an incomplete shell that does not imply a hidden filler. A transfer with a visible item but hidden parties may be shown only as “a restricted transfer occurred”, if that shell is itself licensed.
+- A meaning-changing omission suppresses the whole Event. Showing a visible `buyer` while hiding the only `seller`, for example, may manufacture a stronger or false account of the transaction.
 
 The shell is a registered projection of visible Assertions, not a new Attestation and not evidence that an unspecified participant exists. It carries an explicit incompleteness marker and the Event type's projection-policy version. If no safe shell is registered, suppression is the default.
 

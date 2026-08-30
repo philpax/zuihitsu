@@ -26,6 +26,7 @@ Status labels have fixed meanings:
 | Artefact | Minted identity for one immutable byte sequence, with versioned verified digest assertions for lookup and deduplication. [Artefacts and perceptions](artefacts-and-perceptions.md) owns the definition. |
 | ArtefactReference | Occasion-specific act of sharing an Artefact. [Artefacts and perceptions](artefacts-and-perceptions.md) owns the definition. |
 | Perception | Versioned fallible model or tool observation of an Artefact or selector. It is not testimony. [Artefacts and perceptions](artefacts-and-perceptions.md) owns the definition. |
+| Selector | Content-keyed address of all or part of one Artefact under a registered definition version. It has no minted ID; equal canonical bytes name one selector. [Artefacts and perceptions](artefacts-and-perceptions.md#source-selectors) owns the definition. |
 | Event | Stable happening identity whose roles and attributes are Assertions. [Events and roles](events-and-roles.md) owns the definition. |
 | Task | Authorised agent action intent with an append-only lifecycle. [Time](time.md#occurrence-task-and-trigger) owns the temporal contract. |
 | Trigger | A separately minted condition/action binding that can fire only for a live Task. [Time](time.md#occurrence-task-and-trigger) owns the temporal contract. |
@@ -34,13 +35,13 @@ Status labels have fixed meanings:
 | Attestation | One teller's support for an Assertion on one Occasion. [Assertions](statements.md#attestation) owns the definition. |
 | Derivation | Immutable result produced by a versioned Activity from typed inputs and explicit resolution, ontology, policy, and implementation versions. [Assertions](statements.md#derivation) owns the definition. |
 
-Earlier dated research uses `Statement` for combinations of Proposition, Assertion, and Attestation. Normative chapters do not use it as a catch-all term. Research snapshots remain historical evidence and are not rewritten.
+The dated snapshots under [`research/`](research/) use `Statement` for combinations of Proposition, Assertion, and Attestation. They are evidence and are not rewritten to the normative vocabulary.
 
 ## Reading order
 
 1. [`overview.md`](overview.md) defines the architecture and permanence contract.
 2. [`statements.md`](statements.md) defines the assertion layer, lifecycle, contradiction subset, and source locators.
-3. [`artefacts-and-perceptions.md`](artefacts-and-perceptions.md) defines multimodal evidence and records current attachment behavior.
+3. [`artefacts-and-perceptions.md`](artefacts-and-perceptions.md) defines Artefacts, references, selectors, and Perceptions.
 4. [`privacy-and-provenance.md`](privacy-and-provenance.md) defines audience resolution, influence, and erasure.
 5. [`evolution.md`](evolution.md) defines the staged research and build order.
 

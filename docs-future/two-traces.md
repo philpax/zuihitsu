@@ -24,9 +24,9 @@ Source retention does not assert source content. Quotation, participant Attestat
 
 An artefact share has three possible descriptive layers that must not collapse:
 
-1. **Primary source artefact.** Immutable bytes identified as an Artefact and shared through an ArtefactReference on an Occasion.
-2. **Human caption or alt text.** Participant-authored source text on that Occasion. It may ground an Attestation, but it is not mechanically true merely because it accompanies the bytes.
-3. **Machine Perception.** A fallible observation such as a caption, OCR result, object label, or region description produced by a versioned model/tool Activity. It is not participant testimony.
+1. The primary source artefact: immutable bytes identified as an Artefact and shared through an ArtefactReference on an Occasion.
+2. A human caption or alt text: participant-authored source text on that Occasion, recorded as a text part marked `caption_of` the reference part. It may ground an Attestation, but it is not mechanically true merely because it accompanies the bytes.
+3. A machine Perception: a fallible observation such as a caption, OCR result, object label, or region description produced by a versioned model/tool Activity. It is not participant testimony.
 
 A generated thumbnail, crop, page rendering, OCR text file, or extracted frame is a derived Artefact with explicit lineage. The canonical identities, selectors, access checks, and erasure rules belong to [artefacts and perceptions](artefacts-and-perceptions.md).
 
