@@ -136,22 +136,20 @@ The genesis freeze fixes this storage baseline. A pre-genesis implementation may
 - Each event envelope stores type, version, stable IDs, times, routing metadata, and a commitment hash over its payload. The payload lives in separate managed live state keyed by the envelope. Semantic erasure deletes the payload row and appends the tombstone. The hash chain over envelopes remains intact, so tamper evidence survives deletion.
 - Artefact bytes are stored once per Artefact. The Artefact's retention projection is the set of its live authorised references. Managed live bytes are deleted when that set becomes empty and never while a member survives.
 - Encryption at rest is a deployment option with no semantic content. It does not change erasure or restore semantics.
-- The authoritative tombstone ledger advances through monotonically ordered positions. It is retained and replicated independently of ordinary payload and blob backups. Every snapshot and backup records the ledger position current at creation.
+- The authoritative tombstone ledger advances through monotonically ordered positions. It is kept beside the log with the serving deployment and is included in every backup. Every snapshot and backup records the ledger position current at creation.
 - Managed restore material never grants read authority. The restore procedure filters it through the independently current authoritative ledger before any payload enters managed live state. An older payload backup is usable only because the current ledger filters erasures recorded after that backup. Restore remains blocked when the authoritative position or its freshness cannot be proved.
 - Managed restore material may retain historical bytes until its ordinary retention process removes them. The operation reports that state explicitly and does not describe backup media as physically deleted. The ledger prevents those bytes from restoring authority or reaching a serving surface.
 - External copies participate in bounded accounting rather than managed deletion closure. The deployment records scope, recipient or owner, control class, and notification state. An intersecting erasure reports `external_copy_unresolved` rather than claiming external deletion.
 
-### Restore fence
+### Restore
 
-A restore is unavailable until authoritative-ledger filtering and projection rebuilding finish under a serving fence:
+A restore takes the single-writer log lock before touching managed live state and holds it until serving opens. The lock excludes erasure, so no ledger entry can be published while a restore runs, and the applied position cannot go stale between filtering and serving. Restoring one instance into two serving deployments is forbidden: with two stores neither ledger is authoritative, and no protocol recovers one.
 
-1. The restore process obtains an authenticated authoritative ledger snapshot at position `N` for filtering. The snapshot alone is never a serving fence.
-2. The process applies every tombstone through `N`, removes affected payloads and Artefacts, and rebuilds projections without opening reads, jobs, or model or tool input.
-3. Before the final position check, the process acquires exclusive coordination with erasure-ledger publication. The fence remains held across the authoritative-position check and the atomic transition that opens reads, jobs, and model or tool input.
-4. While holding the fence, the process rechecks the authoritative ledger position. If the position advanced, the process remains blocked, applies the additional tombstones, rebuilds affected projections, and repeats the check without releasing the fence or opening a serving surface.
-5. Serving begins through one atomic handoff only when the applied and authoritative positions match under the publication fence. Ledger publication after that handoff follows the running system's ordinary erasure protocol. Losing the fence or failing to prove freshness returns the restore to `blocked`.
+1. The restore obtains the current authoritative ledger at position `N`. A backup's bundled ledger copy is a candidate only; the deployment's own ledger, kept beside the log, is the authority. When no current ledger can be verified, the restore remains `blocked` and serves nothing.
+2. The restore applies every tombstone through `N`, removes the affected payloads and Artefacts, and rebuilds projections without opening reads, jobs, or model or tool input.
+3. Serving opens in one atomic transition after the rebuild completes, and the lock is released. The applied position equals the authoritative position at that transition because the lock excluded publication throughout.
 
-The `restore-publication-at-serve-handoff` fixture attempts publication after the final recheck but before the serving handoff. Publication must block behind the exclusive fence, or the restore must remain unavailable. No schedule may publish a tombstone in an unprotected post-check window.
+The `restore-old-backup-current-ledger` and `restore-missing-current-ledger` fixtures exercise the two reachable failure shapes: a backup older than the newest erasure, and an unverifiable ledger. A ledger that advances during a restore is not a schedulable state under the lock, so no fixture exercises it.
 
 ### Execution and completion
 
@@ -180,7 +178,7 @@ An allowed erasure computes deletion closure over five managed-live surfaces. Th
 | scheduled work: Tasks, Triggers, jobs, and pending actions | managed live state | Delete arguments, conditions, and message bodies derived only from erased input. | Stable IDs, cancellation transition, and outcome class. | Cancel before firing. Restore never re-arms. Record completed external effects and remediation without claiming reversal. Deny initiation from uncleared input. |
 | external copies: exports, downloads, connector deliveries, debug captures, eval packages, and test captures | external copies | No system deletion guarantee. Record scope, recipient or owner, control class, notification state, and bounded result. | Copy-accounting record and `external_copy_unresolved` result where applicable. | Deny creation before delivery when a direct input is uncleared. Report bounded failure after delivery instead of claiming deletion closure. |
 
-Managed restore material is not a closure row because it grants no read authority and cannot enter managed live state without authoritative-ledger filtering under the restore fence.
+Managed restore material is not a closure row because it grants no read authority and cannot enter managed live state without authoritative-ledger filtering under the restore lock.
 
 An Artefact's minted ID is stable internal identity. Verified digest assertions locate and deduplicate bytes; neither the ID nor a digest grants authorisation. Every byte read checks the caller's audience against an ArtefactReference before serving.
 

@@ -122,7 +122,7 @@ Stages -1 and 1 pass. Stage 0b supplies an assurance model or establishes teller
 
 Implement every permanent identity and transition shape before structured data becomes authoritative: Occasion, Activity, Artefact and ArtefactReference, Perception, Event and resolution hypothesis, Proposition, Assertion, Attestation, Derivation, typed locators, polarity and modality, typed validity with precision and timezone, correction and supersession, candidate and promotion, ontology and policy definition IDs, proposal states, influence envelopes, and audience-resolved views. Occurrence, agent-authored Task, and Trigger are separate. Source-only fallback remains valid.
 
-Stage 2 also implements an experimental form of the complete baseline forgetting contract: the envelope and payload split, audience-checked blob retrieval, the operator authorisation record, closure under the writer lock over five managed-live deletion surfaces, reference-specific erasure, dependent invalidation, index and snapshot rebuild, the independently authoritative monotonic ledger, managed-restore filtering, the restore publication fence, pending physical-deletion denial, and bounded external-copy accounting. Stage 8 tests richer transmission policy and operational improvements without weakening the baseline semantics.
+Stage 2 also implements an experimental form of the complete baseline forgetting contract: the envelope and payload split, audience-checked blob retrieval, the operator authorisation record, closure under the writer lock over five managed-live deletion surfaces, reference-specific erasure, dependent invalidation, index and snapshot rebuild, the authoritative monotonic ledger, lock-excluded managed-restore filtering, pending physical-deletion denial, and bounded external-copy accounting. Stage 8 tests richer transmission policy and operational improvements without weakening the baseline semantics.
 
 ### Owning chapters
 
@@ -134,11 +134,11 @@ The production-shaped substrate is compared against the Stage 1 reference materi
 
 ### Required decisions
 
-The architecture, security, storage, and operator owners record candidate event shapes, audience resolver, subject-guard predicate, authority model, source-only fallback, storage partition, restore fence, and operational limits in `stage-2-substrate-evidence`. All choices remain provisional. The evidence links to every affected row in [the unresolved register](confidence.md#unresolved-item-register) and updates the candidate genesis inventory.
+The architecture, security, storage, and operator owners record candidate event shapes, audience resolver, subject-guard predicate, authority model, source-only fallback, storage partition, restore procedure, and operational limits in `stage-2-substrate-evidence`. All choices remain provisional. The evidence links to every affected row in [the unresolved register](confidence.md#unresolved-item-register) and updates the candidate genesis inventory.
 
 ### Falsification and stop conditions
 
-Return the substrate or owning contract to revision if production-shaped output diverges from the reference oracle, an identity-bearing input is missing, audience resolution is distributed among callers, managed erasure omits a live surface, restore can serve without a current fenced ledger position, or pending physical deletion restores authority.
+Return the substrate or owning contract to revision if production-shaped output diverges from the reference oracle, an identity-bearing input is missing, audience resolution is distributed among callers, managed erasure omits a live surface, restore can serve without applying a verified current ledger position under the lock, or pending physical deletion restores authority.
 
 ### Experimental-state disposition
 
@@ -342,7 +342,7 @@ The security, storage, connector, privacy-policy, and operator owners preregiste
 
 ### Falsification and stop conditions
 
-Return the privacy, erasure, or restore design to revision if a hash acts as a bearer credential, any managed-live surface is omitted, managed restore material grants authority, the authoritative ledger cannot prevent old-backup resurrection, the restore fence leaves a publication race, pending physical deletion permits a read or Activity, or external copies are reported as deleted.
+Return the privacy, erasure, or restore design to revision if a hash acts as a bearer credential, any managed-live surface is omitted, managed restore material grants authority, the authoritative ledger cannot prevent old-backup resurrection, restore serves without holding the single-writer lock, pending physical deletion permits a read or Activity, or external copies are reported as deleted.
 
 ### Experimental-state disposition
 
@@ -496,7 +496,7 @@ A complete genesis freeze candidate and a fresh-instance constructor are availab
 
 ### Semantic contracts
 
-Create fresh disposable instances and exercise connector input, source recording, verified writes, audience-resolved reads, correction, retraction, identity and Event severance, temporal safety, attachments, scheduling, erasure, crash recovery, projection deletion, replay, and cost budgets. Every serving restore uses the authoritative-ledger publication fence.
+Create fresh disposable instances and exercise connector input, source recording, verified writes, audience-resolved reads, correction, retraction, identity and Event severance, temporal safety, attachments, scheduling, erasure, crash recovery, projection deletion, replay, and cost budgets. Every serving restore applies the authoritative ledger under the single-writer lock before serving opens.
 
 ### Owning chapters
 
@@ -504,7 +504,7 @@ All normative chapters, with [privacy](privacy-and-provenance.md) owning restore
 
 ### Evidence produced
 
-The `whole-system-rehearsal-report` contains fresh-instance transcripts, reference comparisons, replay digests, crash schedules, restore-fence schedules, erasure outcomes, projection-rebuild results, and measured budgets. It includes `rehearsal-complete-path` and `rehearsal-delete-replay`.
+The `whole-system-rehearsal-report` contains fresh-instance transcripts, reference comparisons, replay digests, crash schedules, restore schedules, erasure outcomes, projection-rebuild results, and measured budgets. It includes `rehearsal-complete-path` and `rehearsal-delete-replay`.
 
 ### Required decisions
 
@@ -512,7 +512,7 @@ The same freeze owners classify every discrepancy as an implementation fault, a 
 
 ### Falsification and stop conditions
 
-Return the design to revision if any rehearsal diverges from a structural oracle, opens a serving surface before fenced restore completion, loses source or stable identity, violates an audience boundary, exceeds a frozen budget, or cannot recover after projection deletion or crash.
+Return the design to revision if any rehearsal diverges from a structural oracle, opens a serving surface before ledger-filtered restore completion, loses source or stable identity, violates an audience boundary, exceeds a frozen budget, or cannot recover after projection deletion or crash.
 
 ### Experimental-state disposition
 
@@ -571,12 +571,12 @@ Every row states the question or final-design assumption under test, the impleme
 | Stage 5 | Are Event, role, projection, and schema policies reversible and audience-safe? | Event/schema evaluator and projection harness | Distinct Events remain distinct; severance restores sources; partial projections are safe; historical definitions replay. | Destructive merge, unsafe shell, alias cycle, or reference divergence revises the design. | `event-distinct`, `event-merge-sever`, `event-partial-projection`, `schema-historical-replay` | Genesis freeze for initial definitions; post-genesis extension per later definition |
 | Stage 6 | Can identity resolution provide one handle without overlap or history loss? | Identity-hypothesis and resolution-environment harness | Accepted composites are disjoint and cleared; severance restores exact sources and invalidates dependants. | Overlap, uncleared response effect, lost sibling history, or reference divergence revises identity policy. | `identity-overlap`, `identity-disclosure`, `identity-merge-sever`, `identity-one-handle` | Genesis freeze for initial operation; post-genesis extension for autonomous scoring |
 | Stage 7 | Can support and contradiction remain audience-safe and conservative? | Support, dependence, and contradiction projections | Hidden support produces zero visible delta; dependent evidence gives no gain; mechanical classifications match fixtures. | Visible hidden influence, dependence gain, linguistic overclaim, or reference divergence revises policy. | `support-hidden-zero`, `support-dependence`, `support-last-withdrawal`, `support-contest` | Genesis freeze for initial policy; post-genesis extension for fusion |
-| Stage 8 | Can richer privacy and operational erasure preserve the baseline contract? | Principle evaluators and operational-fixture harness | Zero prohibited flow; independent current ledger filters restore; fence closes freshness race; external copies stay bounded. | Managed-restore authority, omitted live deletion, read during pending deletion, or false external deletion revises the contract. | `privacy-principle-matrix`, `privacy-hidden-influence`, `privacy-managed-restore`, `privacy-restore-fence`, `privacy-external-accounting` | Genesis freeze for baseline mechanics; post-genesis extension per richer principle |
+| Stage 8 | Can richer privacy and operational erasure preserve the baseline contract? | Principle evaluators and operational-fixture harness | Zero prohibited flow; independent current ledger filters restore; the lock excludes publication during restore; external copies stay bounded. | Managed-restore authority, omitted live deletion, read during pending deletion, or false external deletion revises the contract. | `privacy-principle-matrix`, `privacy-hidden-influence`, `privacy-managed-restore`, `privacy-restore-ledger`, `privacy-external-accounting` | Genesis freeze for baseline mechanics; post-genesis extension per richer principle |
 | Stage 9 | Can bounded ingestion retain source, audience, and economic limits? | Source-first ingestion and bounded-job harness | Preregistered precision, cost, latency, cancellation, audience, and source-only thresholds. | Unbounded work, source loss, audience-lineage failure, or reference divergence revises ingestion. | `ingest-precision`, `ingest-bounded`, `ingest-source-fallback`, `ingest-audience-taint` | Genesis freeze if initial; post-genesis extension otherwise |
 | Stage 10 | Does each optional episodic or multimodal capability justify itself independently? | Per-capability Activity, Perception, Derivation, and retrieval harness | Capability-specific benefit exceeds budget with zero privacy, laundering, or erasure failures. | One failed capability revises or rejects only that capability unless it exposes a substrate fault. | `episode-ablation`, `inspect-authorised`, `inspect-denied`, `ocr-correction`, `caption-provenance`, `region-selector`, `visual-retrieval`, `scenegraph-writer-safety` | Initial-policy candidate or post-genesis extension per capability |
 | Stage 11 | Can off-turn jobs survive races and remain bounded by authority and cost? | Event-sourced job runner and longitudinal harness | One valid outcome under crash, race, retry, supersession, poison, and stale head; no authority escalation. | Duplicate or stale commit, unbounded retry, authority escalation, or longitudinal regression revises job machinery. | `job-crash-race`, `job-retry-poison`, `job-stale-head`, `job-authority`, `drift-longitudinal`, `maintenance-equivalence` | Genesis freeze for initial jobs; post-genesis extension for exploration or initiation |
 | Genesis freeze review | Is the complete experimental candidate ready to become permanent? | Freeze record mapping every item to evidence and a versioning rule | Every genesis blocker has a passing executable oracle, owner decision, and complete required input. | A missing rule, input, oracle, or budget returns to the owning increment. | `freeze-inventory-complete`, `freeze-oracle-map` | Genesis freeze |
-| Whole-system rehearsal | Does a fresh complete instance satisfy the frozen contract under ordinary and faulted operation? | Disposable end-to-end instances and rehearsal report | Every workflow, replay, projection deletion, restore fence, crash schedule, and budget matches the frozen oracle. | Any discrepancy reopens the freeze and may break all rehearsal data. | `rehearsal-complete-path`, `rehearsal-delete-replay`, `rehearsal-restore-fence` | First real genesis |
+| Whole-system rehearsal | Does a fresh complete instance satisfy the frozen contract under ordinary and faulted operation? | Disposable end-to-end instances and rehearsal report | Every workflow, replay, projection deletion, restore, crash schedule, and budget matches the frozen oracle. | Any discrepancy reopens the freeze and may break all rehearsal data. | `rehearsal-complete-path`, `rehearsal-delete-replay`, `rehearsal-restore-ledger` | First real genesis |
 | First real genesis | Do the deployed inputs exactly match the approved frozen candidate? | Signed genesis manifest | Manifest versions, fixture and reference digests, rehearsal report, ledger readiness, and configuration match exactly. | Any mismatch or stale evidence blocks creation. | `genesis-manifest-verify`, `genesis-readiness` | First real genesis |
 
 ## Implementation-increment handoff requirements
