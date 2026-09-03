@@ -1,6 +1,6 @@
 # The two traces
 
-The two traces are the durable source record and an optional generated mnemonic narrative. Structured Assertions are linked to the source record but are not themselves “the other trace”: they are semantic interpretations with their own lifecycle.
+The two traces are the durable source record and a generated mnemonic narrative supplied by `capability:generated-episodes`, whose status is `activation_gate`. Structured Assertions are linked to the source record but are not themselves “the other trace”: they are semantic interpretations with their own lifecycle.
 
 An external social input is an [Occasion](statements.md). It owns one ordered interleaved sequence of text and [ArtefactReference](artefacts-and-perceptions.md) content parts; either kind may be absent. An agent, operator, tool, or model action with no external Occasion is an [Activity](statements.md). [Statements](statements.md) owns these identities and the Proposition/Assertion/Attestation/Derivation cardinalities. This chapter owns only the boundary between source material and generated episodic narrative.
 
@@ -40,13 +40,13 @@ A generated thumbnail, crop, page rendering, OCR text file, or extracted frame i
 | The agent later reinspects a region | Record an explicit audience-checked Activity consuming the ArtefactReference and selector, then a new Perception. Do not silently replace the earlier Perception. |
 | One share is erased while another authorised reference survives | Retract or erase the affected reference and its dependent records; retain bytes only as authorised by the surviving reference. Never use content identity as proof of access. |
 
-## The optional generated trace
+## The generated trace activation gate
 
 A generated episode is a synthetic mnemonic scene or narrative produced from selected source records by an Activity and recorded as a separate Derivation output. It may help distinguish, sequence, or aggregate occasions. It is not raw experience, an Assertion, an Attestation, or evidence.
 
 The supporting study reported gains of 40 points on temporal reasoning, 30 on multi-session aggregation, and 25 on update tracking, with no single-session gain ([dual-trace results](research/2026-08-03/dual-trace.md#the-experiment)). The evidence is narrow: one unreplicated benchmark, an automated judge, about twenty questions per category, no privacy dimension, and no ablation separating encoding-time generation from retrieval-time reconstruction ([limitations](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Reported cost neutrality depended on a context-heavy harness and does not transfer to a durable event log.
 
-Generation also invites concrete invention by design. The study's non-evidence disclaimer and protocol are prompt-sensitive, and long narrative occupies the embedding regime with observed geometry variance. These caveats make generated episodes an open experiment pending Stage 0a, not required genesis state.
+Generation also invites concrete invention by design. The study's non-evidence disclaimer and protocol are prompt-sensitive, and long narrative occupies the embedding regime with observed geometry variance. These caveats make `capability:generated-episodes` an `activation_gate`, pending the `stage:1` generated-episode evidence package; it is not required genesis state.
 
 ## The episodic wall
 
@@ -74,4 +74,4 @@ Event co-reference is stricter still. Similar descriptions remain separate Event
 
 ## Enablement gate
 
-Generated episodes remain disabled unless an in-repository experiment shows encoding-side value over source-window retrieval at matched source coverage. The gate must measure temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. A passing aggregate score is insufficient: fixtures must show that no generated detail becomes an Assertion, Attestation, Event co-reference input, or hidden-content signal.
+`capability:generated-episodes` remains disabled unless its independent `activation_gate` shows encoding-side value over source-window retrieval at matched source coverage. The gate must measure temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. A passing aggregate score is insufficient: fixtures must show that no generated detail becomes an Assertion, Attestation, Event co-reference input, or hidden-content signal.

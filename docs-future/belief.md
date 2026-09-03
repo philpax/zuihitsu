@@ -109,4 +109,4 @@ Each policy version must pass fixtures that assert both support and privacy outc
 | Attestation erasure | Erasing the only testimonial source removes it from both modes and appends any required Assertion demotion or invalidation; replay exposes no erased payload. |
 | Unknown dependence | Unknown dependence does not count as demonstrated independence for a high-risk promotion. |
 
-These fixtures are gates for activating support policy. The first real claim with multiple independent tellers is the forcing condition for evaluating richer fusion; until then, the genesis fields are recorded and the extension remains disabled.
+These fixtures provide the `stage:12` initial support-policy oracle. The first real claim with multiple independent tellers is the forcing condition for evaluating `capability:support-fusion`; until its independent `activation_gate` passes and the selection record selects it, the capability remains disabled while the genesis fields are recorded.

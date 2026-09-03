@@ -15,7 +15,7 @@ local proposal = quill:record({
 })
 ```
 
-The call returns a durable proposal handle immediately. The current system records model calls durably and batches writes inside a block, which supplies the execution seam ([current write path](../docs/write-path.md), [model-call storage](../docs/events-and-storage.md#event-sourcing)). The durable proposal handle, later-block review, state transitions, and atomic publication are design synthesis required by permanence; Stage 3 crash, retry, and source-only fixtures validate them.
+The call returns a durable proposal handle immediately. The current system records model calls durably and batches writes inside a block, which supplies the execution seam ([current write path](../docs/write-path.md), [model-call storage](../docs/events-and-storage.md#event-sourcing)). The durable proposal handle, later-block review, state transitions, and atomic publication are design synthesis required by permanence; the `stage:7` first audience-resolved read/write vertical-slice crash, retry, and source-only fixtures validate them.
 
 Extraction runs once per block over the buffered Occasions. A later block reads the proposal after it reaches `awaiting_review`:
 
@@ -70,7 +70,7 @@ Each failed attempt appends its failure class and attempt number. Retriable infr
 
 A caller can supersede a pending proposal with a replacement. Supersession names both proposal IDs. The old proposal can never publish. An abort records the actor and reason. Neither operation removes the durable source.
 
-Crash recovery resumes from the folded proposal state. It reuses recorded model outputs and stable temporary IDs. It does not repeat a nondeterministic call whose Activity result is already durable. Recording nondeterministic activity is corroborated by the current event log and durable-execution research; the exact temporary-ID, compare-at-commit, and crash fold are local synthesis ([current model-call contract](../docs/events-and-storage.md#event-sourcing), [durable activity research](research/2026-07-24/verification/part-b.md)). Atomic publication and compare-at-commit follow [the canonical protocol](verified-write.md#proposal-state-machine) and must pass Stage 3 fault injection.
+Crash recovery resumes from the folded proposal state. It reuses recorded model outputs and stable temporary IDs. It does not repeat a nondeterministic call whose Activity result is already durable. Recording nondeterministic activity is corroborated by the current event log and durable-execution research; the exact temporary-ID, compare-at-commit, and crash fold are local synthesis ([current model-call contract](../docs/events-and-storage.md#event-sourcing), [durable activity research](research/2026-07-24/verification/part-b.md)). Atomic publication and compare-at-commit follow [the canonical protocol](verified-write.md#proposal-state-machine) and must pass the `stage:7` first audience-resolved read/write vertical-slice fault-injection oracle.
 
 ## Teachable errors
 

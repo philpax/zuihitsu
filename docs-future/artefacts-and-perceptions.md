@@ -58,19 +58,19 @@ The initial policy preserves conversational image perception. Arrival alone crea
 
 A query can return a prior Perception and its source reference without loading the bytes. Reinspection is an explicit audience-checked Activity. It records access and the model/tool call. A new observation creates a new Perception. It does not overwrite the previous observation.
 
-## Gated extensions
+## Activation-gate capabilities
 
-Each extension has an independent evidence and privacy gate:
+Each listed capability has its own `activation_gate` record, independent evidence IDs, privacy oracle, disabled-behaviour oracle, and additive-seam reference:
 
-- controlled historical `inspect`;
-- OCR on request or for a narrowly selected image class;
-- generated captions and other Perceptions;
-- page, frame, time, and region grounding;
-- visual embeddings and cross-modal retrieval;
-- automatic document and media ingestion;
-- scene-graph extraction.
+- `capability:historical-reinspection`: controlled historical `inspect`;
+- `capability:ocr`: OCR on request or for a narrowly selected image class;
+- `capability:generated-captions`: generated captions and other Perceptions;
+- `capability:region-grounding`: page, frame, time, and region grounding;
+- `capability:visual-retrieval`: visual embeddings and cross-modal retrieval;
+- `capability:bulk-ingestion`: automatic document and media ingestion, with `stage:8` as its operational prerequisite;
+- `capability:scene-graph-writer`: scene-graph extraction.
 
-Scene-graph extraction remains furthest deferred because it creates a broad graph writer. Passing one extension does not enable another.
+`capability:scene-graph-writer` is an independent `activation_gate`, currently not selected; its broad graph-writer risk requires its own evidence, disabled-behaviour oracle, additive-seam reference, and activation decision. Passing one capability gate does not enable another.
 
 ## Multimodal fixtures
 
@@ -84,4 +84,4 @@ Scene-graph extraction remains furthest deferred because it creates a broad grap
 | Transformed crop | The crop is a derived Artefact with source selector and Derivation lineage. |
 | Shared-reference erasure | One erased reference loses authorisation. Managed live bytes remain while another authorised reference requires retention. A terminally erased reference cannot restore authority. |
 
-Research supports content-addressed provenance and durable nondeterministic activities. The exact Artefact/Reference/Perception boundary, governed reinspection, selector representation, and multimodal erasure closure are design decisions that remain subject to the gates in [evolution](evolution.md) ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md), [confidence evidence map](confidence.md#evidence-map)).
+Research supports content-addressed provenance and durable nondeterministic activities. The Artefact/Reference/Perception boundary and selector and erasure substrate are owned by `stage:3` and `stage:6`; historical reinspection and multimodal interpretation are separate activation-gate capabilities ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md), [confidence evidence map](confidence.md#evidence-map)).

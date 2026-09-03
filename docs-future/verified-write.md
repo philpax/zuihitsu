@@ -72,7 +72,7 @@ A lineage response can be complete only when every influence is represented by t
 
 Proposal acceptance and Assertion settlement are different decisions. Publication admits a well-formed, grounded candidate to the store. The candidate-to-settled transition follows the versioned promotion policy owned by [belief](belief.md) and the append-only transition model owned by [the assertion model](statements.md). A critic cannot settle an Assertion merely because its structure passed.
 
-Independent agreement can contribute to promotion, but no fixed two-signal rule is part of the permanent substrate. Dependence, expression strength, visible support, and policy version affect the projection. Autonomous promotion remains disabled until its evidence gates pass.
+Independent agreement can contribute to promotion, but no fixed two-signal rule is part of the permanent substrate. Dependence, expression strength, visible support, and policy version affect the projection. `capability:support-fusion` remains disabled until its independent activation gate passes; the `stage:12` initial policy remains conservative and does not treat autonomous promotion as settled truth.
 
 ## Drift controls
 

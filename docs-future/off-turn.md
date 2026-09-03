@@ -16,7 +16,7 @@ All classes can append job transitions and Activity records. None can widen an a
 
 ## Job identity and key
 
-Current maintenance passes repeatedly inspect stored prose and supply the observed workaround and scaling constraint ([maintenance passes](../docs/maintenance-passes.md), [current write machinery](../docs/write-path.md)). Durable-activity and large-system research support recording nondeterminism and avoiding constant per-fact sweeps ([welding research](research/2026-07-24/lanes/welding.md), [scaling survey](research/2026-07-24/lanes/survey-giants.md)). The stable key, leasing, compare-at-commit, supersession, and poison protocol below are design synthesis with no direct local implementation analogue. Stage 11 crash, race, and idempotency tests are its evidence gate.
+Current maintenance passes repeatedly inspect stored prose and supply the observed workaround and scaling constraint ([maintenance passes](../docs/maintenance-passes.md), [current write machinery](../docs/write-path.md)). Durable-activity and large-system research support recording nondeterminism and avoiding constant per-fact sweeps ([welding research](research/2026-07-24/lanes/welding.md), [scaling survey](research/2026-07-24/lanes/survey-giants.md)). The stable key, leasing, compare-at-commit, supersession, and poison protocol below are design synthesis with no direct local implementation analogue. `stage:8` crash, race, and idempotency tests are its required operational-substrate evidence.
 
 Each logical job has a stable job ID and a unique job key:
 
@@ -46,7 +46,7 @@ Every transition appends an event. The fold derives current state by job ID.
 | `superseded` | replacement job ID and reason | terminal |
 | `poisoned` | terminal failure class, diagnostics, and operator disposition | terminal |
 
-A worker must hold the latest unexpired lease before it appends `running` or `prepared`. Completion compares the target, policy, schema, identity, and relevant output heads with the values recorded in `prepared`. A mismatch appends `stale`; it never commits a result against changed premises. Mechanical projection commits are idempotent by job key and output version. Derived and retraction outputs use the verified-write proposal's stable IDs and atomic publication protocol. These race semantics are normative synthesis, not behaviour inherited from the current passes; Stage 11 must exercise lease expiry immediately before prepare and commit, duplicate workers, cancellation races, and a crash on both sides of the commit marker.
+A worker must hold the latest unexpired lease before it appends `running` or `prepared`. Completion compares the target, policy, schema, identity, and relevant output heads with the values recorded in `prepared`. A mismatch appends `stale`; it never commits a result against changed premises. Mechanical projection commits are idempotent by job key and output version. Derived and retraction outputs use the verified-write proposal's stable IDs and atomic publication protocol. These race semantics are normative synthesis, not behaviour inherited from the current passes; `stage:8` must exercise lease expiry immediately before prepare and commit, duplicate workers, cancellation races, and a crash on both sides of the commit marker.
 
 A crash before `prepared` leaves an expired lease that another worker can retry. A crash after `prepared` reuses the recorded Activity result. A crash during commit resolves by reading the output commit marker before another attempt. A worker never repeats a recorded nondeterministic call solely because it lost its lease.
 
@@ -67,7 +67,7 @@ Writes enqueue work from specific changes rather than from whole-store sweeps.
 | `source_only` | a proposal ended without structure | perform the one bounded structuring retry allowed by policy |
 | `pending_ingest` | a source-first ingest segment is durable | process the named segment under its source audience |
 | `working_review_due` | a working item reaches its review condition | propose promotion or discard |
-| `episode_due` | a session meets the optional episode policy | compose under the episodic wall |
+| `episode_due` | a session meets the selected `capability:generated-episodes` policy | compose under the episodic wall |
 
 A tick over empty queues costs a queue read. Whole-store canaries and replay audits remain diagnostic operations. They do not become routine curation passes.
 
@@ -93,11 +93,11 @@ Mechanical jobs consume no model budget. Judgement jobs use a bounded per-tick m
 
 ## Exploration
 
-Exploration is an open experiment and is disabled by default. It is not part of the remedy for failed extraction, contested items, or missed maintenance. Those cases have explicit marks and jobs.
+`capability:exploration` is an `activation_gate` capability and is disabled by default. It requires `stage:8` as its operational prerequisite. It is not part of the remedy for failed extraction, contested items, or missed maintenance. Those cases have explicit marks and jobs.
 
 When enabled, exploration operates only within one compatible transmission domain selected before candidate pairing. It cannot combine records merely by intersecting incompatible audiences after inference. Its output is a working item with complete influence lineage. It cannot publish an Assertion, promote itself, initiate a message, or consume capacity reserved for due Triggers and marked jobs.
 
-The experiment has a fixed budget, a yield gate, a privacy non-interference gate, and a disable switch. Its cost does not fall with store growth, so it remains optional even if the safety gates pass.
+The `capability:exploration` activation gate records a fixed budget, yield oracle, privacy non-interference oracle, disabled-behaviour oracle, and additive-seam reference. Its cost does not fall with store growth, so passing the safety gates does not select the capability for initial policy.
 
 ## Agent-initiated work
 
@@ -105,7 +105,7 @@ An off-turn message requires an explicit initiating event such as a due Trigger,
 
 The outbound message creates an Occasion with the recipients supported by connector witness evidence. Assertions made by the agent use agent-authored Attestations only where the assertion model permits them. The operation cannot cross an unresolved identity boundary because no live challenge-response is available.
 
-The policy that decides which eligible item warrants interruption remains an open experiment. The job and audience invariants apply before that policy can be enabled.
+`capability:proactive-initiation` is an `activation_gate` capability with `stage:8` as its operational prerequisite. Its interruption and salience policy remains unselected until its independent gate passes. The job and audience invariants apply before that policy can be enabled.
 
 ## Replay
 

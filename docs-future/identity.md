@@ -73,7 +73,7 @@ Attribute overlap, biography similarity, and knowledge recitation do not indepen
 
 The conversational agent may propose a candidate hypothesis by recording an observation Activity and its evidence. It cannot accept a hypothesis, inspect unrestricted sibling history, choose around the resolved handle it was given, or grant disclosure clearance. An operator may accept, reject, withdraw, or confirm a hypothesis within operator authority. Connector-authenticated challenge-response may grant only the clearance defined by its registered policy.
 
-Autonomous scoring is an open experiment until there is evidence for calibration, overlap handling, adversarial resistance, and one-handle behaviour. Initial policy uses operator-confirmed, disjoint composites.
+`capability:autonomous-identity` is an `activation_gate`; it remains unselected and disabled until independent evidence covers calibration, overlap handling, adversarial resistance, and one-handle behaviour. `stage:11` owns the selected operator-confirmed, disjoint-composite initial policy.
 
 ## The operational wall
 

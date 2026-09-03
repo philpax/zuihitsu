@@ -19,7 +19,7 @@ Each Attestation carries one registered, versioned principle. Genesis reserves t
 
 Principles compose by conjunction. Evaluation is universally quantified over the current audience, and an unknown identity or unresolvable condition denies. A group is eligible only when every member is eligible. Partial rendering is permitted only where the object type defines a disclosure-safe projection; otherwise the whole object is suppressed.
 
-Reciprocity and purpose limitation remain gated extensions. Reciprocity needs a stable definition of comparable disclosure. Purpose limitation needs an execution-purpose and obligation model that constrains downstream use, not a string supplied by the caller. General temporal logic is not on the read path.
+`capability:transmission-reciprocity` and `capability:transmission-purpose-limitation` are independent `activation_gate` capabilities. Reciprocity needs a stable definition of comparable disclosure. Purpose limitation needs an execution-purpose and obligation model that constrains downstream use, not a string supplied by the caller. General temporal logic is not on the read path.
 
 ## Witness evidence
 

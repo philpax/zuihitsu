@@ -38,20 +38,20 @@ The genesis freeze is the compatibility boundary. After the first real successor
 - new capability uses additive event variants, registered definition versions, new projections, or explicit superseding records;
 - replay never invents a value absent from historical input;
 - policy changes create versioned projections or Derivations rather than changing old conclusions silently;
-- no stage requires resetting an agent born on the successor substrate.
+- no numbered stage or activation gate requires resetting an agent born on the successor substrate.
 
 The design records broad immutable source data and applies narrow versioned interpretation. Existing event-sourcing and durable-activity behaviour supports append-only replay. The exact no-incompatible-change contract is an operator constraint and design decision ([current storage contract](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [migration cost](research/2026-07-24/lanes/survey-giants.md)).
 
-## Status labels
+## Capability statuses
 
-Every capability uses one of four labels:
+Every capability uses one of four statuses:
 
-- `required at genesis`: permanent identity or raw data that must exist before the first real successor genesis;
-- `initial policy`: behaviour enabled at the first real successor genesis;
-- `gated extension`: behaviour added later because genesis records its required inputs;
-- `open experiment`: behaviour outside the committed architecture until evidence passes its gate.
+- `required_substrate`: permanent identity or raw data that must exist before the first real successor genesis;
+- `initial_policy`: behaviour enabled at the first real successor genesis;
+- `activation_gate`: capability added later through its named gate because genesis records its required inputs and additive seam;
+- `declined`: capability deliberately excluded from the current selection, with any reopening condition recorded in the selection record.
 
-[Evolution](evolution.md) assigns these statuses to the experimental increments and late genesis phases. A gated or experimental policy cannot require retrospective invention. The current instance remains outside this boundary.
+[Evolution](evolution.md) defines the numbered stages and the capability and activation-gate registers. A capability with status `activation_gate` or `declined` cannot require retrospective invention. The current instance remains outside this boundary.
 
 ## System commitments
 
@@ -61,7 +61,7 @@ Audience resolution occurs before evidence affects a conversational read, rankin
 
 The agent-facing surface remains small. The agent addresses stable handles and uses typed query and write verbs. Governed schema activation, identity resolution, and policy machinery remain outside conversational ontology syntax.
 
-Scale-sensitive work is bounded and incremental. Long-document and media ingestion are jobs over Artefacts and Activities. Optional exploration remains disabled until it has separate privacy and yield evidence.
+Scale-sensitive work is bounded and incremental. Long-document and media ingestion are jobs over Artefacts and Activities. `capability:exploration` is an `activation_gate`; it remains disabled by default, requires `stage:8` operational substrate, and activates only after its independent privacy and yield gate passes.
 
 ## Representational scope
 

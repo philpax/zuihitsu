@@ -23,7 +23,7 @@ The notation is a projected reading aid, not a serialisation. The `type:` line a
 
 Universal parent roles stay small: `agent`, `theme`, `instrument`, `source`, `recipient`, `time`, and `place`, plus only the few additions justified across Event types. A registered Event type may define typed subroles such as `buyer` and `seller`, or `approver` and `requester`. Every subrole declares its universal parent and filler constraints. Generic traversal uses the parent; precise queries may use the subrole.
 
-This compromise preserves distinctions that a universal role set cannot answer while retaining a teachable fallback. Research supports a small universal inventory and warns that role tails are inconsistent even among expert annotators ([research report](research/2026-07-24/report.md#32-events-and-roles-the-fix-for-one-event-many-copies)). The typed-subrole scheme is a gated design synthesis. A subrole is activated only after fixtures establish teachability, stable filler constraints, and correct parent traversal. When no registered role fits, extraction leaves the content at the source locator or proposes a schema addition; it does not coin a hidden role or guess.
+This compromise preserves distinctions that a universal role set cannot answer while retaining a teachable fallback. Research supports a small universal inventory and warns that role tails are inconsistent even among expert annotators ([research report](research/2026-07-24/report.md#32-events-and-roles-the-fix-for-one-event-many-copies)). The initial typed-subrole policy is evaluated under `stage:10`. Broader role vocabulary is `capability:broad-event-role-vocabulary` with status `activation_gate`; it activates only after fixtures establish teachability, stable filler constraints, and correct parent traversal. When no registered role fits, extraction leaves the content at the source locator or proposes a schema addition; it does not coin a hidden role or guess.
 
 A role may have several fillers. Two people acting are two role Propositions, not one pair-valued edge. A count is appropriate only when participants were not individuated. The quantity rules belong to [statements](statements.md).
 
@@ -67,7 +67,7 @@ Withdrawal or supersession restores the source views. Derivations stamped with t
 | Two weekly meetings with the same people and an overlapping coarse date | Two Events linked at most by `possibly_same_event`; participant overlap is not enough to merge. |
 | Two Events are accepted as one, then a precise location proves they were separate | Append severance; restore both stable Event views; invalidate composite-dependent Derivations; preserve all source Assertions and Attestations. |
 
-These fixtures are required for the Stage 5 gate. The local four-entry case demonstrates duplication risk, but it does not validate an autonomous matching threshold ([modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)).
+These fixtures are required for the `stage:10` Event, role, and co-reference policy evaluation. The local four-entry case demonstrates duplication risk, but it does not satisfy the independent `capability:autonomous-event-merging` activation gate ([modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)).
 
 ## Disclosure-safe projection
 

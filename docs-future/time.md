@@ -70,7 +70,7 @@ Time does not encode modality. [Proposition identity](statements.md) includes a 
 
 `cancelled` is a registered Proposition modality and remains mechanically distinguishable from `planned` and `actual`. A planned Event does not become actual merely because its date passes. Event cancellation creates a new Assertion with `cancelled` modality and provenance; it does not mutate the planned Assertion. Task and Trigger cancellation use their own lifecycle transitions and are not inferred from proposition modality. Third-party deontic content remains an Assertion; only an authorised agent-authored Task with a live Trigger can cause action.
 
-Initial inference treats non-actual modalities opaquely except for rendering and scheduling guards. Rich plan reasoning is a gated extension. Reserving and populating the modality identity slot is required at genesis because it cannot be reconstructed reliably from old prose later.
+Initial inference treats non-actual modalities opaquely except for rendering and scheduling guards. Richer qualitative and non-actual temporal reasoning is represented by separately registered `activation_gate` capabilities, principally `capability:qualitative-temporal-inference` and `capability:habitual-deontic-inference`; the initial `stage:9` policy remains opaque except for rendering and scheduling guards. Reserving and populating the modality identity slot is required at genesis because it cannot be reconstructed reliably from old prose later.
 
 ## Qualitative anchoring
 
@@ -125,4 +125,4 @@ Required at genesis: typed values with precision, uncertainty, timezone ownershi
 
 Initial policy: conservative actual/planned/cancelled rendering, no firing from descriptive occurrence, explicit safe recurrence constructors, and source-preserving correction.
 
-Gated extensions: richer qualitative inference, business calendars, volatility automation, habitual and deontic reasoning, and autonomous recurrence interpretation. Their required raw fields exist from genesis, so disabling a policy changes projections and automation, not persisted meaning.
+Activation-gate capabilities: `capability:qualitative-temporal-inference`, `capability:business-calendar-adjustment`, `capability:volatility-automation`, `capability:habitual-deontic-inference`, and `capability:autonomous-recurrence-interpretation`. Their required raw fields exist from `stage:9`, so disabling a capability changes projections and automation, not persisted meaning.

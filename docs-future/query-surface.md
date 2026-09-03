@@ -4,7 +4,7 @@ Reads operate on audience-resolved projections. The caller never receives hidden
 
 ## Read state machine
 
-The current system has multiple read paths and has leaked withheld metadata when one path applied an incomplete policy ([current leak](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path), [current visibility contract](../docs/visibility.md), [brief composition](../docs/conversations-and-briefs.md)). Central audience resolution follows from that observation. The exact stable read ID, lifecycle, delivery accounting, and deduplication key below are design synthesis. Stage 2 non-interference, replay, retry, and cancellation fixtures must validate them before they become authoritative.
+The current system has multiple read paths and has leaked withheld metadata when one path applied an incomplete policy ([current leak](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path), [current visibility contract](../docs/visibility.md), [brief composition](../docs/conversations-and-briefs.md)). Central audience resolution follows from that observation. The exact stable read ID, lifecycle, delivery accounting, and deduplication key below are design synthesis. `stage:2` non-interference, replay, retry, and cancellation fixtures must validate them before they become authoritative.
 
 Each read has a stable read ID. Its append-only states separate candidate generation from disclosure and access accounting.
 
@@ -24,7 +24,7 @@ A retry after failure uses a new attempt under the same read ID. Reuse requires 
 
 Retry fixtures vary one input at a time: audience membership, caller authentication, tentative identity membership, witness presence, consent revocation, policy version, source head, authoritative ledger position, ledger freshness, tombstone state, reference authority, pending physical deletion, and retention state. Every variation forces re-resolution. A missing freshness proof denies. A control with an identical digest may reuse the envelope and produces the same rendered digest.
 
-The access unit is content actually rendered into model or user context. Candidate generation, hidden matches, internal rank fusion, and operator-only diagnostics are not accesses. Current brief composition demonstrates that content can enter context without an explicit semantic read event, so this unit is a decided policy rather than an observed current invariant ([brief composition](../docs/conversations-and-briefs.md), [log measurements](research/2026-08-06/log-measurements.md)). Stage 0e classifies real turns, and Stage 2 replay fixtures must prove that retries, supersession, and hidden candidates update no recency except for confirmed delivery.
+The access unit is content actually rendered into model or user context. Candidate generation, hidden matches, internal rank fusion, and operator-only diagnostics are not accesses. Current brief composition demonstrates that content can enter context without an explicit semantic read event, so this unit is a decided policy rather than an observed current invariant ([brief composition](../docs/conversations-and-briefs.md), [log measurements](research/2026-08-06/log-measurements.md)). The `stage:1` query-classification evidence package classifies real turns, and `stage:2` replay fixtures must prove that retries, supersession, and hidden candidates update no recency except for confirmed delivery.
 
 ## Audience-resolved Assertions
 
@@ -50,23 +50,23 @@ A lineage response distinguishes complete lineage from an audit trace. Complete 
 
 ## Search result kinds
 
-Search combines structural proximity, source text, semantic indexes, artefact metadata, and gated multimodal indexes. Every result labels the matched lane:
+Search combines structural proximity, source text, semantic indexes, artefact metadata, and multimodal indexes supplied by the `activation_gate` capability `capability:visual-retrieval`. Every result labels the matched lane:
 
 - `human_utterance` for an Occasion text span;
 - `structural_assertion` for Proposition or Assertion fields;
 - `perception` for OCR, captions, or other model or tool observations;
-- `visual_embedding` for a gated cross-modal index;
+- `visual_embedding` for the `activation_gate` capability `capability:visual-retrieval`;
 - `artefact_metadata` for mechanically known metadata.
 
 The label identifies why the result matched. It does not change the result's provenance. Generated OCR and captions remain Perceptions rather than human utterances. [Artefacts and perceptions](artefacts-and-perceptions.md) owns these distinctions.
 
-Signals produce versioned rankings. Rank fusion combines rank positions rather than incomparable raw scores. Rank-order fusion is corroborated as a production retrieval shape, but no surveyed gain is adopted as a target ([production-system survey](research/2026-07-24/lanes/survey-issue7.md), [dual-trace retrieval evidence](research/2026-08-03/dual-trace.md)). The chosen lane set, weights, and reranker boundary are design policy and remain Stage 0e/Stage 2 gated. A transient model reranker may inspect only the already audience-resolved head. Its output is discarded after the read and cannot become stored evidence. Similarity and reranking remain ranking inputs rather than authority to merge, settle, or disclose.
+Signals produce versioned rankings. Rank fusion combines rank positions rather than incomparable raw scores. Rank-order fusion is corroborated as a production retrieval shape, but no surveyed gain is adopted as a target ([production-system survey](research/2026-07-24/lanes/survey-issue7.md), [dual-trace retrieval evidence](research/2026-08-03/dual-trace.md)). The chosen lane set, weights, and reranker boundary are design policy and remain subject to the independent `stage:1` query-classification evidence, the `stage:2` reference-model comparison, and the `stage:7` audience-resolved read vertical slice; multimodal lanes additionally require their named `activation_gate` records. A transient model reranker may inspect only the already audience-resolved head. Its output is discarded after the read and cannot become stored evidence. Similarity and reranking remain ranking inputs rather than authority to merge, settle, or disclose.
 
 ## Source retrieval and reinspection
 
 A result can return a source reference and an existing visible Perception without reading original bytes again. Original Artefact bytes require an explicit `inspect` operation. `inspect` performs audience and retention checks, records the Activity, names the selector and transformation pipeline, and records any resulting Perception or derived Artefact. It never runs as an implicit consequence of search.
 
-Historical reinspection, OCR, region grounding, and visual embeddings are separately gated capabilities. The permanent result kind and Activity shapes can exist while these policies remain disabled.
+`capability:historical-reinspection`, `capability:ocr`, `capability:region-grounding`, and `capability:visual-retrieval` are separately registered `activation_gate` capabilities. The permanent result kind and Activity shapes can exist while these policies remain disabled.
 
 ## Operator traces
 

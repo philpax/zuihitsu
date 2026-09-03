@@ -190,7 +190,7 @@ Two Assertions are mechanically contradictory when audience-safe settled records
 - registered mutually exclusive kinds apply to the same subject;
 - exact quantities differ, or an exact quantity falls outside another bounded quantity.
 
-A changed functional value over disjoint validity is a temporal update, not a contradiction. Two candidates with incompatible wording but no registered mechanical rule are contested. Linguistic negation, conditionals, ambiguous Event identity, context-dependent opposition, and general inconsistency remain review candidates. Belief-revision research supports preserving contested claims and non-prioritised revision. The exact polarity axis and rule subset are design work that require Stage -1 and Stage 7 fixtures ([identity and belief lane](research/2026-07-24/lanes/identity-belief.md), [current arbitration failure](../docs/ontology-failures/2026-07-23.md)).
+A changed functional value over disjoint validity is a temporal update, not a contradiction. Two candidates with incompatible wording but no registered mechanical rule are contested. Linguistic negation, conditionals, ambiguous Event identity, context-dependent opposition, and general inconsistency remain review candidates. Belief-revision research supports preserving contested claims and non-prioritised revision. The exact polarity axis and rule subset are design work that require `stage:0` candidate-contract decisions, `stage:2` reference-model fixtures, and `stage:12` support and contradiction policy fixtures ([identity and belief lane](research/2026-07-24/lanes/identity-belief.md), [current arbitration failure](../docs/ontology-failures/2026-07-23.md)).
 
 ## Worked fixture replay audit
 
@@ -198,7 +198,7 @@ IDs below are stable fixture symbols, not a proposed wire spelling. `T-*` denote
 
 ### Schema-neutral fixture record grammar
 
-The table is an inventory and expected-result index. A Stage 1 fixture is executable only when its row is expanded into the following canonical schema-neutral record set. Prose such as “both settle” is not valid harness input by itself.
+The table is an inventory and expected-result index. A `stage:2` reference-model fixture is executable only when its row is expanded into the following canonical schema-neutral record set. Prose such as “both settle” is not valid harness input by itself.
 
 | Fixture record | Required typed fields |
 |---|---|
@@ -347,7 +347,7 @@ An erasure intersects a previously delivered external copy. Managed live state c
 
 For the remaining inventory rows, their input vector is the nearest vector above plus the exact delta named in the row: `Opposite polarity` uses one canonical core with polarity `positive` then `negative`; `Lexical negation` uses that polarity pair and the one relation `works_at/v1`; `Negative quantity and modality` uses typed signed quantity `-5` and modality `planned`; `Last teller retracts` uses the per-teller vector with one Attestation followed by `attestation_retracted`; `Perception correction and erasure` provides the OCR-specific values. No other implicit value is permitted.
 
-Each inventory row expands to one `fixture_header`, all source and object records named in its first three columns, one typed record for every transition or decision named in its fourth column, one `expected_fold`, and probes for both visible and hidden or denied results. The stable symbols bind the table and canonical vectors one-to-one. The normative table and vectors are the committed fixture input; Stage 1 translates them mechanically into the implementation harness without selecting new semantic values or production wire names.
+Each inventory row expands to one `fixture_header`, all source and object records named in its first three columns, one typed record for every transition or decision named in its fourth column, one `expected_fold`, and probes for both visible and hidden or denied results. The stable symbols bind the table and canonical vectors one-to-one. The normative table and vectors are the committed fixture input; `stage:2` translates them mechanically into the reference-model harness without selecting new semantic values or production wire names.
 
 | Scenario | Occasion or Activity source records | Stable object IDs | Appended transitions or decisions | Folded live state | Visible result | Hidden or denied result | Replay result |
 |---|---|---|---|---|---|---|---|

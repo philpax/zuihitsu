@@ -14,11 +14,11 @@ Semantic memory does not mean “true”. Assertions can be quoted, candidate, c
 
 ## Episodic
 
-Episodic memory preserves experience and optional reconstructions of it. The durable source side is an Occasion or Activity with its original utterance, participants, ordering, ArtefactReferences, and tool/model records. A generated episode is a separate mnemonic narrative produced by a generation Activity and recorded as a Derivation.
+Episodic memory preserves experience. Reconstructed episodes are supplied by `capability:generated-episodes`, an `activation_gate` capability. The durable source side is an Occasion or Activity with its original utterance, participants, ordering, ArtefactReferences, and tool/model records. A generated episode is a separate mnemonic narrative produced by a generation Activity and recorded as a Derivation.
 
-Generated narrative is never participant testimony, never a premise for a semantic Derivation, and never allowed to accrue Attestations. It is labelled as reconstruction and carries lineage and the intersection of its inputs' transmission restrictions. It is an optional gated extension, not a required trace for every Occasion. [The two traces](two-traces.md) owns this boundary.
+Generated narrative is never participant testimony, never a premise for a semantic Derivation, and never allowed to accrue Attestations. It is labelled as reconstruction and carries lineage and the intersection of its inputs' transmission restrictions. It is `capability:generated-episodes` with status `activation_gate`, not a required trace for every Occasion. [The two traces](two-traces.md) owns this boundary.
 
-The evidence for generated episodes is limited to one unreplicated study using an automated judge and small per-category samples, with no privacy evaluation and no encoding-versus-retrieval ablation ([dual-trace study](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Its reported cost neutrality does not transfer to this event-sourced log. Stage 0a must show encoding-side value before generation is enabled.
+The evidence for generated episodes is limited to one unreplicated study using an automated judge and small per-category samples, with no privacy evaluation and no encoding-versus-retrieval ablation ([dual-trace study](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Its reported cost neutrality does not transfer to this event-sourced log. The `stage:1` generated-episode evidence package must show encoding-side value before `capability:generated-episodes` can activate.
 
 Source Occasions are not demoted when no episode is generated. They remain retrievable under source and audience policy. Episodic ranking may decay with recency, but source history is not rewritten merely because it is old.
 
@@ -26,7 +26,7 @@ Source Occasions are not demoted when no episode is generated. They remain retri
 
 Procedural memory is executable agent-authored code plus a natural-language description used for retrieval. Producing or revising a procedure is an Activity. Invocation is another recorded Activity with code version, inputs, tool effects, and outcome.
 
-Procedures are retrieved by purpose and run in the ordinary sandbox with no additional authority. Ranking decays by invocation recency and frequency rather than calendar age: an unused routine is not thereby false or stale. Automatic procedure extraction remains gated on bounded cost, review, and authority fixtures.
+Procedures are retrieved by purpose and run in the ordinary sandbox with no additional authority. Ranking decays by invocation recency and frequency rather than calendar age: an unused routine is not thereby false or stale. Automatic procedure extraction is `capability:procedural-memory` with status `activation_gate`; its gate requires bounded cost, review, and authority fixtures.
 
 A procedure is not an Assertion. Claims about what it does, whether it succeeded, or when it is safe are ordinary Assertions supported by tool observations or operator evidence.
 
@@ -42,13 +42,13 @@ This is conservative because a model cannot report which visible input actually 
 
 An image or document shared during conversation first creates an ArtefactReference on an Occasion. Model inspection produces a Perception through a recorded Activity. Neither arrival nor inspection automatically creates a semantic Assertion. If the agent deliberately records an image-derived claim, the Derivation cites the Perception and underlying ArtefactReference and retains their audience restrictions.
 
-This ordinary conversational path lets the model inspect a supplied image during the turn and records durable provenance for the inspection. Historical reinspection, OCR, generated captions, region grounding, and visual retrieval are separately gated capabilities. Their exact model belongs to [artefacts and perceptions](artefacts-and-perceptions.md).
+This ordinary conversational path lets the model inspect a supplied image during the turn and records durable provenance for the inspection. `capability:historical-reinspection`, `capability:ocr`, `capability:generated-captions`, `capability:region-grounding`, and `capability:visual-retrieval` are separately registered `activation_gate` capabilities. Their exact model belongs to [artefacts and perceptions](artefacts-and-perceptions.md).
 
 Bulk ingestion is a different operation. It is a bounded, source-first job over an Artefact, normally a long document or media object. The source and its ArtefactReference become durable before selection or extraction. The job records deterministic segmentation or transforms, selection decisions, extraction Activities, Perceptions where applicable, and per-unit success or source-only fallback. It does not simulate hundreds of conversational Occasions or fabricate utterances.
 
 A bulk job has one governing source audience unless explicit source partitions carry separately authorised policies. Derived Assertions and Perceptions inherit restrictions through normal provenance. Mixed-audience material defaults to the stricter policy; per-claim model guesses cannot widen it. Job leasing, retry, compare-at-commit, poison handling, and supersession belong to [off-turn work](off-turn.md).
 
-Bulk ingestion remains stage-gated. Research motivates separate lifecycles and source-first selective structuring, but exact document selection, extraction economics, and per-document audience behaviour are unresolved ([time and memory research](research/2026-07-24/lanes/time-memory.md#mapping-zuihitsus-open-issues-onto-the-typology)). Required evidence includes bounded calls and log growth, precision against selected spans, source-only degradation, audience non-interference, and replay after retry.
+`capability:bulk-ingestion` is an `activation_gate` capability with `stage:8` as its required operational prerequisite. Research motivates separate lifecycles and source-first selective structuring, but exact document selection, extraction economics, and per-document audience behaviour are unresolved ([time and memory research](research/2026-07-24/lanes/time-memory.md#mapping-zuihitsus-open-issues-onto-the-typology)). Required evidence includes bounded calls and log growth, precision against selected spans, source-only degradation, audience non-interference, and replay after retry.
 
 ## The self and directives are configuration
 

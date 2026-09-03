@@ -10,16 +10,16 @@ The running instance remains outside the successor boundary. It is neither migra
 
 Before the genesis freeze, every successor log, event variant, stable-ID encoding, fold, projection, snapshot, and fixture is experimental and disposable. Evidence can falsify the current design and require incompatible replacement. Experimental logs and fixtures can be regenerated. Measurements, fixture inputs, expected results, failures, and decision rationales remain evidence, but their wire formats have no compatibility guarantee. A pre-genesis increment must leave the repository buildable and its relevant automated tests passing, but it need not leave a usable agent.
 
-The genesis freeze is the boundary between experimental design and permanent state. After the first real successor genesis, persisted meanings and stable identities cannot be changed incompatibly. Later capabilities must use additive versioned mechanisms. Replay cannot invent omitted historical values, and a post-genesis stage cannot require an already-born successor agent to reset. [`overview.md`](overview.md#permanence-contract) defines the full contract.
+The genesis freeze is the boundary between experimental design and permanent state. After the first real successor genesis, persisted meanings and stable identities cannot be changed incompatibly. Later capabilities must use additive versioned mechanisms. Replay cannot invent omitted historical values, and a post-genesis capability or activation gate cannot require an already-born successor agent to reset. [`overview.md`](overview.md#permanence-contract) defines the full contract.
 
-Status labels have fixed meanings:
+Capability statuses have fixed meanings:
 
 | Status | Meaning |
 |---|---|
-| `required at genesis` | Permanent substrate or raw input required before the first real successor genesis. |
-| `initial policy` | Behaviour enabled at the first real successor genesis. |
-| `gated extension` | Later behaviour whose required raw inputs exist from genesis. |
-| `open experiment` | Uncommitted behaviour that requires an evidence gate before the genesis freeze or a later extension gate. |
+| `required_substrate` | Permanent substrate or raw input required before the first real successor genesis. |
+| `initial_policy` | Behaviour enabled at the first real successor genesis. |
+| `activation_gate` | Capability whose required raw inputs and additive seam exist from genesis, but whose behaviour activates only after its named gate passes and the selection record permits activation. |
+| `declined` | Capability deliberately excluded from the current selection, with any reopening condition recorded in the selection record. |
 
 ## Canonical glossary
 
@@ -47,7 +47,7 @@ The dated snapshots under [`research/`](research/) use `Statement` for combinati
 2. [`statements.md`](statements.md) defines the assertion layer, lifecycle, contradiction subset, and source locators.
 3. [`artefacts-and-perceptions.md`](artefacts-and-perceptions.md) defines Artefacts, references, selectors, and Perceptions.
 4. [`privacy-and-provenance.md`](privacy-and-provenance.md) defines audience resolution, influence, and erasure.
-5. [`evolution.md`](evolution.md) defines the staged research and build order.
+5. [`evolution.md`](evolution.md) defines the numbered pre-genesis stages, capability entries, named activation gates, genesis freeze, rehearsal, and first real genesis.
 
 The remaining normative chapters apply those definitions:
 
@@ -68,7 +68,7 @@ The remaining normative chapters apply those definitions:
 Supporting registers:
 
 - [`coverage.md`](coverage.md) maps current failures and issues to mechanisms, evidence, gates, and residual risk.
-- [`confidence.md`](confidence.md) records genesis blockers, stage gates, deferred work, adversarial obligations, and the evidence map.
+- [`confidence.md`](confidence.md) records genesis blockers, capability statuses and activation gates, adversarial obligations, and the evidence map.
 - [`lineage.md`](lineage.md) is an ancestry index into the evidence map.
 - [`research/`](research/) contains dated evidence snapshots. The [corpus modelling study](research/2026-08-03/modelling-study.md) tests the earlier model against recorded data.
 
