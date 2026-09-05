@@ -1,6 +1,6 @@
 //! The `tags` global: `create` and `describe` mutate the vocabulary, `list` reads it.
 
-use crate::agent::lua::tables::modules::{metatables::*, *};
+use crate::agent::lua::tables::modules::*;
 
 /// The `tags` global: `create` and `describe` mutate the vocabulary, `list` reads it. Creation and
 /// application are deliberately distinct — applying (`mem:tag`) never mutates a tag's description,
