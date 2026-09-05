@@ -42,7 +42,7 @@ A generated thumbnail, crop, page rendering, OCR text file, or extracted frame i
 
 ## The generated trace activation gate
 
-A generated episode is a synthetic mnemonic scene or narrative produced from selected source records by an Activity and recorded as a separate Derivation output. It may help distinguish, sequence, or aggregate occasions. It is not raw experience, an Assertion, an Attestation, or evidence.
+A generated episode is a derived Artefact containing a synthetic mnemonic scene or narrative. A generation Activity produces it through a Derivation whose tagged typed output names the Artefact, `synthetic_generation`, and the durable `episodic_reconstruction/v1` classification. The Derivation consumes one or more ordered `source_occasion` or `source_activity` edges. Each edge names the exact source locators and audience decision. It does not invent a selector. Machine enforcement preserves the classification on every write and read surface. The episode may help distinguish, sequence, or aggregate occasions. It is not raw experience, an Assertion, an Attestation, evidence, or a fourth Derivation output type. [Artefacts and perceptions](artefacts-and-perceptions.md) owns derived Artefact byte identity and access, and [statements](statements.md#derivation) owns Derivation output cardinality, production tags, source edges, and classification.
 
 The supporting study reported gains of 40 points on temporal reasoning, 30 on multi-session aggregation, and 25 on update tracking, with no single-session gain ([dual-trace results](research/2026-08-03/dual-trace.md#the-experiment)). The evidence is narrow: one unreplicated benchmark, an automated judge, about twenty questions per category, no privacy dimension, and no ablation separating encoding-time generation from retrieval-time reconstruction ([limitations](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Reported cost neutrality depended on a context-heavy harness and does not transfer to a durable event log.
 
@@ -50,10 +50,10 @@ Generation also invites concrete invention by design. The study's non-evidence d
 
 ## The episodic wall
 
-If generated episodes are enabled, mechanical rules enforce the boundary:
+If generated episodes are enabled, machine enforcement reads the durable `episodic_reconstruction/v1` classification from the Derivation's tagged derived-Artefact output and applies it to every rendered reference. The Artefact record continues to represent byte identity and mechanically observed metadata. [Privacy and provenance](privacy-and-provenance.md#influence-envelopes) owns monotone influence propagation and semantic-publication checks.
 
 - a generated episode is attributed to its producing Activity and Derivation, never to a participant;
-- it cannot be an input to a semantic Assertion Derivation or accrue Attestations;
+- the derived Artefact cannot be an input to a semantic Assertion Derivation or accrue Attestations;
 - it is labelled as reconstruction on every read surface;
 - its lineage names all source Occasions, Activities, Perceptions, and policy versions used;
 - its transmission restriction is no wider than the intersection of its inputs;
@@ -63,6 +63,19 @@ If generated episodes are enabled, mechanical rules enforce the boundary:
 A narrative body is indivisible prose. If omitting restricted material would change its account, the whole body is suppressed. Unlike an Event projection, it cannot safely reveal selected “edges”. Central audience resolution must run before the narrative is rendered.
 
 Generated prose cannot claim completeness. It is a selective reconstruction and may omit salient details, combine anchors poorly, or invent scene geometry. A source link lets a reader audit it; the link does not turn it into evidence.
+
+## Episode-influenced model contexts
+
+The boundary cases use the influence and publication rules in [privacy and provenance](privacy-and-provenance.md#influence-envelopes). [The canonical input vectors](statements.md#canonical-input-vectors) define the exact source edges, classifications, InfluenceEnvelope marks, and expected publication decisions. They are required specification inputs for the future fixture harness and do not claim implementation.
+
+| Fixture | Context and attempted operation | Required result |
+|---|---|---|
+| Direct | The model context contains a generated episode, and the model submits a semantic write. | Reject the write. The `episodic_reconstruction/v1` influence is non-evidentiary. |
+| Mixed | The model context contains a generated episode and authorised original evidence, and the model submits a semantic write. | Reject the write. Original evidence does not cancel episode influence, and a model-declared omission cannot clear it. |
+| Note-mediated | The model reads a generated episode, records a note or intermediate, and later submits a semantic write. | Reject the write. Non-evidentiary influence propagates through notes and intermediates. |
+| Source-only control | A fresh context contains only authorised original evidence, and an independently recorded Activity submits a semantic write. | Permit the write to proceed to the ordinary [verified-write](verified-write.md) and [write-surface](write-surface.md) checks. |
+
+An ordinary conversational reply may read an authorised episode as a labelled reconstruction. This read does not permit a semantic write from the episode-influenced context.
 
 ## Retrieval and deduplication
 
@@ -74,4 +87,4 @@ Event co-reference is stricter still. Similar descriptions remain separate Event
 
 ## Enablement gate
 
-`capability:generated-episodes` remains disabled unless its independent `activation_gate` shows encoding-side value over source-window retrieval at matched source coverage. The gate must measure temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. A passing aggregate score is insufficient: fixtures must show that no generated detail becomes an Assertion, Attestation, Event co-reference input, or hidden-content signal.
+`capability:generated-episodes` remains disabled until its independent `activation_gate` passes. The gate must show encoding-side value over source-window retrieval at matched source coverage and measure temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. A passing aggregate score is insufficient: the direct, mixed, note-mediated, and source-only boundary fixtures must pass, and no generated detail may become an Assertion, Attestation, Event co-reference input, or hidden-content signal.

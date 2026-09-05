@@ -14,9 +14,9 @@ Semantic memory does not mean “true”. Assertions can be quoted, candidate, c
 
 ## Episodic
 
-Episodic memory preserves experience. Reconstructed episodes are supplied by `capability:generated-episodes`, an `activation_gate` capability. The durable source side is an Occasion or Activity with its original utterance, participants, ordering, ArtefactReferences, and tool/model records. A generated episode is a separate mnemonic narrative produced by a generation Activity and recorded as a Derivation.
+Episodic memory preserves experience. Reconstructed episodes are supplied by `capability:generated-episodes`, an `activation_gate` capability. The durable source side is an Occasion or Activity with its original utterance, participants, ordering, ArtefactReferences, and tool/model records. A generated episode is a derived Artefact containing a mnemonic narrative. A generation Activity records a Derivation that produces the Artefact. Machine enforcement applies the `episodic_reconstruction` classification. The episode is not a fourth Derivation output type.
 
-Generated narrative is never participant testimony, never a premise for a semantic Derivation, and never allowed to accrue Attestations. It is labelled as reconstruction and carries lineage and the intersection of its inputs' transmission restrictions. It is `capability:generated-episodes` with status `activation_gate`, not a required trace for every Occasion. [The two traces](two-traces.md) owns this boundary.
+Generated narrative is never participant testimony, never a premise for a semantic Derivation, and never allowed to accrue Attestations. Machine enforcement labels its derived Artefact as `episodic_reconstruction` and carries lineage and the intersection of its inputs' transmission restrictions. It is `capability:generated-episodes` with status `activation_gate`, not a required trace for every Occasion. [The two traces](two-traces.md) owns this boundary.
 
 The evidence for generated episodes is limited to one unreplicated study using an automated judge and small per-category samples, with no privacy evaluation and no encoding-versus-retrieval ablation ([dual-trace study](research/2026-08-03/dual-trace.md#limitations-theirs-and-ours)). Its reported cost neutrality does not transfer to this event-sourced log. The `stage:1` generated-episode evidence package must show encoding-side value before `capability:generated-episodes` can activate.
 
@@ -65,5 +65,5 @@ Claims about the agent remain semantic Assertions. “The agent observed X” ma
 | A participant shares an image without text | Occasion plus ArtefactReference; optionally an inspection Activity and Perception | No utterance and no automatic Assertion |
 | A tool returns a measurement off-turn | Activity and tool observation; optionally a derived Assertion | No human teller or synthetic Occasion |
 | A long document is ingested | Artefact/Reference, job Activities, transforms or Perceptions, selected Assertions, and source-only spans | No conversational episode per chunk |
-| An episode is generated for a rich session | Source Occasions plus an Activity, its Derivation, and a labelled reconstruction | No new evidence or participant Attestation |
+| An episode is generated for a rich session | Source Occasions plus an Activity, its Derivation, and a derived Artefact classified as `episodic_reconstruction` | No new evidence or participant Attestation |
 | A scratch note is promoted | Original note and influence envelope plus a new proposal Activity | The note itself does not become an Assertion |

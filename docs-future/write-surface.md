@@ -17,7 +17,7 @@ local proposal = quill:record({
 
 The call returns a durable proposal handle immediately. The current system records model calls durably and batches writes inside a block, which supplies the execution seam ([current write path](../docs/write-path.md), [model-call storage](../docs/events-and-storage.md#event-sourcing)). The durable proposal handle, later-block review, state transitions, and atomic publication are design synthesis required by permanence; the `stage:7` first audience-resolved read/write vertical-slice crash, retry, and source-only fixtures validate them.
 
-Extraction runs once per block over the buffered Occasions. A later block reads the proposal after it reaches `awaiting_review`:
+The initial extraction runs once per block over the buffered Occasions. A pre-acceptance infrastructure failure can enter `extraction_retry_wait` and retry the extraction within the bounded policy. A later block reads the proposal after it reaches `awaiting_review`:
 
 ```lua
 local review = proposal:review()
@@ -28,7 +28,7 @@ review:accept()
 
 The review contains proposed Proposition, Assertion, Attestation, Event, Perception, and Derivation handles, critic diagnostics, and the current proposal state. It does not report these objects as committed until the publication record commits. Dropped and replaced proposal versions remain in the audit trace.
 
-The write surface never makes rejected proposals available through ordinary structured queries. The source Occasion remains available through the source lane from `source_buffered` onward. If extraction fails, every proposal is dropped, the retry bound is exhausted, or review cannot complete, the state machine appends `source_only`. Source-first retention is forced by current prose storage and by the observed limits of neural verification, but this exact fallback state and its publication boundary are design synthesis ([current data model](../docs/data-model.md#contententry), [writer failure](../docs/ontology-failures/2026-07-23.md#the-neural-writer-is-unverified), [welding research](research/2026-07-24/lanes/welding.md)). Source-only storage is a valid durable outcome rather than a partial commit.
+The write surface never makes rejected proposals available through ordinary structured queries. The source Occasion remains available through the source lane from `source_buffered` onward. If pre-acceptance extraction fails, every proposal is dropped, the extraction retry bound is exhausted, or review cannot complete, the state machine appends `source_only`. A post-acceptance publication failure enters `publication_retry_wait` and retries publication of the unchanged accepted set; it never falls back to `source_only` and never reruns durable model work. Source-first retention is forced by current prose storage and by the observed limits of neural verification, but this exact fallback state and its publication boundary are design synthesis ([current data model](../docs/data-model.md#contententry), [writer failure](../docs/ontology-failures/2026-07-23.md#the-neural-writer-is-unverified), [welding research](research/2026-07-24/lanes/welding.md)). Source-only storage is a valid durable outcome rather than a partial commit.
 
 ## `claim`
 
@@ -46,7 +46,7 @@ local proposal = quill:claim("runs_on", "model/opus-4.8", {
 
 The admitted source kinds are `agent_observation`, `operator_assertion`, `tool_observation`, and `derivation`. Each kind has its own authority and grounding requirements. `claim` never fabricates an utterance, teller, text span, or Occasion. A tool observation names the tool Activity and result. A derivation supplies the typed input and execution environment required by [verified writes](verified-write.md#derivation-records).
 
-`claim` avoids extraction, but it does not bypass critics, review, atomic publication, audience checks, or compare-at-commit. A correction after publication appends the applicable Assertion or Attestation transition. It does not mutate the published record.
+`claim` avoids extraction, but it does not bypass critics, review, atomic publication, audience checks, or compare-at-commit. Proposal, retry, and publication records preserve the [canonical InfluenceEnvelope](privacy-and-provenance.md#influence-envelopes), including non-evidentiary marks. A fresh source-only context uses a new Activity; it cannot clear marks on an existing context or proposal. A correction after publication appends the applicable Assertion or Attestation transition. It does not mutate the published record.
 
 ## Required caller decisions
 
@@ -66,7 +66,7 @@ The source kind and teller are independent. An agent restatement of a participan
 
 Several `record` calls in one block can share one extraction Activity. The durable proposal handles remain empty until that Activity and the hard critics complete. Review therefore occurs in a later block. This preserves batching without hiding the proposal lifecycle.
 
-Each failed attempt appends its failure class and attempt number. Retriable infrastructure failure enters `retry_wait`. A deterministic critic rejection returns to review or accepts an amendment; rerunning the same extraction without changed input does not consume retries. The bounded retry policy is versioned. Exhaustion produces `source_only`.
+Each failed attempt appends its failure class and attempt number. Before acceptance, a retriable extraction infrastructure failure enters `extraction_retry_wait`. After acceptance, a retriable publication infrastructure failure enters `publication_retry_wait`; it retries the unchanged accepted publish set without rerunning durable model work. A critic infrastructure retry reuses the recorded extraction output and remains in `critic_review`. A deterministic critic rejection returns diagnostics for amendment or dropping; it does not rerun unchanged extraction. The bounded retry policy is versioned. Exhaustion before acceptance produces `source_only`. Publication exhaustion resolves a committed marker to `published` or aborts a confirmed uncommitted attempt with `publication_attempts_exhausted`, following [the recovery protocol](verified-write.md#proposal-state-machine). It does not produce `source_only`.
 
 A caller can supersede a pending proposal with a replacement. Supersession names both proposal IDs. The old proposal can never publish. An abort records the actor and reason. Neither operation removes the durable source.
 

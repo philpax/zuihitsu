@@ -55,10 +55,11 @@ Search combines structural proximity, source text, semantic indexes, artefact me
 - `human_utterance` for an Occasion text span;
 - `structural_assertion` for Proposition or Assertion fields;
 - `perception` for OCR, captions, or other model or tool observations;
+- `episodic_reconstruction` for a generated episode represented by a derived Artefact;
 - `visual_embedding` for the `activation_gate` capability `capability:visual-retrieval`;
 - `artefact_metadata` for mechanically known metadata.
 
-The label identifies why the result matched. It does not change the result's provenance. Generated OCR and captions remain Perceptions rather than human utterances. [Artefacts and perceptions](artefacts-and-perceptions.md) owns these distinctions.
+The label identifies why the result matched. It does not change the result's provenance. Generated OCR and captions remain Perceptions rather than human utterances. An authorised `episodic_reconstruction` remains readable by ordinary conversational replies, while semantic publication follows the [episode-influenced model context boundary](two-traces.md#episode-influenced-model-contexts). [Artefacts and perceptions](artefacts-and-perceptions.md) owns these distinctions.
 
 Signals produce versioned rankings. Rank fusion combines rank positions rather than incomparable raw scores. Rank-order fusion is corroborated as a production retrieval shape, but no surveyed gain is adopted as a target ([production-system survey](research/2026-07-24/lanes/survey-issue7.md), [dual-trace retrieval evidence](research/2026-08-03/dual-trace.md)). The chosen lane set, weights, and reranker boundary are design policy and remain subject to the independent `stage:1` query-classification evidence, the `stage:2` reference-model comparison, and the `stage:7` audience-resolved read vertical slice; multimodal lanes additionally require their named `activation_gate` records. A transient model reranker may inspect only the already audience-resolved head. Its output is discarded after the read and cannot become stored evidence. Similarity and reranking remain ranking inputs rather than authority to merge, settle, or disclose.
 

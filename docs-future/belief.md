@@ -66,6 +66,8 @@ The store may maintain a restricted global support projection for operator audit
 
 Candidate and settled are folded Assertion states defined by appended transitions, not intrinsic truth values. A versioned promotion policy may append a promotion transition when its stated support and critic conditions pass. It records the support projection, policy versions, evidence IDs, resolution environment, and source head used.
 
+The selected [`capability:initial-support-policy`](evolution.md#stage-12-initial-support-dependence-and-contradiction-policy) names the runtime actor and authority permitted to append `assertion_settled` and the selected policy's demotion or invalidation transition. For a candidate with one audience-visible live support lineage, the policy either states its explicit settlement eligibility or records a deliberate candidate-only decision. The policy also states the result when the last eligible support is withdrawn. This selection does not choose numeric support, enable fusion, or permit autonomous contradiction arbitration.
+
 Withdrawal of an Attestation removes only that teller's support. The fold then recomputes:
 
 - if other live Attestations remain, the Assertion remains with revised support;
@@ -103,6 +105,7 @@ Each policy version must pass fixtures that assert both support and privacy outc
 | Reliability change | A later reliability observation changes a new support projection under its policy and domain; historical Attestations and old projection records remain unchanged. |
 | Hidden Attestation | Adding an undisclosable independent Attestation does not change any visible ordinal, ranking, decision, prompt, or action for the uncleared audience. |
 | Last independent withdrawal | Withdrawing the only independent Attestation removes corroborated status even if dependent repetitions remain. |
+| Selected-policy default read and withdrawal | Publish an ordinary Assertion with one audience-visible live support lineage under an active definition. If the selected policy makes that source eligible, its named runtime authority appends `assertion_settled`, the settled Assertion appears in a default conversational read, and withdrawal of its last eligible support appends the selected demotion or invalidation transition and removes it from the next default read. If the selected policy keeps single-source Assertions candidate-only, no settlement transition exists, explicit candidate inspection can return it, and both default reads omit it. After withdrawal, the Assertion remains an unsupported candidate, and candidate inspection reports no live testimonial support. An undisclosable Attestation changes no visible result, transition decision, rank, count, or error shape in either branch. |
 | Hedge then flat assertion | One teller's later unhedged Attestation changes the expression account, not the independent-source count. |
 | Contested candidates | `promotion_support` may compare incompatible live candidates, but `actionable_support` omits them until settled. Non-mechanical candidates remain contested and neither is silently retracted. |
 | Direct Activity Assertion | An independently authorised direct observation can support settlement without a human Attestation; its Activity and any required Derivation remain explicit. |

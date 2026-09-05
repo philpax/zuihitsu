@@ -81,7 +81,7 @@ Zero residue is this design's application of non-interference. The research supp
 
 ## Influence envelopes
 
-Influence is broader than accepted Assertions. Every Activity and derived result records an InfluenceEnvelope containing the typed input-edge IDs, input transmission-principle versions, intersected restriction expression, audience-decision ID, purpose definition/version, ResolutionEnvironment, source head, and any erasure or retention dependencies. This applies to:
+Influence is broader than accepted Assertions. Every Activity and derived result records an InfluenceEnvelope containing the typed input-edge IDs, input transmission-principle versions, intersected restriction expression, audience-decision ID, purpose definition/version, ResolutionEnvironment, source head, any erasure or retention dependencies, and an ordered set of registered non-evidentiary marks. An output envelope takes the union of every input envelope's marks and marks introduced by the operation. No Activity, retry, compaction, intermediate, or output can remove, replace, or downgrade an inherited mark. This applies to:
 
 - model prompts and model-call records;
 - accepted, rejected, amended, and dropped proposals;
@@ -93,7 +93,7 @@ Influence is broader than accepted Assertions. Every Activity and derived result
 - transformed or generated Artefacts;
 - eval fixtures and packages built from real records.
 
-Rejection does not erase influence: a rejected proposal may change a retry or teach a later decision what not to say. Implementations may compact payloads, but they must preserve enough typed lineage and restriction data to reproduce authorisation and erasure closure. Access is accounted when content is rendered into model or tool context, including retries, not when it merely appears in a hidden candidate set.
+Rejection does not erase influence: a rejected proposal may change a retry or teach a later decision what not to say. Implementations may compact payloads, but they must preserve enough typed lineage, restriction data, and non-evidentiary marks to reproduce authorisation, publication denial, and erasure closure. Access is accounted when content is rendered into model or tool context, including retries, not when it merely appears in a hidden candidate set. An `episodic_reconstruction/v1` output classification and any rendering of that output into a model context add the `episodic_reconstruction/v1` non-evidentiary mark. The mark propagates by set union through notes, retries, intermediates, and derived model outputs. Original evidence in the same context cannot cancel it. Semantic publication cannot trust a model-declared omission to clear it. After episode influence, semantic publication requires a fresh source-only context and an independently recorded Activity whose lineage names authorised original evidence. [Verified write](verified-write.md) and [write surface](write-surface.md) own that publication check. Ordinary conversational replies may read an authorised episode as a labelled reconstruction, but they cannot publish semantic content from an episode-influenced context. The canonical direct, mixed, note-mediated, and source-only specification inputs are defined in [statements](statements.md#canonical-input-vectors), and their required results are summarised in [the two traces](two-traces.md#episode-influenced-model-contexts). These inputs do not claim that a fixture harness is implemented.
 
 ## Provenance and derivation
 
