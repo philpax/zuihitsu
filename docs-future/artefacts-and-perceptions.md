@@ -1,87 +1,113 @@
 # Artefacts and perceptions
 
-Artefact, ArtefactReference, and Perception separate immutable media, the act of sharing it, and a fallible observation of its content. The split applies to images, text files, audio, video, documents, tool outputs, and derived media.
+Artefact, ArtefactReference, and Perception separate immutable media, the act of sharing it, and a fallible observation of its content. The split applies to images, text files, documents, audio, video, tool outputs, and derived media. [The object model](statements.md) defines these objects and their lifecycles. This chapter specifies how they behave: identity and deduplication, selectors, text extraction for documents, perception, and the genesis image policy.
 
-## Permanent model
+## Artefact identity
 
-An Artefact has an algorithm-independent minted ID and identifies one immutable byte sequence. Immutable digest assertions bind that ID to an algorithm, algorithm version, digest, byte length, and verification result. Digest rotation appends another verified assertion; it does not mint a second Artefact or change its ID. A collision or conflicting length enters `quarantined` availability, denies byte use, and requires operator resolution. Physical deduplication and shared-byte retention use verified byte equivalence, not equal digest text. A digest identifies candidate content. It does not grant access.
+An Artefact is a minted ULID for one immutable byte sequence. The ID is not derived from the content. The content digest, byte length, and other mechanically observed byte metadata live in the Artefact's erasable payload. The deduplication index is built from payloads: when new bytes arrive, the store looks up their digest in the index and reuses the existing Artefact ID on a match. An erased Artefact's payload is gone, so its digest leaves the index and its tombstone keeps only the ID. A later upload of the same bytes mints a new Artefact.
 
-Artefact has no semantic correction lifecycle because its bytes never change. Its availability projection folds verified storage locations, collision quarantine, and erasure records to `available`, `unavailable`, `quarantined`, or `erased`. Its retention projection is the set of its live authorised references; the bytes are deleted when that set becomes empty and never while a member survives. Neither projection changes byte identity.
+The ID is minted rather than content-addressed for erasure. If the ID were a content hash, an erased file's tombstone would still let anyone confirm a guessed file by hashing it and finding the tombstone. A digest identifies candidate content for deduplication. It never grants access.
 
-An ArtefactReference records an Occasion-specific act of sharing. Its immutable source names the Artefact, supplier, original filename, media type, ordered typed-content-part position, and transmission principle. A live authorised reference is itself a retention authority for the bytes. Identical bytes shared twice produce one Artefact and two references. Each reference retains independent provenance and audience. The append-only transition union is `reference_withdrawn`, `reference_retracted`, `reference_erased`, and `reference_authority_restored`. Each transition names authority, scope, reason, source head, and authorization decision. The fold is `authorised` initially. Withdrawal or retraction denies new consumption while retaining authorised audit history. `reference_authority_restored` may follow only a reversible withdrawal or retraction and can restore retention or access only when policy permits it. `reference_erased` leaves only the permitted tombstone and is terminal: restoration after erasure is rejected and cannot recreate payload or authority. A pending erasure request may be declined by the operator before execution. A later authorised sharing after completed erasure mints a new ArtefactReference with a new identity and authorization decision. A transition on one reference never changes another.
+An Artefact has no correction lifecycle because its bytes never change. Its availability and retention folds are defined in [the object model](statements.md#artefact-and-artefactreference). Neither changes the ID.
 
-A human caption or alt text is a text content part on the same Occasion, placed immediately after the reference part it describes and marked `caption_of` with that part's ID. The reference carries only mechanical metadata. A caption is participant-authored source text: it grounds an Attestation through an ordinary `text_part_span` locator, and it is never mechanically true because it accompanies the bytes.
+## References and captions
 
-A Perception is a fallible observation. It is the typed output of a Derivation produced by a named model or tool Activity, because an observation is computed and never a direct source. Every consumed typed content part records the ArtefactReference ID, selector and definition version, resolved Artefact ID, ordered position in the model/tool input, transformation pipeline and version, and the audience decision or access-record ID that authorised the bytes. Bare Artefact identity is never sufficient. The Perception also records model or tool identity, prompt or operation, implementation version, source head, output, and influence envelope. OCR and generated captions are Perceptions. They are not source utterances or participant testimony.
+An ArtefactReference records one sharing act on one Occasion. It names the Artefact, the supplier, the original filename, the media type, the part's position in the Occasion's ordered content, and the transmission principle. Identical bytes shared twice produce one Artefact and two references, and each reference keeps its own supplier, audience, and [lifecycle](statements.md#legal-transitions). Withdrawal and retraction deny new consumption and are reversible. A later sharing of the same bytes mints a new reference, and a transition on one reference never changes another.
 
-The Perception transition union is `perception_superseded`, `perception_retracted`, `perception_invalidated`, and `perception_erased`. A correction creates a new Perception and appends supersession; it never edits output. The fold is `current` initially, then `superseded`, `retracted`, `invalidated`, or `erased` according to the latest applicable transition. Historical audit may return retained non-current payloads only to an authorised operator. Conversational and retrieval projections return only current, authorised Perceptions. Reference withdrawal invalidates dependent Perceptions for ordinary use; erasure removes governed payloads and rebuilds dependants from surviving authorised inputs. Replay preserves tombstones and never reconstructs erased output.
+Access to bytes always goes through a reference. Bare Artefact identity is never sufficient, because the same bytes can be authorised for one audience through one reference and hidden from another through a second.
 
-An image-derived Assertion cites its Perception and the consumed ArtefactReference. Its source is the observing Activity. The system does not attribute the observation to the person who supplied the bytes.
+A human caption or alt text is a text part on the same Occasion, placed after the reference part it describes and marked `caption_of` that part. The reference carries only mechanical metadata. A caption is participant-authored source text: it can ground an Attestation through an ordinary text locator, and it is never mechanically true because it accompanies the bytes.
 
-A versioned Activity executes a transform and produces a separate Derivation whose typed output is a new Artefact. The Derivation records the input selector, output Artefact ID, pipeline and version, audience decision, influence envelope, and retention and erasure dependency. This rule applies to thumbnails, crops, EXIF stripping, PDF pages, audio segments, and video frames. OCR text and generated captions are Perceptions unless an operation also materialises output bytes, in which case the bytes are a derived Artefact and the observation remains a separate Perception.
+## Selectors
 
-Occasions preserve ordered typed content parts. Text and media can be interleaved. Adding a media type does not change Occasion meaning.
+A selector addresses part of one named Artefact. It has no minted ID: it is a content-keyed value, and two selectors are equal when their canonical encodings are byte-equal. The implementation chooses the encoding. Each selector names its variant, its definition version, and its target Artefact ID. A selector never retargets implicitly: a transform produces a new Artefact, and a selector over it names that Artefact.
 
-## Source selectors
+The genesis variants are:
 
-A selector is an immutable content-keyed value with no minted ID: its identity is its canonical encoding, and a record that names a selector carries that encoding or its digest. It has a registered definition ID and version and an explicit target Artefact ID. Its canonical encoding is deterministic CBOR map `{0: selector_schema_version, 1: definition_id_and_version, 2: target_artefact_id, 3: typed_coordinates}`. Keys are unsigned integers in canonical order. Integers use shortest form, text is UTF-8, and the coordinate value is the definition's one canonical typed value. Version 1 uses schema value `1`, a combined stable definition/version string such as `whole_artefact/v1`, the minted Artefact ID string, and `null` for a whole-Artefact coordinate. No authenticated or semantic field lives outside these bytes. Equality is byte equality of that canonical encoding after schema validation; two records that carry equal bytes name one selector. A selector always addresses the named original or derived Artefact. A transform never causes a selector to retarget implicitly.
-
-| Selector variant | Version 1 semantics |
+| Variant | Semantics |
 |---|---|
 | `whole_artefact` | The complete target byte sequence. |
-| `page_range` | Zero-based page indexes in a half-open `[start, end)` range over the page order produced by the named document-decoder definition and version. |
-| `frame_range` | Zero-based decoded frame indexes in a half-open range under the named decoder and version. |
-| `time_range` | A half-open interval in integer media-timescale ticks. The selector records the timescale and decoder version; it does not use floating-point seconds. |
-| `spatial_region` | A half-open rectangle `(x, y, width, height)` in integer pixels of the orientation-normalised decoded raster. The selector records raster width, height, decoder version, and orientation-normalisation version. |
-| `byte_range` | A half-open `[start, end)` range of byte offsets over the raw target byte sequence. It names no decoder and applies to any Artefact. |
-| `composite` | An ordered intersection of selectors with the same target and compatible decoder basis. Empty and cross-target composites are invalid. |
+| `page_range` | Zero-based page indexes in a half-open `[start, end)` range, in the page order produced by a named and versioned document decoder. |
+| `text_span` | A half-open `[start, end)` range of Unicode scalar offsets over a derived text Artefact produced by text extraction. |
 
-Bounds are validated at creation against mechanically known target metadata and the named decoder. Negative, reversed, empty where disallowed, overflowed, or out-of-range selectors are rejected and no Activity begins. A later decoder that changes page, frame, duration, orientation, or raster interpretation uses a new definition version and cannot reinterpret an old selector. Initial policy permits only `whole_artefact`; the other union variants and validation rules still exist at genesis so later activation does not rewrite history.
+Bounds are validated at creation against the target's known metadata and the named decoder. A negative, reversed, empty, overflowing, or out-of-range selector is rejected, and no Activity begins. A decoder change that alters page order or text extraction registers a new definition version. It cannot reinterpret a selector written under the old one.
 
-## Genesis substrate
+These three variants are required at genesis because the grounding they record cannot be recovered later. A claim written from a book the agent read, without a page or span locator, can only be regrounded by reading the book again.
 
-The following data is required at successor genesis:
+## Reading a document
 
-- durable ArtefactReference links;
-- typed source locators and selectors;
-- Activity input edges naming the authorising ArtefactReference, selector and definition version, resolved Artefact, ordered position, transformation pipeline and version, and audience decision or access record;
-- Perception transitions and derived-Artefact Derivation record shapes;
-- influence, audience, and transmission propagation;
-- availability, reference-set retention, and erasure semantics;
-- stable IDs and versions for every record and selector definition.
+Text extraction is a recorded tool Activity over an ArtefactReference to a document and a `whole_artefact` selector. It runs once per source Artefact and extractor version, whichever reference first consumes it. Its output is a derived text Artefact (the extracted UTF-8 text) and a page map. The page map is an ordered list with one entry per page index under the named decoder version: the scalar offset in the derived text where that page's text begins, and the page's printed label when the decoder exposes one. The page map lives in the derived Artefact's erasable payload. A later read of the same Artefact under the same extractor version reuses the existing derived Artefact, through any reference.
 
-Replay does not invent a selector, source reference, model version, or influence edge that an old record omitted.
+The derived text Artefact has no references of its own. Its readability always follows the consuming reference, never the reference that first produced it, and its retention follows the source Artefact's retention. When the source is erased, dependant invalidation deletes the derived text and its page map.
 
-## Initial image policy
+A book the agent reads over several turns follows this path:
 
-The initial policy preserves conversational image perception. Arrival alone creates no visual Assertion. If the agent writes durable image-derived memory, the write first records the applicable Perception and source lineage.
+1. A participant shares a PDF. The Occasion holds an ArtefactReference to the book's Artefact.
+2. The agent calls `inspect` with a `page_range` or `text_span` selector. The first call triggers extraction. `inspect` checks the reference's audience, renders the requested text, and appends the derived Artefact ID and the selector to the context manifest.
+3. In a later turn the agent writes a claim from that reading. The claim's source locator names the book's ArtefactReference and a `text_span` over the derived text. The Attestation is a `derivation` over the reading Activity, because interpreting the text is computed: its inputs are the reference, the derived text Artefact, and the span. Neither the book's author nor the person who shared it is a teller. A claim the book makes is reported speech, so it is always `quoted` and reads render it as "the book says X" with its Artefact source, never as a flat claim ([teller binding](write-surface.md#teller-binding)).
+4. A reader resolves the span to pages through the page map: the cited pages are the contiguous range of page indexes whose text intersects the span. The result is a `page_range` over the original book under the same decoder version, displayed with printed labels where the page map has them.
 
-A query can return a prior Perception and its source reference without loading the bytes. Reinspection is an explicit audience-checked Activity. It records access and the model/tool call. A new observation creates a new Perception. It does not overwrite the previous observation.
+The [grounding critic](verified-write.md#hard-critics) requires containment in a rendered span, so after reading pages 40 to 43, a span that runs into page 44 is rejected. A claim drawn from two separate reads cites two locators.
 
-## Activation-gate capabilities
+For a scanned document the extractor is OCR, and the extracted text is a fallible observation. OCR is deferred (see below). A plain UTF-8 text file needs no decoder: when the extracted text equals the source bytes, deduplication makes the derived text Artefact the source Artefact itself, and the page map is empty.
 
-Each listed capability has its own `activation_gate` record, independent evidence IDs, privacy oracle, disabled-behaviour oracle, and additive-seam reference:
+## Perceptions
 
-- `capability:historical-reinspection`: controlled historical `inspect`;
-- `capability:ocr`: OCR on request or for a narrowly selected image class;
-- `capability:generated-captions`: generated captions and other Perceptions;
-- `capability:region-grounding`: page, frame, time, and region grounding;
-- `capability:visual-retrieval`: visual embeddings and cross-modal retrieval;
-- `capability:bulk-ingestion`: automatic document and media ingestion, with `stage:8` as its operational prerequisite;
-- `capability:scene-graph-writer`: scene-graph extraction.
+A Perception is the fallible output of a model or tool Activity over an ArtefactReference and a selector. It is never testimony. It records its producing Activity, the consumed reference, selector, and resolved Artefact, the model or tool identity and version, the prompt or operation, and the output. The producing Activity's context manifest records what else was rendered. OCR text and generated captions are Perceptions, not source utterances.
 
-`capability:scene-graph-writer` is an independent `activation_gate`, currently not selected; its broad graph-writer risk requires its own evidence, disabled-behaviour oracle, additive-seam reference, and activation decision. Passing one capability gate does not enable another.
+An image-derived Assertion cites its Perception and the consumed ArtefactReference. Its source is the observing Activity, never the person who supplied the bytes.
 
-## Multimodal fixtures
+The Perception lifecycle, including unusability while the consumed reference is not `authorised` as a read-time projection, is in [the object model](statements.md#perception). Output is never edited. Conversational and retrieval reads return only current, usable Perceptions. An authorised operator can read retained non-current payloads for audit. Erasure removes payloads and rebuilds dependants from surviving authorised inputs.
 
-| Scenario | Required result |
-|---|---|
-| Same bytes shared twice | One Artefact and two ArtefactReferences retain separate suppliers and audiences; each is an independent retention authority for the bytes. |
-| Conflicting human captions | Each caption is a text part marked `caption_of` on its own Occasion. Neither becomes a Perception or Assertion automatically. |
-| Image-only message | An Occasion contains an ArtefactReference and no utterance. Model consumption is an Activity. |
-| OCR error | Original OCR Perception remains immutable. A corrected Perception and supersession lineage are appended. |
-| Later reinspection | Audience is checked before bytes enter model context. The Activity and new Perception record versions and access. |
-| Transformed crop | The crop is a derived Artefact with source selector and Derivation lineage. |
-| Shared-reference erasure | One erased reference loses authorisation. Managed live bytes remain while another authorised reference requires retention. A terminally erased reference cannot restore authority. |
+A transform that materialises bytes (a thumbnail, EXIF stripping, a rendered page, an extracted text file) is a tool Activity whose output is a derived Artefact. The derived Artefact records its producing Activity and typed inputs directly. When an operation both materialises bytes and observes content, the bytes are a derived Artefact and the observation is a separate Perception.
 
-Research supports content-addressed provenance and durable nondeterministic activities. The Artefact/Reference/Perception boundary and selector and erasure substrate are owned by `stage:3` and `stage:6`; historical reinspection and multimodal interpretation are separate activation-gate capabilities ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md), [confidence evidence map](confidence.md#evidence-map)).
+## Genesis image policy
+
+The genesis policy preserves conversational image perception. The model sees an image shared in the current turn through an ordinary recorded Activity. Arrival alone creates no Assertion. When the agent writes durable image-derived memory, the write first records the Perception and its source lineage.
+
+A query can return a prior Perception and its source reference without loading the bytes. A later look at the bytes is an explicit `inspect` ([query surface](query-surface.md#source-retrieval-and-reinspection)): it checks the audience before bytes enter a model context, records the Activity, and creates a new Perception. It never overwrites the previous one.
+
+## Deferred capabilities
+
+Each item is additive. None requires rewriting existing records. [Evolution](evolution.md#deferred-capabilities) holds the reopen conditions.
+
+- The `spatial_region`, `frame_range`, `time_range`, and `byte_range` selector variants, for region, video-frame, media-time, and raw-byte grounding. Each needs its own decoder basis: raster orientation and dimensions, frame decoder, or integer timescale.
+- OCR, including extraction from scanned documents.
+- Generated captions and other generated Perceptions outside the current turn.
+- Visual embeddings and cross-modal retrieval.
+- Automatic bulk ingestion of documents and media ([memory typology](memory-typology.md#conversational-artefacts-are-not-bulk-ingestion)).
+- Scene-graph extraction, which is a broad graph writer and needs its own evidence.
+
+Enabling one deferred capability never enables another.
+
+## Evidence
+
+Research supports content-addressed provenance and durable records of nondeterministic Activities ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md)). The Artefact, Reference, and Perception boundary, the page map, and the selector set are design synthesis ([confidence evidence map](confidence.md#evidence-map)).
+
+## Scenarios
+
+| ID | Scenario | Expected result |
+|---|---|---|
+| `same-bytes-two-references` | Two participants share identical bytes to different audiences. | One Artefact and two references. Each keeps its supplier and audience and is an independent retention authority. Neither audience consumes through the other's reference. |
+| `conflicting-captions` | The same image carries different human captions on two Occasions. | Each caption is a text part marked `caption_of` on its own Occasion. Neither becomes a Perception or Assertion automatically. |
+| `caption-perception-conflict` | A participant captions an image "Pepper at the harbour"; the model sees an indoor room. | The caption stays source text and the Perception stays a model observation, not attributed to the participant. No `contradiction_detected` mark is appended. |
+| `image-only-occasion` | A participant sends an image with no text. | An Occasion with one reference part and no text part is valid. Model consumption is an Activity. No Assertion follows from arrival. |
+| `perception-correction` | An OCR Perception reads "R0WAN", and a later one reads "ROWAN". | The original stays immutable, and the new Perception supersedes it. After the source reference is erased, neither text returns through search, snapshot, export, or retry context. |
+| `later-reinspection` | The agent inspects an image shared in an earlier Occasion. | The audience is checked before bytes enter context. A new Perception is recorded, and the earlier one is unchanged. |
+| `derived-artefact-lineage` | A thumbnail is generated from a shared image. | The thumbnail is a derived Artefact that names its producing Activity and its input reference and selector. |
+| `withdrawn-reference-retains` | The only reference to some bytes is withdrawn. | The bytes are kept, because a withdrawn reference can be restored. They are deleted only when the reference is erased. |
+| `shared-reference-erasure` | One of two references to the same bytes is erased. | The erased reference loses authority and cannot be restored. The bytes remain while the other reference is not erased. |
+| `erased-artefact-reupload` | Bytes whose Artefact was erased are uploaded again. | The digest is absent from the deduplication index, so a new Artefact ID is minted. The tombstone does not reveal that the bytes match. |
+| `page-span-citation` | The agent reads pages 40 to 43 of a shared book and later writes a claim from them. | The claim is a `derivation` Attestation over the reading Activity and cites a `text_span` over the derived text. Resolution through the page map yields `page_range [40, 44)` under the same decoder version. |
+| `book-claim-contained-span` | After reading pages 40 to 43, the agent cites a span that starts on page 43 and ends on page 44. | The grounding critic rejects it: the span overlaps the rendered text but is not contained in it. |
+| `book-claim-quoted` | The agent records that the book says a harbour was built in 1850. | The Assertion is `quoted`, its Attestation is a derivation, and no teller is named. A read renders it as what the book says, with the Artefact source. |
+| `extraction-reused` | The agent inspects a second chapter of the same book. | No new extraction runs. The existing derived text Artefact and page map serve the read. |
+| `extraction-reuse-follows-consumer` | Rowan and Quinn share the same PDF by references A and B, text was extracted through A, and A is then withdrawn. | A read through B uses the existing derived text and is checked against B's audience. A read through A is denied. |
+| `withdrawn-reference-perception` | A reference with a Perception is withdrawn, then restored. | While withdrawn, reads omit the Perception and no `perception_invalidated` is appended. After restoration, reads return it. |
+| `selector-out-of-bounds` | A `page_range` ends past the decoder's page count. | The selector is rejected and no Activity begins. |
+| `deferred-selector-rejected` | A write names a `spatial_region` selector at genesis. | The write is rejected with a teachable error naming the genesis variants. |
+| `book-source-erased` | The book's only reference is erased. | The derived text Artefact and page map are deleted. Claims citing its spans are invalidated through their input edges. |
+| `initial-perception` | A caller authorised through reference A has a model describe the bytes. | The Perception records reference A, the selector, the resolved Artefact, and the model version. A later A read returns it without reloading bytes. A read for an audience cleared only by reference B returns no Perception and an unchanged ranking. |
+| `denied-reinspection` | A caller excluded by reference B asks to inspect the same bytes through B. | No bytes are loaded and no model call, Perception, or index row is created; nothing in the reply reveals the denial detail. |
+| `authorised-reinspection` | An authorised caller explicitly reinspects through A under a newer model. | A new Perception is created and may supersede the old one; unauthorised audiences see neither observation nor a changed ranking. |
+| `reference-lifecycle` | A reference is withdrawn, restored, and erased. | Restoration returns it to `authorised`; erasure is terminal; a later share mints a new reference. |

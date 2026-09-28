@@ -1,82 +1,94 @@
 # The query surface
 
-Reads operate on audience-resolved projections. The caller never receives hidden records for local filtering. [The assertion model](statements.md) owns Assertion, Attestation, Derivation, and transition identity. [Privacy and provenance](privacy-and-provenance.md) owns audience resolution. [Identity](identity.md) owns the unified ResolutionEnvironment.
+Reads operate on audience-resolved projections. The caller never receives hidden records for local filtering. [The object model](statements.md) owns object identity and the context manifest, [privacy and provenance](privacy-and-provenance.md) owns audience rules, and [identity](identity.md) owns resolution.
 
-## Read state machine
+## Reads are pure functions
 
-The current system has multiple read paths and has leaked withheld metadata when one path applied an incomplete policy ([current leak](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path), [current visibility contract](../docs/visibility.md), [brief composition](../docs/conversations-and-briefs.md)). Central audience resolution follows from that observation. The exact stable read ID, lifecycle, delivery accounting, and deduplication key below are design synthesis. `stage:2` non-interference, replay, retry, and cancellation fixtures must validate them before they become authoritative.
+A read is a pure function of the query, the frontier, an explicit as-of time, and the complete audience. The issuing Activity records the frontier and the as-of time. The ResolutionEnvironment and the projection and policy versions are recomputed from the log at that frontier, and the as-of time anchors recency decay, so replay reproduces the same ranking without reading the wall clock. A read has no lifecycle. Audience resolution precedes ranking, so hidden records never enter a conversational read's candidates or change a visible result's rank, count, or explanation.
 
-Each read has a stable read ID. Its append-only states separate candidate generation from disclosure and access accounting.
+The current system has leaked withheld metadata when one of its several read paths applied an incomplete policy ([current leak](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path), [current visibility contract](../docs/visibility.md), [brief composition](../docs/conversations-and-briefs.md)). One central resolver follows from that observation. Its exact inputs and projections are design synthesis for the reference model to validate.
 
-| State | Recorded content | Visibility and accounting | Permitted successor |
-|---|---|---|---|
-| `requested` | query shape, caller, complete audience membership, purpose, policy versions, unified ResolutionEnvironment, witness/presence assurance snapshot, source head, authoritative erasure-ledger position, managed-live tombstone state, and readable retention authority | no content has been disclosed | `resolving`, `denied`, `cancelled` |
-| `resolving` | projection and search versions used to generate candidates plus the canonical authorization-input digest | candidates remain inside the audience resolver; candidate generation is not an access | `resolved`, `denied`, `cancelled` |
-| `resolved` | visible result IDs, result kinds, ranks, redacted operator trace reference, and the authorization-input digest that licensed them | no access is counted until content is rendered | `rendering`, `superseded`, `cancelled` |
-| `rendering` | the exact result fields selected for model or user context | access is pending | `rendered`, `failed` |
-| `rendered` | a digest of the exact content envelope delivered, destination kind, and completion status | access recency and frequency update once for each delivered object | terminal |
-| `failed` | failure phase and whether any content was delivered | only content confirmed as delivered is counted | terminal |
-| `denied` | the failed policy class without hidden object IDs or counts | no access is counted | terminal |
-| `superseded` | the replacement read ID | no access is counted for the superseded read unless it already rendered content | terminal |
-| `cancelled` | cancellation actor and phase | only previously delivered content is counted | terminal |
+## Access accounting
 
-A retry after failure uses a new attempt under the same read ID. Reuse requires byte equality of a canonical authorisation-input digest over: the caller and complete ordered audience membership; authentication and identity-assurance records; the complete ResolutionEnvironment and its hypothesis/status versions; every witness, presence, delivery, acknowledgement, and consent record consulted; transmission, subject-guard, support, Event-projection, and purpose policy versions; source and projection heads; the independently authoritative erasure-ledger position and freshness proof; and the managed-live tombstone, readable-reference, pending-deletion, and retention state for every candidate source. The retry recomputes this digest immediately before rendering. Any changed input, unprovable ledger freshness, pending or blocked erasure, withdrawn reference authority, or missing record discards the resolved envelope and returns to `resolving` or `denied`; source and policy heads alone are insufficient. If a fresh retry renders the same envelope again, the log records another delivery, but the access projection can deduplicate repeated delivery to the same model-call context by `(read_id, object_id, destination_id)`. A superseded or hidden candidate does not affect access recency.
+Access is content rendered into a model context: a model call's accessed objects are exactly its manifest entries, and recency and frequency are projections over manifests. Candidate generation, hidden matches, rank fusion, and operator diagnostics render nothing and are not accesses. The projection counts distinct objects per turn, so a retry does not inflate frequency. A transient reranker call records a manifest for influence, and the access projection excludes it because its output cannot reach a response or a write.
 
-Retry fixtures vary one input at a time: audience membership, caller authentication, tentative identity membership, witness presence, consent revocation, policy version, source head, authoritative ledger position, ledger freshness, tombstone state, reference authority, pending physical deletion, and retention state. Every variation forces re-resolution. A missing freshness proof denies. A control with an identical digest may reuse the envelope and produces the same rendered digest.
+Access recency and frequency are per audience. A read for audience A counts only accesses in contexts whose audience contains A, since anything rendered there was already known to every member of A. Counting an access from Quinn's one-to-one conversation in a read for Quinn and Rowan would let the ranking reveal what Quinn discussed alone. Decay is computed at the read's as-of time ([memory typology](memory-typology.md)).
 
-The access unit is content actually rendered into model or user context. Candidate generation, hidden matches, internal rank fusion, and operator-only diagnostics are not accesses. Current brief composition demonstrates that content can enter context without an explicit semantic read event, so this unit is a decided policy rather than an observed current invariant ([brief composition](../docs/conversations-and-briefs.md), [log measurements](research/2026-08-06/log-measurements.md)). The `stage:1` query-classification evidence package classifies real turns, and `stage:2` replay fixtures must prove that retries, supersession, and hidden candidates update no recency except for confirmed delivery.
+Current brief composition shows that content can enter context without an explicit semantic read, so this access unit is a decided policy rather than an observed current invariant ([brief composition](../docs/conversations-and-briefs.md), [log measurements](research/2026-08-06/log-measurements.md)). A missing manifest entry under-counts access as silently as it under-taints ([manifest completeness](privacy-and-provenance.md#influence-from-context-manifests)).
 
 ## Audience-resolved Assertions
 
-A structured read returns Assertions aggregated from Attestations visible to the complete audience. It returns the folded Assertion status under named transition, support, ontology, policy, and ResolutionEnvironment version. It does not reveal that hidden Attestations exist. Hidden support cannot change an agent-visible ordinal, rank, explanation, or action unless the result inherits the hidden transmission restriction.
+A structured read returns Assertions whose support, validity, state, and [settlement](belief.md#settlement-and-withdrawal) are folded from the Attestations and transitions visible to the complete audience ([audience-safe state](privacy-and-provenance.md#audience-safe-state-and-zero-residue)). It does not reveal that hidden Attestations exist. The [subject guard](privacy-and-provenance.md#subject-guard) runs before ranking.
 
-An Event read applies the Event type's disclosure-safe projection. The resolver can omit independently omissible role Assertions. It returns an explicit incomplete shell or suppresses the Event when omission would manufacture a stronger or false proposition. [Events and roles](events-and-roles.md) owns these projection rules.
+An Event read applies the disclosure-safe projection: omissible roles can be omitted, and an explicit incomplete shell or suppression replaces an omission that would manufacture a stronger or false proposition ([events and roles](events-and-roles.md#disclosure-safe-projection)).
 
-Identity resolution produces an operational handle under a named resolution environment. Conversational reads do not expose sibling stubs, candidate merge counts, or hidden merge evidence. Authorised operators can request a separate resolution trace.
+Only disclosure-cleared identity composites reach response-affecting context ([identity](identity.md#recall-and-disclosure-clearance)). Conversational reads expose no sibling stubs, candidate merge counts, or hidden merge evidence.
 
 ## Structural queries
 
 Structural questions traverse typed records:
 
-- an agent-role query answers who participated in an Event;
-- an Assertion validity query answers when a Proposition held;
+- a role query answers who took part in an Event;
+- a validity query answers when a Proposition held;
 - a shared-Event query answers what happened between resolved entities;
 - a transition query answers what changed across correction, supersession, promotion, or retraction;
 - a lineage query answers how a result was produced.
 
-These queries do not require a model. Their response records the source head sequence and all projection versions needed to reproduce the result.
+These traversals need no model. Whether the set covers what the agent actually asks is untested; Milestone 1's query classification tests it. A lineage response is complete only when the typed inputs ([derivation inputs](verified-write.md#derivation-inputs)) and the producing manifests account for every influence. Otherwise it is an audit trace that names the unrecorded boundary. Neither is presented as a proof of truth.
 
-A lineage response distinguishes complete lineage from an audit trace. Complete lineage lists every typed input, including positive Assertions, scoped negative query results, aggregates, tool observations, Perceptions, ontology and policy versions, the identity-resolution environment, assumptions, implementation or criterion version, and source head sequence. An audit trace names the recorded boundary when an older or external activity lacks complete inputs. The surface does not describe either form as a proof of truth.
+## Search lanes
 
-## Search result kinds
+Search combines structural proximity, source text, semantic indexes, and artefact metadata. Each result is labelled with its lane:
 
-Search combines structural proximity, source text, semantic indexes, artefact metadata, and multimodal indexes supplied by the `activation_gate` capability `capability:visual-retrieval`. Every result labels the matched lane:
-
-- `human_utterance` for an Occasion text span;
+- `human_utterance` for a span of an Occasion's text part, returned under that Occasion's [restriction](privacy-and-provenance.md#occasion-restriction);
 - `structural_assertion` for Proposition or Assertion fields;
 - `perception` for OCR, captions, or other model or tool observations;
-- `episodic_reconstruction` for a generated episode represented by a derived Artefact;
-- `visual_embedding` for the `activation_gate` capability `capability:visual-retrieval`;
+- `episodic_reconstruction` for a generated episode held as a derived Artefact;
 - `artefact_metadata` for mechanically known metadata.
 
-The label identifies why the result matched. It does not change the result's provenance. Generated OCR and captions remain Perceptions rather than human utterances. An authorised `episodic_reconstruction` remains readable by ordinary conversational replies, while semantic publication follows the [episode-influenced model context boundary](two-traces.md#episode-influenced-model-contexts). [Artefacts and perceptions](artefacts-and-perceptions.md) owns these distinctions.
+A `visual_embedding` lane is deferred with visual retrieval ([artefacts and perceptions](artefacts-and-perceptions.md)).
 
-Signals produce versioned rankings. Rank fusion combines rank positions rather than incomparable raw scores. Rank-order fusion is corroborated as a production retrieval shape, but no surveyed gain is adopted as a target ([production-system survey](research/2026-07-24/lanes/survey-issue7.md), [dual-trace retrieval evidence](research/2026-08-03/dual-trace.md)). The chosen lane set, weights, and reranker boundary are design policy and remain subject to the independent `stage:1` query-classification evidence, the `stage:2` reference-model comparison, and the `stage:7` audience-resolved read vertical slice; multimodal lanes additionally require their named `activation_gate` records. A transient model reranker may inspect only the already audience-resolved head. Its output is discarded after the read and cannot become stored evidence. Similarity and reranking remain ranking inputs rather than authority to merge, settle, or disclose.
+The label says why the result matched and does not change its provenance: OCR and captions stay Perceptions. An authorised episode is readable in replies and then blocks semantic writes from that context ([the episodic wall](two-traces.md#the-episodic-wall)).
+
+Rank fusion combines the lanes' versioned rank positions, not incomparable raw scores. It is corroborated as a production retrieval shape and adopted for its embedder independence; no surveyed gain is a target ([production-system survey](research/2026-07-24/lanes/survey-issue7.md), [dual-trace retrieval evidence](research/2026-08-03/dual-trace.md)). The lane set, weights, and reranker boundary are design policy. A transient reranker sees only the resolved head, and its output is never stored evidence. Similarity and reranking never authorise a merge, settlement, or disclosure.
+
+### Embeddings
+
+A vector is a recorded output of an embedding Activity, keyed by embedder version and stored in erasable payload, and is erased with it ([dependant closure](privacy-and-provenance.md#dependant-closure)). A read's query vector is recorded by the read's Activity. Replay reads recorded vectors and makes no embedder calls. An embedder change re-embeds as a recorded off-turn job, and a lane ranks only vectors of one embedder version.
+
+## Relations in use
+
+The relations rendered at the point of writing ([coining under critics](relations.md#coining-under-critics)) are computed per entity kind from Assertions visible to the context's audience. A relation used only in Assertions the audience cannot see is absent from the list, and a coined name follows the [coined-name restriction](privacy-and-provenance.md#occasion-restriction).
 
 ## Source retrieval and reinspection
 
-A result can return a source reference and an existing visible Perception without reading original bytes again. Original Artefact bytes require an explicit `inspect` operation. `inspect` performs audience and retention checks, records the Activity, names the selector and transformation pipeline, and records any resulting Perception or derived Artefact. It never runs as an implicit consequence of search.
-
-`capability:historical-reinspection`, `capability:ocr`, `capability:region-grounding`, and `capability:visual-retrieval` are separately registered `activation_gate` capabilities. The permanent result kind and Activity shapes can exist while these policies remain disabled.
+A result can return a source reference and an existing visible Perception without reading bytes. Original bytes require an explicit `inspect`, never run implicitly, which checks the audience against live authorised references and records an Activity naming the selector and pipeline, with any resulting Perception or derived Artefact.
 
 ## Operator traces
 
-An authorised operator can inspect candidate generation, audience decisions, identity resolution, ranking contributions, and suppression reasons. The conversational agent receives only the resolved result and a non-sensitive explanation. The agent-visible response does not disclose hidden cardinality, hidden object IDs, suppressed ranks, or whether a denied candidate existed.
-
-Operator trace access is itself a rendered read and uses the operator's audience and purpose. A trace cannot use operator authority to widen a later conversational result.
+An authorised operator can inspect candidate generation, audience decisions, identity resolution, ranking contributions, and suppression reasons. A trace is an operator Activity and lends no authority to a later conversational result. The agent receives only the resolved result, with no hidden cardinality, hidden IDs, suppressed ranks, or sign of a denied candidate.
 
 ## Errors
 
-A query error identifies the request field, registered definition, policy class, or ambiguity that prevented resolution. It can suggest a narrower time range, an explicit frame, a known handle, or an authorised inspection operation. A denial does not distinguish no match from a hidden match when that distinction would disclose protected state.
+A query error names the field, definition, policy class, or ambiguity that prevented resolution, and can suggest a narrower range, an explicit frame, a known handle, or `inspect`. A denial never distinguishes an empty result from a hidden match. The surface omits raw similarity scores, numeric support, merge internals, hidden Attestations, and unfiltered derivation inputs, which would move privacy and identity policy into prompt behaviour.
 
-The surface omits raw similarity scores, numeric support, merge internals, hidden Attestations, and unfiltered derivation inputs. The substrate owns those decisions because exposing them would move privacy and identity policy into prompt behaviour.
+## Scenarios
+
+| ID | Scenario | Expected result |
+|---|---|---|
+| `read-deterministic` | A query resolving a handle through an identity composite runs live and again under replay. | The Activity records only the frontier and as-of time; both results, including composite, ranks, and decay, are identical. |
+| `hidden-candidate-no-rank-effect` | A confidence hidden from the audience is the closest match. | The results and order match a store without it. |
+| `hidden-candidate-not-accessed` | A hidden and a visible record match; the visible one is rendered. | Only the rendered record is in the manifest and access recency. |
+| `access-recency-audience-scoped` | An item is rendered in Quinn's one-to-one conversation; a later search runs for Quinn and Rowan. | The group read's recency ignores that access; a read for Quinn alone counts it. |
+| `retry-no-double-access` | A model call is retried within one turn over the same content. | Both manifests are recorded; frequency counts each object once. |
+| `reranker-not-access` | A reranker call sees a search's resolved head. | Its manifest is recorded; the head's access recency is unchanged. |
+| `denial-indistinguishable` | One query matches only a hidden record; a control matches nothing. | Both responses are identical. |
+| `perception-lane-label` | An OCR Perception matches a search. | The result is labelled `perception`, never `human_utterance`. |
+| `source-lane-occasion-restriction` | A `human_utterance` match is in Rowan's direct message; the read is for a channel. | It is not returned. |
+| `replay-no-embedder-calls` | A log with semantic searches is replayed. | Every vector comes from recorded payload; the replay makes no embedder calls. |
+| `embedder-change-reembeds` | The operator configures a new embedder version. | A recorded job re-embeds; meanwhile each lane ranks one version only. |
+| `relations-in-use-audience` | A relation appears only in a confidence; a channel write renders relations in use for that entity kind. | The relation is absent from the list. |
+| `inspect-explicit-only` | A search returns an image reference. | No bytes are read and no Perception is created until `inspect` is called. |
+| `structural-query-no-model` | The agent asks who took part in a recorded Event. | The role query answers from typed records with no model call. |
+| `lineage-audit-boundary` | A lineage query reaches an Activity with incomplete inputs. | An audit trace naming the boundary is returned. |
+| `operator-trace-no-widening` | An operator views a trace including a confidence; the agent then answers a participant. | The answer omits the confidence unless it clears the participant. |

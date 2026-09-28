@@ -1,29 +1,33 @@
 # Privacy and provenance
 
-Privacy constrains information flow. It is not a tag on semantic content. [Attestations and direct SourceAuthorities](statements.md) carry transmission principles and source locators or typed observation edges. [Assertions](statements.md) receive audience-safe testimonial support from visible Attestations, while a direct Assertion remains usable only through its visible live SourceAuthority. [Perceptions and artefact references](artefacts-and-perceptions.md) carry the same restrictions through multimodal work. A [Derivation](statements.md) records the restrictions and resolution environment under which its output was produced.
+Privacy constrains information flow. It is not a tag on semantic content. [Occasions](statements.md#occasion) carry a restriction and witness evidence, [Attestations](statements.md#attestation) and [ArtefactReferences](artefacts-and-perceptions.md) carry transmission principles, and [Assertions](statements.md#assertion) are shown to an audience only through the Attestations and transitions that clear it. Everything derived inherits its inputs' restrictions through the [context manifest](statements.md#context-manifest). This chapter owns these rules, and other chapters point here.
 
-The design rule is to record witness and influence evidence broadly and immutably, then interpret it under narrow, versioned policies. Contextual integrity supports transmission principles as conditions over an information-flow trace, but the exact vocabulary and compilation rules below are design decisions ([research lane](research/2026-07-24/lanes/provenance-privacy.md#4-contextual-integrity-transmission-principles-as-first-class-data)).
+Evidence is recorded broadly and immutably, then interpreted under narrow, versioned policies. Contextual integrity supports transmission principles as conditions over an information-flow trace. The vocabulary and compilation rules below are design decisions ([research lane](research/2026-07-24/lanes/provenance-privacy.md#4-contextual-integrity-transmission-principles-as-first-class-data)).
 
 ## Transmission principles
 
-Each Attestation carries one registered, versioned principle. Genesis reserves the representation for later principles, but the initial evaluator accepts only semantics it can decide cheaply and fail closed.
+Each restriction is one registered, versioned principle or a conjunction of them. The genesis evaluator accepts only semantics it can decide cheaply and fail closed.
 
-| Initial principle | Compiled condition |
+| Principle | Condition |
 |---|---|
-| `public` | Any authenticated audience is eligible, subject to other authorisation and erasure rules. |
-| `attributed` | Eligible only when the rendered result preserves the teller attribution. |
-| `demonstrated_witness_only` | Every audience member must have qualifying witness evidence for the source Occasion. `in_confidence` is an agent-facing name for this principle. |
-| `include(S)` | Every audience member must resolve to a member of `S`. |
-| `exclude(S)` | No audience member may resolve to a member of `S`. |
-| `consent(scope, expiry, revocation)` | A signed consent record must include every audience member and the proposed flow; it must be unexpired and unretracted. |
+| `public` | Any authenticated audience, subject to the subject guard, erasure, and every other check. |
+| `attributed` | As `public`, with a rendering obligation on the context: the content is rendered with its teller's handle. Only `testimony` can carry it. |
+| `in_confidence` | Teller-only, widened only for audience members with disclosure-qualifying [witness evidence](#witness-evidence). |
+| `channel(C)` | Every audience member is a member of channel C under the connector roster ([Occasion restriction](#occasion-restriction)). |
+| `include(S)` | Every audience member resolves to a member of `S`. |
+| `exclude(S)` | No audience member resolves to a member of `S`. |
 
-Principles compose by conjunction. Evaluation is universally quantified over the current audience, and an unknown identity or unresolvable condition denies. A group is eligible only when every member is eligible. Partial rendering is permitted only where the object type defines a disclosure-safe projection; otherwise the whole object is suppressed.
+Principles compose by conjunction. Evaluation is universally quantified over the audience, so a group is eligible only when every member is. An unknown identity or an unresolvable condition denies. Partial rendering is permitted only where the object type defines a disclosure-safe projection, such as the [Event projection](events-and-roles.md#disclosure-safe-projection). Otherwise the whole object is suppressed.
 
-`capability:transmission-reciprocity` and `capability:transmission-purpose-limitation` are independent `activation_gate` capabilities. Reciprocity needs a stable definition of comparable disclosure. Purpose limitation needs an execution-purpose and obligation model that constrains downstream use, not a string supplied by the caller. General temporal logic is not on the read path.
+`attributed` binds the context assembler, not the reply, which can still drop the attribution. Reply compliance is audited and measured, not enforced.
+
+Each record kind gets its restriction from one rule. An Occasion's is defined under [Occasion restriction](#occasion-restriction). A `testimony` Attestation's follows the [testimony principle floor](#testimony-principle-floor), and an ArtefactReference's follows the same floor over its Occasion. Every other output, including `observation` and `derivation` Attestations, working notes, Perceptions, and derived Artefacts, has the conjunction of the principle its Activity recorded, such as `include([operator])` for an operator note, and its [ancestry](#influence-from-context-manifests) restriction.
 
 ## Witness evidence
 
-An Occasion records witness evidence rather than an unqualified participant set. Each item names a person or platform stub, an assurance kind, its connector or operator source, recorded time, and a mandatory witness scope. The scope is one utterance span, an ordered typed-content-part range, an ArtefactReference, a delivery or acknowledgement target, or an explicitly certified whole Occasion. Whole-Occasion certification requires a connector or operator assurance kind registered for that purpose; it is never inferred from participation.
+An Occasion records witness evidence rather than an unqualified participant set. This fixes #123, where the present set conflates channel audience with participation ([coverage](coverage.md#issues)). The connector distinguishes availability from witnessed presence and preserves `availability ⊇ presence`.
+
+Each witness item names a person or platform stub, an assurance kind, its source, recorded time, and a mandatory scope: an utterance span, a content-part range, an ArtefactReference, a delivery or acknowledgement target, or a whole Occasion. Whole-Occasion scope needs an assurance kind registered for it and is never inferred from participation.
 
 | Assurance kind | Meaning | May widen disclosure? | May suppress independence? |
 |---|---|---:|---:|
@@ -34,160 +38,221 @@ An Occasion records witness evidence rather than an unqualified participant set.
 | `channel_member` | The person was a member of the channel. | no | yes |
 | `unknown` | Presence cannot be established. | no | no |
 
-A versioned disclosure policy derives the narrow disclosure set. It starts with the teller and widens only for `active_participant` or `explicit_acknowledgement`; a future connector-specific policy may admit another assurance only after its semantics are demonstrated. Widening applies only when the witness scope covers every source locator supporting the Attestation. A compound Occasion with evidence for one span or content part does not license another. Partial coverage falls back to teller-only. A versioned exposure policy derives a conservative upper bound from teller, participation, acknowledgement, delivery, and channel membership. Exposure is read only by dependence analysis and can only suppress apparent independence. Channel membership never licenses disclosure.
+A versioned disclosure policy starts with the teller and widens only for `active_participant` or `explicit_acknowledgement`. Widening is scoped: it applies only when the witness scope covers every source locator supporting the Attestation. Evidence for one part of a compound Occasion does not license another, and partial coverage falls back to teller-only. A connector-specific policy may admit another assurance kind only after its semantics are demonstrated.
 
-This preserves the asymmetric rule established by the earlier design: evidence that only suppresses may be conservative, while evidence that licenses a flow must be demonstrated. Dynamic presence remains an admitted evidence gap, so teller-only is the fallback ([research lane](research/2026-07-24/lanes/provenance-privacy.md#implications-for-zuihitsu); [confidence register](confidence.md#privacy-and-provenance)).
+A versioned exposure policy derives a conservative upper bound from all five positive kinds. Only [dependence analysis](belief.md#dependence) reads exposure, and it can only suppress apparent independence. Channel membership never licenses disclosure of an `in_confidence` Attestation. Evidence that only suppresses may be conservative, while evidence that licenses a flow must be demonstrated. Dynamic presence remains an admitted evidence gap, so teller-only is the fallback ([research lane](research/2026-07-24/lanes/provenance-privacy.md#implications-for-zuihitsu)). Milestone 1's `witness-assurance-audit` covers every current consumer of the present set ([evolution](evolution.md#experiments)).
+
+## Occasion restriction
+
+Every Occasion has a restriction: the audience that could see it.
+
+- An inbound direct message's restriction is `include` of its parties.
+- An inbound channel message's restriction is `channel(C)`. The connector declares whether the platform shows history to members who join later. If it does, membership is evaluated at read time. If it does not, the roster at receipt applies.
+- An outbound Occasion's restriction is the audience it was delivered to, which passed the [pre-delivery check](#pre-delivery-check).
+
+An Occasion rendered into a context contributes its restriction. A delivered outbound Occasion rendered as conversation history contributes only its delivered-audience restriction, and the restriction projection stops there without following its ancestry. Without this stop, one confidence read early in a conversation would restrict every later write there and the store would drift towards teller-only. Milestone 1's `taint-breadth` experiment measures whether the stop suffices ([evolution](evolution.md#experiments)).
+
+Source-lane search results are Occasion text parts and render under their Occasion's restriction ([query surface](query-surface.md#search-lanes)).
+
+An entity handle minted, or a relation name coined, in a context carries that context's restriction. It renders only to audiences that clear that restriction, until the name appears in an Occasion whose audience clears it or the operator publishes it. A published or cleared definition adds no restriction when rendered ([definition audience](relations.md#definition-audience)).
+
+## Testimony principle floor
+
+A `testimony` Attestation's principle has a floor: its source Occasion's restriction. The teller's own act sets it, not the restriction of the context that wrote the Attestation. The model may narrow it freely, for example to `in_confidence` or `exclude(S)`. Widening it needs a teller grant or an operator action.
+
+A teller grant is a span by the same teller, cited in the proposal, that expresses permission to share, such as "feel free to tell people". The citation is checked like grounding: the span must exist and belong to that teller. A soft critic and audit sampling judge whether it expresses permission. The caller never sets a principle freely. It may only narrow the floor or cite a grant ([required caller decisions](write-surface.md#required-caller-decisions)).
+
+The cost is direct: a fact told in a direct message stays in that direct message's audience unless widened. Per-person or per-conversation widening defaults, set by a teller or the operator, are deferred as option b ([deferred](#deferred)).
+
+The teller is the participant who produced the cited span ([teller binding](write-surface.md#teller-binding)), so a relay's `relayed_from` source person is never its teller. Unchecked, the floor would let a model launder a confidence by filing it as testimony citing another participant's span. The [testimony-grounding hard critic](verified-write.md#hard-critics) closes that path. A claim that fails it may be proposed only as a `derivation` Attestation, which inherits its ancestry restriction.
+
+Grounding may resolve a span through stored records, as when "my sister" resolves to Quinn through a kinship Assertion. "Resolves from the span" means exactly such a recorded resolution with its inputs listed. Those inputs are inputs: their restrictions are conjoined with the testimony principle.
+
+## Pre-delivery check
+
+Before an outbound Occasion is delivered, the restriction projection of the draft's manifest must admit every member of the delivery audience. The delivery audience is the conversation's current availability audience, not only its witnessed presence.
+
+On failure, the draft is regenerated once with the offending manifest entries excluded, and both attempts are recorded. If the second draft also fails, the turn ends with a non-disclosing deferral whose text does not depend on either draft.
+
+A [`wake_turn` Task](time.md#occurrence-and-task) is checked twice. Its note and arguments must clear the target conversation's audience when the Task is created. At firing, only content that clears the audience at that moment is rendered. A note that no longer clears is replaced by a non-disclosing marker, and the failure is recorded for the operator.
 
 ## Subject guard
 
-The subject guard compiles into an additional negative recipient predicate for every Attestation. It never widens an audience.
+The subject guard is an additional negative recipient predicate evaluated per Attestation. It never widens an audience. Under every candidate policy, a person is not shown what others told the agent about them unless scoped witness evidence shows that the person took part in or acknowledged the telling. A group audience that contains the person loses those facts too, because evaluation is universally quantified over the audience.
 
-The compiler is the pure function `source_guard(query_scope, audience_member, source_evidence_id, policy_version, resolution_environment, source_head)`, where `source_evidence_id` resolves to exactly one Attestation, SourceAuthority, or Derivation whose typed output is the Assertion being considered. `query_scope` is one of: an exact Assertion ID; an exact Event ID; an exact composite-resolution ID; or a bounded candidate set already selected by non-semantic keys such as namespace, source sequence interval, and registered relation or Event-type IDs. It may not be narrowed by rendered values, support, rank, visibility, or the guard itself. The function reads the immutable log prefix through `source_head` and returns only `allow` or `deny` plus an operator-only decision trace. A missing, wrong-type, erased, invalidated, or unresolved source-evidence record returns `deny`.
+Three candidate policies share the algorithm below. Milestone 1's `guard-denial-rate` experiment decides between them ([evolution](evolution.md#experiments)).
 
-1. Form the candidate record set. For an Assertion scope, include that Assertion. For an Event scope, include every non-erased role and attribute Assertion whose subject or object is that Event ID. For a composite scope, take the union for every member Event in the recorded composite. For a bounded candidate scope, take the union for every selected Assertion, Event, and live composite that the query could return before audience filtering. Include `candidate`, `settled`, `superseded`, `retracted`, and `invalidated` records when their retained coordinates can identify a protected person; exclude only terminally erased coordinate payload, which contributes an opaque deny marker whenever its tombstone says that a protected person position was erased. This set is independent of the final projection.
-2. Extract protected subject positions under `policy_version`. They are every Proposition subject whose registered entity-kind constraint admits a person; every person-valued Event role designated `participant`, `actor`, `patient`, `experiencer`, or a registered subrole whose parent is one of those roles; and every person-valued attribute definition marked `subject_guarded`. A definition with unknown kind, missing historical version, or erased coordinates contributes an opaque deny marker. Non-person locations, organisations, quantities, and literals do not.
-3. Expand each extracted handle through the identity component of `resolution_environment`. An accepted disclosure-cleared composite contributes all member stubs. Every overlapping, conflicting, or candidate hypothesis touching an extracted handle contributes all possible member stubs to the deny set but never to an allow decision. Unknown membership contributes an opaque deny marker. Expansion is monotone and never removes a subject.
-4. Evaluate the named source evidence's transmission principle or, for a Derivation, its output principle and InfluenceEnvelope intersection. For an Attestation, remove its teller from the deny set only for delivery of that teller's own Attestation and only when the principle itself permits that delivery. Remove another protected person only when disclosure-qualifying `active_participant` or `explicit_acknowledgement` evidence identifies that same resolved person and covers every source locator supporting this Attestation. For a SourceAuthority or Derivation, there is no teller exception: an authenticated agent, operator, tool, or producing Activity is provenance and authority, not evidence that a protected subject witnessed or consented to the flow. A non-testimonial source may remove a protected person only through the same explicit scoped witness evidence, and one with no Occasion witness edge removes nobody. The fact that a subject participated in an Occasion is not enough unless the scoped witness evidence demonstrates coverage. Channel membership, delivery alone, and possible identity do not qualify.
-5. Return `deny` when `audience_member` resolves to any remaining protected stub, when identity resolution is ambiguous with one, when the source evidence is not live and readable, or when an opaque deny marker applies to the audience's possible identity. Otherwise return the source evidence's transmission-principle result. Only after every Attestation and SourceAuthority is evaluated may the resolver aggregate support and construct a disclosure-safe Event projection. Omission, incomplete-shell, and suppression operate only in this final phase.
+| Policy | Difference from the algorithm |
+|---|---|
+| `subject-guard/v1` | None. Operator-told facts and agent observations are guarded like any other. |
+| `subject-guard/v1-relaxed` | Exempts `public` testimony and operator-told `public` observations. |
+| `subject-guard/v1-own` | As v1, and P may also see an `observation` or `derivation` about P when every input is P's own testimony, or when it was produced in a context whose audience was exactly P. The operator's own `include([operator])` notes about the operator fall under the second clause. |
 
-| Guard vector | Candidate closure | Audience and exception | Expected result |
-|---|---|---|---|
-| Subject is the teller | The Assertion subject resolves to `person/P`; its only Attestation teller is `person/P`. | The principle permits teller delivery. | `allow` for this Attestation only. Another teller's Attestation receives no exception. |
-| Subject participated | An Event has `person/P` in a protected participant subrole and another person tells the claim. | `person/P` appears in the Occasion, but no scoped active-participant or acknowledgement evidence covers every locator. | `deny`; participation metadata alone does not license disclosure. |
-| Multi-subject Event | Protected roles resolve to `person/P` and `person/Q`; a public role would remain after projection. | The caller is `person/Q`; no qualifying witness exception exists. | `deny` before projection. Omitting Q's hidden role cannot turn the Event into an allowed result. |
-| Tentative overlapping identity | A protected handle participates in accepted composite `[P1,P2]` and overlapping candidate `[P2,P3]`. | The caller resolves possibly to `P3`. | `deny`; candidate expansion widens only the deny set. |
-| Hidden role omitted from final projection | A candidate Event contains a retained confidential participant role and an independently public attribute. | The caller is the confidential participant. | `deny` from the pre-render closure even if the final projection would omit the role. |
-| Erased protected coordinate | A retained tombstone says that a person-valued protected role was erased, but its handle is unavailable. | The caller's non-membership cannot be proved. | `deny` through the opaque marker; an authorised operator may inspect only the decision trace and permitted tombstone. |
-| Direct agent observation | A SourceAuthority supports an Assertion whose subject is `person/P`; it has no Occasion witness edge. | The caller is `person/P`; actor is the agent and principle is public. | `deny`; the agent actor receives no teller exception and public does not bypass the subject guard. |
-| Direct operator assertion | A SourceAuthority supports an Assertion whose subject is not the operator and carries `include([operator])/v1`. | The caller is the authenticated operator. | `allow` only when the operator is not in the protected closure; another protected caller is denied. |
-| Derived tool observation | A Derivation outputs an Event role Assertion naming `person/P`; its tool observation and Activity have no person witness evidence. | The caller resolves possibly to `person/P`. | `deny`; tool execution, Derivation authority, and a public output principle do not establish witness or consent. |
+The guard is the pure function `source_guard(query_scope, audience_member, attestation_id, frontier)`, returning `allow` or `deny` with an operator-only trace. The policies and the ResolutionEnvironment are those the log holds at `frontier`, so replay reproduces the decision. A missing, erased, invalidated, or unresolved Attestation denies.
 
-The guard is evaluated per Attestation, SourceAuthority, or Assertion-producing Derivation before support aggregation or direct-source use. One teller's clearance cannot expose another teller's restricted support for the same Assertion, and direct actor authority cannot create a subject exception. The candidate-set and expansion rules are monotone, non-rendering, and fail-closed. They remove the circular dependency between subject discovery and audience-safe Event rendering. The policy version, scope, source head, source-evidence ID, and ResolutionEnvironment are recorded because later reinterpretation could disclose existing history.
+`query_scope` has two forms. A search or structured Assertion read guards each candidate Assertion independently, so one protected candidate never denies an unrelated result. An Event read uses the Event as a candidate-set scope, because the roles of one Event must be evaluated together. Rendered values, support, rank, and visibility never narrow either scope, which breaks the circularity between discovering subjects and rendering an audience-safe Event.
 
-## Audience-safe support and zero residue
+1. Form the candidate set: the Assertion itself, or every non-erased role and attribute Assertion on the Event. Records in every lifecycle state count. A tombstone recording an erased person position contributes an opaque deny marker.
+2. Extract protected positions: every person-valued position, subject or object, including every Event role whose filler range admits a person. Protection does not depend on role names. An unknown kind, a missing definition version, or erased coordinates contribute an opaque deny marker. Places, organisations, quantities, and literals are not protected.
+3. Expand each handle through the identity composites at the frontier. An accepted disclosure-cleared composite contributes all its members. Every candidate, overlapping, or conflicting hypothesis contributes all possible members to the deny set and never to an allow. Unknown membership contributes an opaque marker. Expansion only adds.
+4. Apply exceptions. A `testimony` teller is removed only for delivery of that teller's own Attestation, and only when its principle permits. Another person is removed only when `active_participant` or `explicit_acknowledgement` evidence identifies that resolved person and covers every source locator. An `observation` or `derivation` Attestation removes nobody without an Occasion witness edge, because its producer is provenance, not witness evidence; `v1-own` is the one extension. A relay's `relayed_from` source person gets no exception. Channel membership, delivery alone, and possible identity never qualify.
+5. Deny when the audience member resolves to, is ambiguous with, or may be covered by an opaque marker for a remaining protected person. Otherwise return the transmission-principle result.
 
-An uncleared input must leave no observable residue. Text, dates, counts, rankings, ordinals, omissions, queue activity, tool calls, and initiated actions are all observations. The current system demonstrated the problem when a visible link row carried a date from a withheld entry even though no hidden text was rendered ([current-system evidence](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path)). Central audience resolution is therefore required before rendering.
+One teller's clearance cannot expose another teller's restricted support for the same Assertion. Support aggregation and the disclosure-safe Event projection run only after every Attestation has been guarded.
 
-The store may compute a global epistemic support projection for operator audit, but it is not an audience-safe input to conversational decisions. For an audience, actionable support is recomputed from visible Attestations after subject-guard and transmission evaluation. Any ordinal, ordering, recommendation, Derivation, or initiated action must either:
+## Audience-safe state and zero residue
 
-- depend only on audience-safe inputs; or
-- inherit the intersection of every influencing input's transmission restrictions and remain hidden unless that intersection clears.
+An uncleared input leaves no observable residue. Text, dates, counts, rankings, ordinals, omissions, queue activity, tool calls, and initiated actions are all observations. In the current system a visible link row carried a date from a withheld entry, because redaction is decided separately at each read path ([current-system evidence](research/2026-08-06/current-system-fixes.md#redaction-decided-per-read-path)). The audience is resolved centrally, before ranking ([query surface](query-surface.md)).
 
-This rule removes the hidden-endorsement leak. Hidden evidence cannot change a visible rank or ordinal while its existence remains concealed. Global support may schedule restricted internal review, but the review item and every result retain the hidden influence envelope.
+An Assertion's validity and lifecycle state also fold per audience. Each Attestation records the validity its source asserted. Each Assertion transition, meaning validity closure, supersession, retraction, and invalidation, names its evidence source: an Attestation, an Occasion, or an Activity. An audience sees the validity and state folded from the Attestations and transitions whose sources it can see. A public read therefore never renders a date or a closure that came from a confidence. Settlement is the same kind of per-audience projection ([belief](belief.md#settlement-and-withdrawal)).
 
-Descriptions are derived only from inputs whose principle is `public` and that also pass subject guards, erasure, retention, and every other authorisation check, because their ordinary surface has no attribution or audience gate. `public` is never a bypass. Generated episodes and other audience-gated syntheses inherit the intersection of their inputs and retain structural attribution. Neither is evidence independent of its sources.
+A global support projection may exist for operator audit and may schedule restricted internal review, but it never feeds a conversational decision. Any ordinal, ordering, derived result, or action depends only on audience-safe inputs, or inherits the intersection of every influencing restriction and stays hidden unless that clears.
 
-Zero residue is this design's application of non-interference. The research supports the information-flow framing; the complete compilation and central resolver are safety synthesis that require scenario testing ([research lane](research/2026-07-24/lanes/provenance-privacy.md#4-contextual-integrity-transmission-principles-as-first-class-data)).
+Zero residue applies non-interference. The research supports the information-flow framing. The central resolver and the compilation above are safety synthesis that scenario testing must establish.
 
-## Influence envelopes
+## Influence from context manifests
 
-Influence is broader than accepted Assertions. Every Activity and derived result records an InfluenceEnvelope containing the typed input-edge IDs, input transmission-principle versions, intersected restriction expression, audience-decision ID, purpose definition/version, ResolutionEnvironment, source head, any erasure or retention dependencies, and an ordered set of registered non-evidentiary marks. An output envelope takes the union of every input envelope's marks and marks introduced by the operation. No Activity, retry, compaction, intermediate, or output can remove, replace, or downgrade an inherited mark. This applies to:
+Influence is broader than accepted Assertions: a rejected proposal changes a retry, and a working note carries a confidence into a later turn. It is not stored on objects. [The object model](statements.md#context-manifest) defines the manifest and its rendering choke point, and tool and job Activities record typed input and output edges.
 
-- model prompts and model-call records;
-- accepted, rejected, amended, and dropped proposals;
-- critic diagnostics and retry context;
-- queue items, leases, poison records, and working notes;
-- Perceptions, OCR, captions, embeddings, and visual descriptions;
-- Derivations, support calculations, and negative query results;
-- descriptions, generated episodes, and other summaries;
-- transformed or generated Artefacts;
-- eval fixtures and packages built from real records.
+An object's Activity ancestry is its producing Activity plus the ancestry of every object in that Activity's manifests and typed inputs. Three projections are computed over it.
 
-Rejection does not erase influence: a rejected proposal may change a retry or teach a later decision what not to say. Implementations may compact payloads, but they must preserve enough typed lineage, restriction data, and non-evidentiary marks to reproduce authorisation, publication denial, and erasure closure. Access is accounted when content is rendered into model or tool context, including retries, not when it merely appears in a hidden candidate set. An `episodic_reconstruction/v1` output classification and any rendering of that output into a model context add the `episodic_reconstruction/v1` non-evidentiary mark. The mark propagates by set union through notes, retries, intermediates, and derived model outputs. Original evidence in the same context cannot cancel it. Semantic publication cannot trust a model-declared omission to clear it. After episode influence, semantic publication requires a fresh source-only context and an independently recorded Activity whose lineage names authorised original evidence. [Verified write](verified-write.md) and [write surface](write-surface.md) own that publication check. Ordinary conversational replies may read an authorised episode as a labelled reconstruction, but they cannot publish semantic content from an episode-influenced context. The canonical direct, mixed, note-mediated, and source-only specification inputs are defined in [statements](statements.md#canonical-input-vectors), and their required results are summarised in [the two traces](two-traces.md#episode-influenced-model-contexts). These inputs do not claim that a fixture harness is implemented.
+- Restriction intersection: the conjunction of the restriction of every rendered record, meaning each Occasion's restriction, each Attestation's and ArtefactReference's principle, and each derived object's computed restriction. A delivered Occasion contributes only its delivered-audience restriction ([Occasion restriction](#occasion-restriction)). A rendered record whose restriction cannot be determined denies every audience. A `testimony` Attestation takes its [floor](#testimony-principle-floor) instead of this projection.
+- Non-evidentiary marks: an object carries a mark when any manifest in its ancestry contains an object of the marked classification. The genesis mark is `episodic_reconstruction`, carried by generated episode Artefacts. Because ancestry only grows, nothing removes a mark, and original evidence in the same context does not cancel it. Marks, unlike restrictions, propagate through delivered Occasions. [The episodic wall](two-traces.md#the-episodic-wall) rejects a semantic write whose ancestry carries one, which would block semantic writes for the rest of any conversation in which an episode was read. That is an open question for the [generated-episodes reopen condition](two-traces.md#evidence-and-deferral).
+- Access accounting: the set of manifest entries, counted per audience ([query surface](query-surface.md#access-accounting)).
+
+These cover every Activity output, including rejected proposals: rejection does not erase influence, because the retry's manifest names what the rejection rendered.
+
+Manifest completeness is the load-bearing invariant. A renderer that bypasses the choke point under-taints silently, and no later check can see the gap. The choke point is the only path from stored content to a model context, and the scenarios cover every renderer kind.
 
 ## Provenance and derivation
 
-A versioned Activity executes work and can produce zero or more Derivations. Each Derivation is a separate immutable result and lineage record, not a note attached after a conclusion. Its typed inputs may include Assertions, Perceptions, tool or direct observations, aggregates, negative query results, and policy or schema definitions. It records implementation and criterion versions, ontology versions, audience and support policies, identity-resolution environment, assumptions, source head sequence, one typed output, and influence envelope. A retry is a new Activity and cannot overwrite an earlier Derivation. See the canonical [Derivation definition](statements.md#derivation).
+A computed conclusion is supported by a `derivation` Attestation ([object model](statements.md#attestation)). Perceptions and derived Artefacts record their producing Activity and inputs directly. A retry is a new Activity.
 
-This extends the PROV-shaped entity/activity/agent lineage with defeasible dependencies. PROV supports recorded lineage, but resolution environments and complete influence taint are this design's synthesis ([research lane](research/2026-07-24/lanes/provenance-privacy.md#the-derivationprovenance-record-failure-class-11-94-100)). “How do you know?” returns complete recorded lineage where available and an audit trace otherwise; it is not described as a proof.
+This extends PROV-shaped lineage with defeasible dependencies. PROV supports recorded lineage. Recomputed resolution environments and manifest-complete influence are this design's synthesis ([research lane](research/2026-07-24/lanes/provenance-privacy.md#the-derivationprovenance-record-failure-class-11-94-100)). "How do you know?" returns complete recorded lineage where it exists and an audit trace otherwise, never described as a proof.
 
-Identity and Event resolution are not represented by a single merge stamp. A Derivation names the complete resolution environment it read. Withdrawal of any accepted hypothesis invalidates outputs produced under that environment. New evidence can mark an output as owing recomputation; weakened or withdrawn support can mark it for re-evaluation. The fold remains deterministic, while model-driven re-derivation is a later recorded Activity.
+A derivation records the frontier it read, and its ResolutionEnvironment is recomputed from the log at that frontier. Withdrawing an accepted hypothesis in that environment invalidates outputs produced under it ([identity](identity.md)). New evidence can mark an output as owing recomputation, and re-derivation is a later recorded Activity.
 
 ## Retraction and erasure
 
-Retraction and erasure are separate appended operations.
+Retraction and supersession change folded state and keep content for audit. Erasure deletes governed payloads and is terminal: the envelope and erasure record remain, replay is deterministic over what survives, and replay never reconstructs an erased payload. Forgettable payloads beside an append-only envelope are an established event-sourcing pattern. Their combination with dependant invalidation is synthesis ([research lane](research/2026-07-24/lanes/provenance-privacy.md#5-forgetting-vs-append-only-reconciling-erasure-with-deterministic-replay)).
 
-- Retraction or supersession changes folded live state while retaining content for audit. Retracting an Attestation removes that teller's support, not the Assertion or other Attestations.
-- Erasure deletes governed payloads. The envelope and the authorising erasure record remain, and replay is deterministic over what survives.
-
-Forgettable payloads beside an append-only envelope are an established event-sourcing pattern. Their combination with derivation invalidation is this design's synthesis ([research lane](research/2026-07-24/lanes/provenance-privacy.md#5-forgetting-vs-append-only-reconciling-erasure-with-deterministic-replay)).
-
-The erasure model is sized for the deployment the successor serves: one operator, one agent, a small number of participants reached through connectors, and a server that is not publicly exposed. It keeps every property the agent's behaviour depends on. An erased payload never resurfaces, replay stays deterministic, shared bytes survive for a sharer who did not erase, and derived conclusions are re-evaluated. It omits the machinery that only assures a party the deployment does not have: cryptographic proof of destruction, safe operation while an uncontrolled copy exists, and multi-party authorisation. The envelope and payload split below is the seam a later multi-tenant deployment would need for per-payload keys, so adopting them is additive.
+The model is sized for one operator, one agent, a few participants, and a server that is not publicly exposed. It guarantees that an erased payload never resurfaces, replay stays deterministic, shared bytes survive for a sharer who did not erase, and dependants are re-evaluated. It omits proof of destruction, safety while an uncontrolled copy exists, and multi-party authorisation. The envelope and payload split is the seam per-payload keys would need, so adding them is additive.
 
 ### Authority
 
-| Requester | Authentication | Permitted scope and operation |
+| Requester | Authentication | Permitted scope |
 |---|---|---|
-| teller | Connector or operator binding to the Attestation identity | Retract their own Attestations. Erase payload they supplied: their text parts, ArtefactReferences, and Attestations. Cannot erase another teller's records or references. |
+| teller | Connector or operator binding to the Attestation's teller | Retract their own Attestations. Erase payload they supplied: their text parts, ArtefactReferences, and Attestations. Not another teller's records. |
 | operator | Authenticated local operator authority | Retract or erase any governed record. Cannot represent an irreversible external effect as undone. |
 
-A request wider than a teller's own supply is recorded as an ordinary Occasion and resolved by the operator. The operator's decision is an immutable authorization record naming requester, resolved scope, decision, and source head. Closure accepts only an `allowed` decision. A `denied` decision causes no destructive action and is the only form of hold.
+A wider request is recorded as an ordinary Occasion for the operator to resolve, with no destructive action. An allowed erasure records requester, resolved scope, and frontier. A relay's `relayed_from` source person has no teller authority over the relay.
 
-### Storage classes
+The erasure scope includes the governed text of the requesting Occasion by default, because a request such as "forget that I'm …" repeats the content it asks to remove. That text is the requester's own text part, so it lies within teller authority.
 
-The erasure and restore contract distinguishes three storage classes:
+### Envelope and payload
 
-1. `managed live state` contains event payload rows, live Artefact bytes, model and proposal records, derived records, indexes, projections, snapshots, caches, and scheduled work controlled by the running deployment;
-2. `managed restore material` contains payload and blob backups that grant no read authority and can enter a running deployment only through the restore procedure;
-3. `external copies` contain exports, API or console downloads, connector-delivered content, debug captures, eval packages, test captures, and other copies outside restore control.
+Each event envelope stores type, version, stable IDs, times, routing metadata, and a salted commitment hash over its payload. The payload and its salt are stored separately, keyed by the envelope. Erasure deletes both and appends a tombstone. The hash chain over envelopes stays intact, so tamper evidence survives. Because the salt is gone, an erased low-entropy payload such as a date cannot be confirmed by hashing guesses against the commitment.
 
-The genesis freeze fixes this storage baseline. A pre-genesis implementation may replace its candidate representation while preserving the evidence that tests the contract.
+Artefact bytes are stored once per Artefact and retained while any reference is not erased ([object model](statements.md#artefact-and-artefactreference)). The content digest lives in the erasable payload, so an erased Artefact's tombstone keeps only its minted ID. Neither ID nor digest grants authorisation: every byte read checks the audience against an ArtefactReference.
 
-- Each event envelope stores type, version, stable IDs, times, routing metadata, and a commitment hash over its payload. The payload lives in separate managed live state keyed by the envelope. Semantic erasure deletes the payload row and appends the tombstone. The hash chain over envelopes remains intact, so tamper evidence survives deletion.
-- Artefact bytes are stored once per Artefact. The Artefact's retention projection is the set of its live authorised references. Managed live bytes are deleted when that set becomes empty and never while a member survives.
-- Encryption at rest is a deployment option with no semantic content. It does not change erasure or restore semantics.
-- The current authoritative ledger advances through monotonically ordered tombstone positions. It is kept beside the log with the serving deployment and is included in every backup. Every snapshot and backup records the ledger position current at creation.
-- Managed restore material never grants read authority. The restore procedure filters it through the current authoritative ledger before any payload enters managed live state. An older payload backup is usable only because the current authoritative ledger filters erasures recorded after that backup. A backup's bundled ledger is candidate restore material and never establishes current authority by itself. Restore remains blocked when the serving deployment's current authoritative ledger cannot be verified.
-- Managed restore material may retain historical bytes until its ordinary retention process removes them. The operation reports that state explicitly and does not describe backup media as physically deleted. The ledger prevents those bytes from restoring authority or reaching a serving surface.
-- External copies participate in bounded accounting rather than managed deletion closure. The deployment records scope, recipient or owner, control class, and notification state. An intersecting erasure reports `external_copy_unresolved` rather than claiming external deletion.
+### Dependant closure
 
-### Restore
+Closure starts from the scoped records and invalidates dependants reached through typed dependencies: Attestation sources, derivation inputs, cited locators, Perception inputs, Task sources, and grounding resolution inputs. Milestone 1 measures closure size ([evolution](evolution.md#experiments)).
 
-A restore acquires the single-writer log lock before reading the current authoritative ledger or touching managed live state. It holds the lock through filtering, rebuilding, and the atomic serving transition. The lock excludes ledger publication from authoritative-ledger acquisition through serving activation, so the applied position cannot go stale between filtering and serving. Failure to acquire the lock, or loss of the lock before serving opens, leaves serving blocked. Restoring one instance into two serving deployments is forbidden: with two stores neither ledger is authoritative, and no protocol recovers one.
+A dependant linked to an erased record only by being rendered in the same model call goes to operator review and is not invalidated. A delivered reply whose context rendered an erased record is one, since it may not contain the content. Closure does not recurse through later renders of that reply unless the operator erases it, which starts its own closure.
 
-1. While holding the lock, the restore obtains the serving deployment's current authoritative ledger at position `N`. A backup's bundled ledger copy is candidate restore material only; the deployment's own ledger, kept beside the log, is the authority. When the current authoritative ledger cannot be verified, the restore applies nothing and produces no rebuild pass. It releases any held lock while serving remains blocked, then records the terminal blocked attempt with no acquired snapshot or applied position.
-2. While holding the lock and blocking serving, the restore applies every tombstone through `N`, removes the affected payloads and Artefacts, and rebuilds projections without opening reads, jobs, or model or tool input.
-3. Serving opens in one atomic transition after the rebuild completes. The restore releases the lock only after serving is safe and open. The applied position equals the authoritative position at that transition because the lock excluded publication throughout.
+| Surface | Treatment |
+|---|---|
+| Text parts, ArtefactReferences, and Artefact bytes | Delete governed text, reference metadata, and bytes with no remaining reference. Invalidate locators and Attestations over the erased part. |
+| Model calls whose manifest names an erased record | Delete rendered prompt, images, reasoning, reply, proposal content, and diagnostics, which contain the content. Manifest IDs, versions, timing, and outcome class survive. |
+| Co-rendered dependants, including delivered replies | List for operator review. |
+| Typed dependants | Fold to erased or invalidated, or re-record over surviving independent inputs as a new `derivation` Attestation. |
+| Embedding vectors, indexes, projections, snapshots, and caches | Erase vectors with their payload, delete affected entries, and rebuild from survivors before serving. |
+| Tasks | Cancel any Task sourced only from erased input. Record completed external effects without claiming reversal. |
 
-The `restore-old-backup-current-ledger` and `restore-missing-current-ledger` fixtures exercise the two reachable restore outcomes: a backup older than the newest erasure is filtered successfully, while an unverifiable ledger leaves serving blocked. A ledger that advances during a restore is not a schedulable state under the lock, so no fixture exercises it.
+A payload hidden from a caller is treated for that caller exactly as an erased one.
 
-### Execution and completion
+### Execution
 
-Erasure is an offline operator action. It takes the single-writer log lock, so the agent is stopped or quiesced and nothing appends concurrently. An in-flight turn is aborted by cooperative supersession at its next boundary and recorded as aborted. One pass over the dependency graph therefore reaches a fixed point for the locked source head.
+Erasure, from a teller or the operator, runs inside the server as an exclusive operation without a process stop. It holds the single writer, and turns and workers are quiesced at their next boundary, so one pass reaches a fixed point. A worker result that read an erased record is recorded as stale ([off-turn work](off-turn.md#workers)).
 
-1. The operation takes the lock and resolves the authorisation record and scope at the current head.
-2. It traverses the log from the scoped records to every payload that depends on them: consumed-reference edges, Derivation input edges, InfluenceEnvelopes, locators, and job and Task arguments. Closure contains the scoped records and every dependant with no surviving independent lineage.
-3. One database transaction appends terminal tombstones and authoritative-ledger entries, removes managed database payload rows, cancels scheduled work, and marks unretained Artefacts inaccessible.
-4. Physical blob deletion from managed live stores may occur outside that database transaction. Tombstones and the retention projection deny reads and Activities while deletion is pending. Recovery retries deletion without restoring reference authority.
-5. The operation rebuilds indexes, projections, snapshots, and caches from surviving payloads. It releases the lock only after the semantic commit and required rebuild complete.
+1. Quiesce turns and workers at their boundaries, and resolve the scope and closure at the current frontier.
+2. Append the erasure to the [ledger](#erasure-ledger-and-boot-reconciliation) and its second copy.
+3. In one database transaction, append tombstones, delete payloads and salts, and cancel scheduled work.
+4. Delete unretained Artefact bytes. Tombstones deny reads meanwhile.
+5. Rebuild derived state from survivors, list co-rendered dependants for review, and resume turns and workers.
 
-A crash before the database transaction leaves the store unchanged and the request pending. A crash after it leaves semantic erasure durable. Recovery repeats projection rebuild and any pending physical deletion. The operator action does not report physical deletion complete until every promised managed-live deletion succeeds. An irrecoverable deletion failure for bytes under deployment control is `blocked`, not an external-copy bounded result.
+A crash before step 2 changes nothing and leaves the request pending. A crash after it is completed at the next boot, which treats a ledger entry without tombstones as it treats a restored backup. Deletion is reported complete only when every managed deletion succeeds, and a persistent failure is reported as blocked. Backup media may hold historical bytes until their retention expires. The ledger keeps them off every serving surface, and the report says so.
 
-Semantic erasure removes authority and access from managed live state and advances the authoritative ledger. Physical-deletion completion applies to live blob stores and other managed-live copies the deployment promises to delete. Managed restore material remains non-authoritative until ordinary media expiry, and bounded external-copy reporting is reserved for copies outside deployment control.
+### Erasure ledger and boot reconciliation
 
-### Managed-live closure and external-copy accounting
+The erasure ledger is a small append-only file, kept apart from the event log, that records each erasure as stable IDs and ledger positions. It never holds content or unkeyed content digests. Each entry carries the hash of the previous one, and every erasure copies the file to a second location.
 
-An allowed erasure computes deletion closure over five managed-live surfaces. The final row is a separate external-copy accounting surface and does not participate in deletion closure. The last column also restates audience resolution ([subject guard](#subject-guard), [influence envelopes](#influence-envelopes)): a payload hidden from a caller is treated for that caller exactly as an erased one.
+Every boot reconciles the store against the ledger before serving. An erased ID without its tombstone has its closure re-applied at the current frontier. A tombstoned payload or unretained Artefact still present is deleted. A snapshot or cache older than the ledger head is scrubbed or rejected, and projections rebuild. Restoring an old backup therefore needs no special procedure: the restored log boots and reconciliation re-applies every later erasure.
 
-| Surface | Storage class | Payload treatment | Envelope metadata that survives | Dependants and hidden input |
-|---|---|---|---|---|
-| source payloads: text parts, ArtefactReferences, and Artefact bytes | managed live state | Delete governed text and reference metadata. Delete bytes only when no surviving authorised reference retains them. | Record IDs, types, times, permitted digests, authorisation decision, and tombstone. | Invalidate locators and Attestations over the erased part. Retain independent references unchanged. Deny rendering and source query before support aggregation. |
-| model and proposal records: requests, responses, proposals, and critic diagnostics | managed live state | Delete prompt parts, rendered images, reasoning, replies, candidate content, and diagnostic text. | Activity and proposal IDs, versions, timing, outcome class, InfluenceEnvelope, and tombstone. | Invalidate outputs and retry context. A retry starts from surviving inputs only. Deny call construction and retry-context rendering. |
-| derived records: Perceptions, Derivations, derived Artefacts, and solely grounded Assertions or Attestations | managed live state | Delete observation output, derived bytes, negative-result detail, and payload with no surviving lineage. | Stable IDs, transition class, pipeline or criterion version, and input tombstones. | Fold to `erased` or `invalidated`. Re-record a survivable conclusion as a new Derivation over independent authorised inputs. Deny output influenced by uncleared input. |
-| indexes, projections, snapshots, and caches | managed live state | Delete vectors, lexical rows, thumbnails, materialised rows, snapshot copies, and cache entries. | Projection version, sequence bound, and ledger position. | Rebuild from survivors before serving. Deny insertion into an audience-broader index. Hidden rows cannot affect visible rank. |
-| scheduled work: Tasks, Triggers, jobs, and pending actions | managed live state | Delete arguments, conditions, and message bodies derived only from erased input. | Stable IDs, cancellation transition, and outcome class. | Cancel before firing. Restore never re-arms. Record completed external effects and remediation without claiming reversal. Deny initiation from uncleared input. |
-| external copies: exports, downloads, connector deliveries, debug captures, eval packages, and test captures | external copies | No system deletion guarantee. Record scope, recipient or owner, control class, notification state, and bounded result. | Copy-accounting record and `external_copy_unresolved` result where applicable. | Deny creation before delivery when a direct input is uncleared. Report bounded failure after delivery instead of claiming deletion closure. |
+When one ledger copy is a verified prefix of the other, the longer wins. When the ledger is missing, both copies fail verification, or the copies fork, boot is refused. The operator can override only with an explicit flag acknowledging that erased content may resurface. The override is recorded as an operator Activity and starts a new ledger from the log's tombstones.
 
-Managed restore material is not a closure row because it grants no read authority and cannot enter managed live state without filtering through the current authoritative ledger under the restore lock.
+The ledger reconciles one serving store. Concurrently serving copies are outside the design; erasure is one operation a future sync layer would coordinate ([overview](overview.md)).
 
-An Artefact's minted ID is stable internal identity. Verified digest assertions locate and deduplicate bytes; neither the ID nor a digest grants authorisation. Every byte read checks the caller's audience against an ArtefactReference before serving.
+### External copies
 
-Derived outputs lose erased support and are re-evaluated against what remains. A conclusion that survives from independent authorised inputs may remain only as a newly recorded Derivation with replacement lineage. A conclusion that encodes only erased input cannot remain. The complete contract is required at the genesis freeze before the first real successor genesis. A later richer transmission policy cannot change what erasure means.
+Eval packages, exports, console downloads, and debug captures built from a real log leave the store's control. Creating one records a copy record naming its IDs, recipient or location, and time, and is refused when an input does not clear the copy's audience. An erasure intersecting a copy reports `external_copy_unresolved` for it, and the operator removes it by hand.
 
-## Inter-agent status and revocation
+## Deferred
 
-An incoming inter-agent claim is a quoted Assertion with an Attestation naming the sending agent and preserving the travelling transmission principle and provenance chain. A remote content address is identity evidence, not an executable revocation channel.
+- Consent, purpose-limitation, and reciprocity principles, as additive definitions. Consent needs a scoped, expiring, and revocable consent record. Purpose limitation needs an execution-purpose model, not a caller-supplied string. Reciprocity needs a stable definition of comparable disclosure.
+- Option b widening defaults, per person or per conversation. Reopens when `principle-assignment` measures the option-a recall cost as too high.
+- Connector-specific assurance kinds that widen disclosure.
+- Inter-agent exchange: quoting, provenance, and revocation of claims from another agent ([evolution](evolution.md)).
+- Per-payload keys, proof of destruction, and multi-party erasure authorisation.
 
-Retraction uses an authenticated local subscription/status protocol. The local store records the remote issuer, stable remote Attestation identity, verification material, a monotonically increasing issuer notice sequence, the last verified status, and each signed revocation notice. Each subscription records a freshness lease, polling deadline, allowed clock skew, and last successful check. A notice with an old or duplicate sequence is idempotently ignored; a gap quarantines status pending fetch.
+## Scenarios
 
-When the freshness lease expires, the fold moves from `current` to `stale` at the recorded deadline. Stale remote support is removed from every actionable support, ranking, Derivation, and initiated-action projection by default. Dependent Derivations become invalid or quarantined until recomputed without it. Ordinary conversational reads may show only an explicitly stale, non-actionable quoted record when its transmission principle still clears; they cannot present it as current support. A valid revocation appends a local Attestation-retraction transition. Key rotation is accepted only through a signed continuity or operator-authorised replacement record, and replay applies the same notice sequence and lease deadlines. Polling recovery can restore `current` only with a newer signed status. The remote system cannot rewrite local history, and a bare content hash never causes propagation by itself.
+| ID | Scenario | Expected result |
+|---|---|---|
+| `dm-occasion-restriction` | A later context renders Rowan's direct message. | Its outputs are restricted to `include([rowan, agent])`. |
+| `channel-late-joiner` | Sam joins a channel after a message is recorded. | With declared history visibility, Sam clears `channel(C)`; without it, Sam fails the roster at receipt and is denied. |
+| `delivered-reply-no-accumulation` | Turn 3 reads a confidence and replies to its teller; turn 7 renders the reply as history and writes a note. | The note's restriction is the reply's delivered audience, without the confidence's. |
+| `coined-handle-restricted` | The agent mints `person/quinn` in Rowan's direct message; a channel read lists entities. | The handle is withheld from the channel until used there or published. |
+| `dm-fact-stays-in-dm` | Rowan states a fact in a direct message without a grant; Sam asks in a channel. | The principle is the direct message's restriction; the channel read omits it. |
+| `grant-other-teller-rejected` | A proposal widens Rowan's testimony citing Sam's "feel free to share". | The widening is rejected; the principle stays at the floor. |
+| `free-widening-rejected` | A proposal sets `public` on direct-message testimony with no grant. | Rejected with a teachable error naming the floor. |
+| `testimony-takes-teller-principle` | Rowan speaks in a channel whose context also rendered an `include([operator])` note. | The `testimony` principle is `channel(C)`, without the note's restriction. |
+| `pre-delivery-regenerates` | A draft's manifest holds a record restricted from one channel member. | The draft is withheld, a second excludes that entry, and both are recorded. |
+| `pre-delivery-defers` | Both drafts fail the check. | The turn ends with the fixed non-disclosing deferral. |
+| `guard-subject-is-teller` | P is an Assertion's subject and only teller. | `allow` for P's Attestation only. |
+| `guard-participation-alone` | Q tells, under `attributed`, an Event with P in a person-valued role; P has no witness evidence. | `deny` under all three policies. |
+| `guard-object-position` | Q tells a fact with P as object; the caller is P. | `deny` under all three policies. |
+| `guard-public-testimony-policy` | Q tells a `public` fact about P; P asks without witness evidence. | `deny` under `v1` and `v1-own`; `allow` under `v1-relaxed`. |
+| `guard-group-contains-subject` | A group includes P; an operator-told `public` observation concerns P. | `deny` under `v1` and `v1-own`; `allow` under `v1-relaxed`. |
+| `guard-own-inputs` | A `derivation` about P has only P's testimony as inputs; the caller is P. | `allow` under `v1-own` only. |
+| `guard-operator-self-note` | An operator note about the operator was written with the operator as sole audience. | `allow` under `v1-own` only. |
+| `guard-per-assertion-scope` | A search for P matches one Assertion about P and unrelated Assertions. | Only the Assertion about P is denied. |
+| `guard-event-candidate-set` | An Event has roles for P and R; the caller is P without evidence for R's telling. | The whole Event is denied before projection. |
+| `guard-tentative-identity` | A handle is in accepted `[P1,P2]` and candidate `[P2,P3]`; the caller may be P3. | `deny`. |
+| `guard-hidden-role` | The caller fills an Event's confidential person role. | `deny`, although the projection would omit the role. |
+| `guard-erased-coordinate` | A tombstone records an erased person role. | `deny` through the opaque marker. |
+| `guard-agent-observation` | A `public` agent `observation` about P has no witness edge; the caller is P. | `deny` under all three policies. |
+| `guard-relayed-source` | Rowan relays Quinn's words about Quinn; the caller is Quinn. | No teller exception; `deny` without witness evidence. |
+| `silent-channel-member` | An `in_confidence` claim is told before a silent member. | The member is outside the disclosure set, and their exposure suppresses independence. |
+| `compound-partial-witness` | Acknowledgement covers one of two cited text parts. | Teller-only. |
+| `unknown-audience-member` | One group member is unresolved. | Every restricted record is denied to the group. |
+| `withheld-date-residue` | A visible link row's date comes from a withheld Assertion. | The date is not rendered, and no gap reveals it. |
+| `hidden-closure-residue` | A confidence closed a `public` Assertion's validity. | A public read shows open validity and no closure date. |
+| `restriction-intersection` | A call renders `include(S)` and `public` Attestations and yields a derived Assertion. | The derived Assertion is restricted to `include(S)`. |
+| `rejected-proposal-influences-retry` | A proposal from restricted input is rejected and retried. | The retry's manifest names the rejected content, and its output carries the restriction. |
+| `mark-crosses-delivery` | A reply written after reading an episode is rendered into a semantic write. | The episodic wall rejects it. |
+| `teller-erases-own` | A teller erases their Attestation of a two-teller Assertion. | The Assertion and the other Attestation survive. |
+| `relayed-source-cannot-erase-relay` | Quinn asks to erase Rowan's relay of Quinn's words, as another teller's record. | No destructive action; the request is recorded for the operator. |
+| `erasure-request-text-included` | A teller writes "forget that I'm moving to Lisbon". | The request's text part is erased with the original claim. |
+| `erasure-online-quiesce` | An erasure arrives during a turn and a worker job. | Both pause at a boundary, and a worker result that read the record is stale. |
+| `erasure-typed-dependant` | A derived Assertion has one erased and one surviving input. | The old `derivation` Attestation is invalidated and a new one over the survivor is recorded. |
+| `erasure-co-rendered-review` | A note was written in a call that rendered the erased record without citing it. | The call's payload is deleted; the note stays live and is listed for review. |
+| `erasure-delivered-reply-reviewed` | A delivered reply's context rendered a later-erased record; a later turn rendered the reply. | The call payload is deleted, the reply is listed for review, and the later turn is untouched. |
+| `erasure-cancels-task` | One Task is sourced only from erased input; another already sent a message. | The first is cancelled; the sent message is recorded as a completed effect. |
+| `erased-payload-unconfirmable` | An erased payload was a short date. | Hashing guesses cannot match the commitment. |
+| `erasure-crash-after-ledger` | A crash follows the ledger append. | The next boot completes the erasure before serving. |
+| `pending-live-blob-deletion` | Blob deletion fails after erasure. | Reads stay denied, the report says blocked, and boot retries. |
+| `restore-old-backup-reconciles-at-boot` | A backup from before an erasure is booted. | Boot re-applies the erasure before serving. |
+| `missing-ledger-refuses-boot` | Both ledger copies are missing or unverifiable. | Boot is refused; the override flag is recorded as an operator Activity. |
+| `external-copy-bounded` | An erasure intersects an exported eval package. | The report lists it as `external_copy_unresolved`. |

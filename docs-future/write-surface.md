@@ -1,23 +1,23 @@
 # The write surface
 
-The conversational write surface has two operations: `record` and `claim`. Both create durable proposal transactions governed by [the verified-write state machine](verified-write.md#proposal-state-machine). The surface does not define Occasion, Activity, Proposition, Assertion, Attestation, Event, ArtefactReference, Perception, or Derivation identity. [The assertion model](statements.md) and [artefacts and perceptions](artefacts-and-perceptions.md) own those definitions.
+The write surface is the agent-facing API that produces [verified-write proposals](verified-write.md#proposal-states). It defines no object identity; [the object model](statements.md) and [artefacts and perceptions](artefacts-and-perceptions.md) own those.
 
-## `record`
+Two candidate surfaces exist for conversational writes, and [the evidence milestone](evolution.md) decides between them by a head-to-head comparison on the real corpus. This chapter does not choose. Both produce the same proposal, critic, and publication records, so the choice changes which Activities occur and what the agent is taught, not the persisted object model. `claim`, the caller decisions, teachable errors, excluded operations, and the cost boundary are common to both.
 
-`record` stores an external social input as an Occasion. The Occasion can contain an utterance, zero or more ArtefactReferences, or both. An artefact-only share is valid. `record` does not require a synthetic utterance for it.
+Under both, the Occasion is durable before any structure exists. Source-first retention is forced by current prose storage and the observed limits of neural verification ([current data model](../docs/data-model.md#contententry), [writer failure](../docs/ontology-failures/2026-07-23.md#the-neural-writer-is-unverified), [welding research](research/2026-07-24/lanes/welding.md)). The current system records model calls durably and batches writes inside a block, which supplies the execution seam ([current write path](../docs/write-path.md), [model-call storage](../docs/events-and-storage.md#event-sourcing)).
+
+## Candidate A: record, extract, review
+
+The connector records every external input as an Occasion before the agent sees it. `record` takes one or more existing Occasion IDs and opens a structuring proposal over them. It never takes free text, so the agent cannot author the source it then structures. The Occasion can hold text parts, ArtefactReference parts, or both. An artefact-only share is valid and needs no synthetic utterance.
 
 ```lua
 local proposal = quill:record({
-  utterance = "wren built quill after rowan shared the architecture",
-  artefacts = attachments,
+  occasions = { occasion_id },
   frame = "system",
-  transmission = "public",
 })
 ```
 
-The call returns a durable proposal handle immediately. The current system records model calls durably and batches writes inside a block, which supplies the execution seam ([current write path](../docs/write-path.md), [model-call storage](../docs/events-and-storage.md#event-sourcing)). The durable proposal handle, later-block review, state transitions, and atomic publication are design synthesis required by permanence; the `stage:7` first audience-resolved read/write vertical-slice crash, retry, and source-only fixtures validate them.
-
-The initial extraction runs once per block over the buffered Occasions. A pre-acceptance infrastructure failure can enter `extraction_retry_wait` and retry the extraction within the bounded policy. A later block reads the proposal after it reaches `awaiting_review`:
+The call returns a proposal handle immediately. One extraction Activity per block proposes typed structure for the block's Occasions, the hard critics run over it, and a later block reviews the result:
 
 ```lua
 local review = proposal:review()
@@ -26,9 +26,15 @@ review:drop(review.assertions[6], "the utterance does not assert this")
 review:accept()
 ```
 
-The review contains proposed Proposition, Assertion, Attestation, Event, Perception, and Derivation handles, critic diagnostics, and the current proposal state. It does not report these objects as committed until the publication record commits. Dropped and replaced proposal versions remain in the audit trace.
+The review holds the proposed handles, the critic diagnostics, and the proposal state, and reports nothing as committed until publication commits. Dropped and amended versions stay in the audit trace. Candidate A costs an extra model call per write block, a second block before structure is visible, and the review rounds.
 
-The write surface never makes rejected proposals available through ordinary structured queries. The source Occasion remains available through the source lane from `source_buffered` onward. If pre-acceptance extraction fails, every proposal is dropped, the extraction retry bound is exhausted, or review cannot complete, the state machine appends `source_only`. A post-acceptance publication failure enters `publication_retry_wait` and retries publication of the unchanged accepted set; it never falls back to `source_only` and never reruns durable model work. Source-first retention is forced by current prose storage and by the observed limits of neural verification, but this exact fallback state and its publication boundary are design synthesis ([current data model](../docs/data-model.md#contententry), [writer failure](../docs/ontology-failures/2026-07-23.md#the-neural-writer-is-unverified), [welding research](research/2026-07-24/lanes/welding.md)). Source-only storage is a valid durable outcome rather than a partial commit.
+## Candidate B: typed claims
+
+The agent writes typed claims directly against one or more recorded Occasions. Each claim names the Proposition fields, the validity, and the source locator: a text span, or a selector over a cited ArtefactReference. A testimony claim's teller is bound to the cited span ([teller binding](#teller-binding)). The hard critics are deterministic, so they run at the call and return teachable errors at once. A block's claims form one proposal that publishes atomically at block commit. An Occasion with no accepted claim ends `source_only`. Candidate B needs no extraction call and no second block. It costs the constraint tax of schema-shaped writing inside the turn and risks omitting structure an extractor would have proposed.
+
+## What the comparison measures
+
+The evidence milestone runs both candidates over the same corpus and measures fidelity, omission, junk fill, constraint tax on the rest of the turn, blocks and review rounds per write, latency, retries, log growth, and the usefulness of the source-only path. The criteria are preregistered acceptance gates, not reports. Forced-choice elicitation removes omission variance but moves it into field content as junk fill, so both are measured. Eager structuring at the turn against deferred structuring in a background job is also open. Either schedule uses the same records: a deferred proposal is opened by a `structuring` job ([off-turn work](off-turn.md#authority-classes)), under the same teller binding and audience rules.
 
 ## `claim`
 
@@ -44,39 +50,33 @@ local proposal = quill:claim("runs_on", "model/opus-4.8", {
 })
 ```
 
-The admitted source kinds are `agent_observation`, `operator_assertion`, `tool_observation`, and `derivation`. Each kind has its own authority and grounding requirements. `claim` never fabricates an utterance, teller, text span, or Occasion. A tool observation names the tool Activity and result. A derivation supplies the typed input and execution environment required by [verified writes](verified-write.md#derivation-records).
-
-`claim` avoids extraction, but it does not bypass critics, review, atomic publication, audience checks, or compare-at-commit. Proposal, retry, and publication records preserve the [canonical InfluenceEnvelope](privacy-and-provenance.md#influence-envelopes), including non-evidentiary marks. A fresh source-only context uses a new Activity; it cannot clear marks on an existing context or proposal. A correction after publication appends the applicable Assertion or Attestation transition. It does not mutate the published record.
+The source kinds are `agent_observation`, `operator_assertion`, `tool_observation`, and `derivation`, each with its own authority and grounding. `claim` never fabricates an utterance, teller, span, or Occasion. A tool observation names the tool Activity and result. A derivation supplies the inputs required by [verified writes](verified-write.md#derivation-inputs). `claim` skips extraction but not the critics, atomic publication, audience checks, or the predecessor check. The producing Activity's manifests travel with the proposal, so a fresh Activity cannot clear what an earlier context contained. A later correction appends a transition and never mutates the published record.
 
 ## Required caller decisions
 
-The caller supplies judgements that source extraction cannot establish safely:
+The caller supplies the judgements that extraction cannot establish safely:
 
-- the frame, including an explicit principal redirect when applicable;
-- the default transmission principle for an Occasion;
-- the teller when the speaker relays another person's words;
+- the frame, including an explicit `principal` redirect through `presents` when applicable;
 - the source kind for `claim`;
-- explicit `unknown` or `not_applicable` values where the schema permits them.
+- an explicit `unknown` or `not_applicable` where the schema permits one.
 
-A compound Occasion can produce proposals with different transmission principles. The call-level value is only a default. Review cannot accept the publication set until every Attestation and derived output has an audience result. [Privacy and provenance](privacy-and-provenance.md) owns the compilation and influence rules.
+Transmission is not a free caller decision. A `testimony` Attestation's principle starts at the floor that [privacy and provenance](privacy-and-provenance.md#transmission-principles) defines: its source Occasion's restriction. Per item, the caller may only narrow that floor, or cite a teller-grant span to widen it, which the attestation critic checks ([verified writes](verified-write.md#hard-critics)). Any other widening is an operator action. A compound Occasion therefore yields items with different principles only by narrowing. Every other output takes its ancestry restriction, which the caller cannot set. The source kind and the teller are independent, and a direct agent observation has no human teller.
 
-The source kind and teller are independent. An agent restatement of a participant's words remains grounded in the original Attestation and does not create independent support. A direct agent observation uses an Activity and has no human teller.
+## Teller binding
 
-## Block and retry behaviour
+The teller is not a caller decision. A `testimony` teller is the participant who produced the cited span on that Occasion, and the attestation critic rejects any other teller.
 
-Several `record` calls in one block can share one extraction Activity. The durable proposal handles remain empty until that Activity and the hard critics complete. Review therefore occurs in a later block. This preserves batching without hiding the proposal lifecycle.
+Reported speech is always `quoted`. A relay ("Quinn told me that X", said by Rowan) is a `quoted` Assertion with Rowan as teller, plus `relayed_from` lineage naming Quinn as the original source person. Quinn gets no teller exception and no erasure authority over the relay, because Rowan performed the telling. Reads render it only as reported speech ("Rowan says Quinn said X"), never as a flat claim. Mode is part of the [reuse match](statements.md#assertion-reuse), so a relay never attaches support to an `asserted` Assertion with the same key. The lineage feeds [dependence](belief.md#dependence). A claim a book makes follows the same rule ([reading a document](artefacts-and-perceptions.md#reading-a-document)).
 
-Each failed attempt appends its failure class and attempt number. Before acceptance, a retriable extraction infrastructure failure enters `extraction_retry_wait`. After acceptance, a retriable publication infrastructure failure enters `publication_retry_wait`; it retries the unchanged accepted publish set without rerunning durable model work. A critic infrastructure retry reuses the recorded extraction output and remains in `critic_review`. A deterministic critic rejection returns diagnostics for amendment or dropping; it does not rerun unchanged extraction. The bounded retry policy is versioned. Exhaustion before acceptance produces `source_only`. Publication exhaustion resolves a committed marker to `published` or aborts a confirmed uncommitted attempt with `publication_attempts_exhausted`, following [the recovery protocol](verified-write.md#proposal-state-machine). It does not produce `source_only`.
+## Retries and abandonment
 
-A caller can supersede a pending proposal with a replacement. Supersession names both proposal IDs. The old proposal can never publish. An abort records the actor and reason. Neither operation removes the durable source.
-
-Crash recovery resumes from the folded proposal state. It reuses recorded model outputs and stable temporary IDs. It does not repeat a nondeterministic call whose Activity result is already durable. Recording nondeterministic activity is corroborated by the current event log and durable-execution research; the exact temporary-ID, compare-at-commit, and crash fold are local synthesis ([current model-call contract](../docs/events-and-storage.md#event-sourcing), [durable activity research](research/2026-07-24/verification/part-b.md)). Atomic publication and compare-at-commit follow [the canonical protocol](verified-write.md#proposal-state-machine) and must pass the `stage:7` first audience-resolved read/write vertical-slice fault-injection oracle.
+Failed attempts are recorded as [verified writes](verified-write.md#proposal-states) describes, under a versioned, bounded retry policy whose exhaustion ends in `source_only`. A caller can abandon a pending proposal, optionally naming a replacement, and it never publishes. Neither outcome removes the source.
 
 ## Teachable errors
 
-A hard-critic error identifies the proposal, critic version, violated definition, source locator, and expected correction. It can name a domain or range mismatch, deprecated relation, malformed validity value, unsupported selector, insufficient authority, unresolved audience, ambiguous Event co-reference, or stale compare head.
+A hard-critic error names the proposal item, the critic version, the violated definition, the source locator, and the expected correction. It can report a domain or range mismatch, a testimony value or entity reference absent from the cited span, a teller who did not produce the cited span, a deprecated relation with its successor, a malformed validity value, an unsupported selector, insufficient authority, a principle wider than its floor with no cited grant, an unresolved audience, or a stale predecessor.
 
-The error does not teach ontology-language that the agent may activate. The agent can propose a missing relation or role definition, but activation is a governed schema operation described by [relations](relations.md). Persistent rejection enters the operator exception queue.
+The agent coins relations under the critics in [relations](relations.md#coining-under-critics), which render the relations in use at the point of writing and teach reuse before coinage. Entity kinds, roles, Event types, frames, modalities, and transmission principles stay operator-governed, and no error invites the agent to create one. Persistent rejection enters the operator exception queue.
 
 ## Excluded operations
 
@@ -87,13 +87,27 @@ The conversational surface does not provide:
 - caller-supplied support or credence;
 - caller-selected identity merges;
 - bulk document or media ingestion;
-- self-slot or charter mutation;
+- mutation of the self or the directives;
 - automatic Assertion creation from an arriving artefact.
 
-Bulk ingestion uses the job protocol in [memory typology](memory-typology.md) and [off-turn work](off-turn.md). Artefact arrival creates an ArtefactReference. Image-derived memory requires a recorded Perception and source lineage. Governed schema activation, identity resolution, and charter changes use their canonical owner surfaces.
+Bulk ingestion uses jobs ([memory typology](memory-typology.md), [off-turn work](off-turn.md)). An arriving artefact creates only an ArtefactReference; image-derived memory needs a recorded Perception. Identity, operator-governed definitions, and the self and directives have their own owner surfaces.
 
 ## Cost boundary
 
-The model call is on the proposal path and never on the state fold. Replay consumes the recorded Activity. A read can use a transient model reranker only when its output is discarded and no stored state depends on the call. [The query surface](query-surface.md) defines read accounting for content that reaches model context.
+The model call is on the proposal path, never on the fold; replay consumes the recorded Activity. A read may use a transient reranker only when its output is discarded ([the query surface](query-surface.md)). The structuring schedule is an empirical policy that can move to end-of-turn or a bounded background retry without changing the meaning of any persisted record. Routine re-extraction of committed sources stays excluded, because it creates nondeterministic drift and cost proportional to stored history.
 
-The eager review loop remains an empirical policy. It can move to end-of-turn or a bounded background retry if measurement shows unacceptable latency or constraint tax. Such a policy change does not change persisted Occasion, Activity, proposal, or publication meanings. Routine indefinite re-extraction of committed sources remains excluded because it creates nondeterministic drift and cost proportional to stored history.
+## Scenarios
+
+| ID | Scenario | Expected result |
+|---|---|---|
+| `record-requires-occasion` | The agent calls `record` with free text instead of Occasion IDs. | The call is refused with a teachable error. No Occasion is created. |
+| `artefact-only-record` | A participant shares an image with no text, and the agent calls `record` on the Occasion. | The Occasion holds one ArtefactReference part and no text part. No synthetic utterance is created. |
+| `compound-transmission` | One Occasion in channel C carries a remark and a confidence about a third party, and the caller narrows only the confidence to `in_confidence`. | The remark's Attestation carries the floor `channel(C)`. The confidence's Attestation carries `in_confidence`. Neither is wider than `channel(C)`. |
+| `caller-widening-rejected` | A DM's testimony is proposed as `public` with no cited grant. | The attestation critic rejects the item with a teachable error naming the floor. Nothing publishes for that item. |
+| `relay-is-quoted` | Rowan says "Quinn told me that X", and an `asserted` Assertion with the same key exists. | A new `quoted` Assertion is minted with Rowan as teller and `relayed_from` naming Quinn. The `asserted` Assertion gains no Attestation. Quinn has no erasure authority over the relay. |
+| `teller-not-span-author` | A proposed Attestation names Quinn as teller but cites a span Rowan produced. | The attestation critic rejects it with a teachable error. |
+| `claim-no-fabricated-occasion` | The agent records a tool observation with `claim`. | The source is the tool Activity. No Occasion, utterance, teller, or span is created. |
+| `review-later-block` | Candidate A: a block records two Occasions. | One extraction Activity serves both. Their proposals are reviewable only in a later block. |
+| `typed-claim-inline-error` | Candidate B: the agent writes a claim whose object violates the relation's range. | The call returns a teachable error within the block. No model call occurs. |
+| `excluded-force-flag` | A caller passes a critic bypass or supplies a credence value. | The call is refused with a teachable error, and no proposal is opened. |
+| `surfaces-same-records` | Candidates A and B structure the same Occasion to the same content. | Both publish identical Proposition keys, Assertions, and Attestations. Only the Activities differ. |

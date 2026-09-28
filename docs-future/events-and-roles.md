@@ -1,14 +1,14 @@
 # Events and roles
 
-An Event is the stable identity of a happening. Its identity is minted when the happening is first represented and does not depend on its type, participants, occurrence time, extraction Occasion, or current role set. Those facts may be corrected without replacing the Event.
+An Event is the stable identity of a happening. Its ULID is minted when the happening is first represented. It does not depend on the Event's type, participants, occurrence time, extracting Occasion, or current role set, so any of those can be corrected without replacing the Event.
 
-[Statements](statements.md) owns Proposition, Assertion, Attestation, Occasion, Activity, and Derivation identity and lifecycle. This chapter only specifies how those objects describe Events. Event occurrence time is owned by [time](time.md), and Event-to-Event predicates use the registry described in [relations](relations.md).
+The [object model](statements.md) owns Proposition, Assertion, Attestation, Occasion, and Activity identity and lifecycle. This chapter specifies how those objects describe Events. [Time](time.md) owns occurrence values, and [relations](relations.md) owns the definitions that Event-to-Event predicates use.
 
-The event-and-role shape is supported by the ontology review and by a corpus case in which one happening was rotated onto several subjects ([research report](research/2026-07-24/report.md#32-events-and-roles-the-fix-for-one-event-many-copies), [modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)). The corpus also showed that only two of four entries represented the same happening. Stable Event identity, reversible co-reference, and the projection rules below are design decisions to avoid turning that limited evidence into destructive deduplication.
+The ontology review and a corpus case in which one happening was rotated onto several subjects support the event-and-role shape ([research report](research/2026-07-24/report.md#32-events-and-roles-the-fix-for-one-event-many-copies); [modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)). The same corpus showed that only two of four entries represented the same happening. Stable Event identity without automatic deduplication, and the projection rules below, are design decisions that keep that limited evidence from turning into destructive merging.
 
 ## Roles and attributes
 
-An Event has no mutable type or occurrence field. Registered Event type, participants, occurrence, location, outcome, manner, and other properties are attribute or role Propositions about the Event. Accepted role and attribute Assertions therefore retain independent validity, Attestations, source locators, transmission principles, and lifecycle transitions. An Event read projects type and occurrence only from the audience-safe folded Assertions available under the read environment.
+An Event has no mutable type or occurrence field. Its registered type, participants, occurrence, location, outcome, manner, and other properties are role or attribute Propositions about the Event. Each is an ordinary [Assertion](statements.md#assertion). An Event read projects type and occurrence only from the audience-safe folded Assertions.
 
 ```text
 event/e1  type: event/create
@@ -19,13 +19,13 @@ event/e1  type: event/create
 (event/e1, occurred_during, [2026-07-14, 2026-07-16))
 ```
 
-The notation is a projected reading aid, not a serialisation. The `type:` line abbreviates an audience-safe Event-type Assertion under a registered relation; it is not an Event field. None of these edges constitutes the Event's identity.
+The notation is a projected reading aid, not a serialisation. Handles stand for [Entity](statements.md#entity) ULIDs. The `type:` line abbreviates an audience-safe Event-type Assertion under a registered relation. None of these edges constitutes the Event's identity.
 
-Universal parent roles stay small: `agent`, `theme`, `instrument`, `source`, `recipient`, `time`, and `place`, plus only the few additions justified across Event types. A registered Event type may define typed subroles such as `buyer` and `seller`, or `approver` and `requester`. Every subrole declares its universal parent and filler constraints. Generic traversal uses the parent; precise queries may use the subrole.
+Universal parent roles stay small: `agent`, `theme`, `instrument`, `source`, `recipient`, `time`, and `place`, plus only the few additions justified across Event types. A registered Event type may define typed subroles such as `buyer` and `seller`, or `approver` and `requester`. Every subrole declares its universal parent and its filler constraints. Generic traversal uses the parent. Precise queries may use the subrole.
 
-This compromise preserves distinctions that a universal role set cannot answer while retaining a teachable fallback. Research supports a small universal inventory and warns that role tails are inconsistent even among expert annotators ([research report](research/2026-07-24/report.md#32-events-and-roles-the-fix-for-one-event-many-copies)). The initial typed-subrole policy is evaluated under `stage:10`. Broader role vocabulary is `capability:broad-event-role-vocabulary` with status `activation_gate`; it activates only after fixtures establish teachability, stable filler constraints, and correct parent traversal. When no registered role fits, extraction leaves the content at the source locator or proposes a schema addition; it does not coin a hidden role or guess.
+This compromise keeps distinctions that a universal role set cannot express and retains a teachable fallback. Research supports a small universal inventory and shows that role tails beyond the first two positions are inconsistent even among expert annotators ([research report](research/2026-07-24/report.md#32-events-and-roles-the-fix-for-one-event-many-copies)). Roles, subroles, and Event types are operator-governed definitions under [relations](relations.md#governance). A broader role vocabulary is deferred until scenarios establish teachability, stable filler constraints, and correct parent traversal. When no registered role fits, extraction leaves the content at the source locator or proposes a definition to the operator. It never coins a hidden role or guesses.
 
-A role may have several fillers. Two people acting are two role Propositions, not one pair-valued edge. A count is appropriate only when participants were not individuated. The quantity rules belong to [statements](statements.md).
+A role may have several fillers. Two people acting are two role Propositions, not one pair-valued edge. A count is appropriate only when participants were not individuated. The corpus study tested the role inventory, not filler multiplicity, so the multiple-filler rule is design synthesis.
 
 ## Event-to-Event relations
 
@@ -36,51 +36,36 @@ Roles place entities within a happening. Ordinary registered relations connect h
 (event/e2, preceded, event/e3)
 ```
 
-The modelling study found causation between happenings that roles alone could not express ([event relation finding](research/2026-08-03/modelling-study.md#events-have-no-relations-to-other-events)). Each relation instance is an Assertion, not an identity-bearing link baked into either Event.
+The modelling study found causation between happenings that roles alone could not express ([event relation finding](research/2026-08-03/modelling-study.md#events-have-no-relations-to-other-events)). Each relation instance is an Assertion, not a link built into either Event.
 
-## Co-reference is a reversible hypothesis
+## Co-reference
 
-A new description does not resolve to an existing Event by structural equality. Repeated meetings can have the same type, participants, place, and overlapping approximate time. An ambiguous arrival mints a separate Event and may mint an Event-resolution hypothesis. `possibly_same_event` is the candidate projection of that object, not an ordinary relation and not the accepted composite.
+A new description never resolves to an existing Event by structural equality. Repeated meetings can share a type, participants, place, and an overlapping approximate time. When the writer recognises an explicit re-mention of a known Event, such as "that Tuesday meeting", the new Occasion attests Assertions about the existing Event directly. When the arrival is ambiguous, the writer mints a separate Event.
 
-The immutable proposal contains a minted hypothesis ID; an ordered, duplicate-free set of at least two member Event IDs; evidence locators; the proposing Activity or Occasion; ontology and matching-policy versions; and the identity-resolution environment used to propose it. Binary proposals are the initial policy. The n-ary representation is permanent so later evidence can resolve a set without chaining pairwise equivalence.
-
-The append-only transition union is:
-
-| Transition | Required fields | Fold result |
-|---|---|---|
-| `resolution_accepted` | hypothesis ID, separately minted composite-resolution ID, authority, evidence, policy version, and source head | `accepted`; the named composite becomes readable under this environment |
-| `resolution_rejected` | hypothesis ID, authority, reason, evidence, and source head | `rejected`; members remain separate |
-| `resolution_withdrawn` | hypothesis ID, authority, severance evidence, and source head | `withdrawn`; any accepted composite is no longer live |
-| `resolution_superseded` | hypothesis ID, replacement hypothesis ID, authority, and reason | `superseded`; the replacement folds independently |
-
-With no applicable transition, the fold is `candidate`. A transition cannot mutate members or reuse a composite ID. Competing candidate hypotheses may overlap. Accepted hypotheses must form disjoint member sets within one resolution environment; an acceptance that overlaps another live accepted set is rejected unless the same atomic batch withdraws or supersedes the conflict. Acceptance is idempotent only for the same hypothesis, composite ID, and source head. A retry with different evidence is a new Activity or transition, not a rewritten proposal.
-
-Affirmative co-reference requires evidence beyond a similar role set. Useful evidence includes an explicit re-mention, a shared source occurrence, a sufficiently precise time and location, a series-instance identifier, or a matching causal neighbourhood. Acceptance exposes a composite view with its own stable resolution identity and leaves every source Event ID and role or attribute Assertion intact. It does not move edges, rewrite source records, or consume an Event. Derivations that use the composite are stamped with the accepted resolution environment.
-
-Withdrawal or supersession restores the source views. Derivations stamped with the no-longer-live environment become invalid or pending recomputation under the [Derivation lifecycle](statements.md). Severance does not infer which source Event should own an Assertion that a later derivation attached only to the composite. That result remains linked to the composite environment and cannot silently migrate. Replay orders transitions by log sequence, validates conflict rules at each step, and deterministically reproduces the hypothesis state and live composite set.
-
-### Co-reference fixtures
-
-| Arrival | Required result |
-|---|---|
-| “We met on Tuesday” followed by “that Tuesday meeting” with matching source occurrence | The second Occasion may Attest Assertions about the existing Event, or support an accepted composite resolution if two IDs already exist. Both Occasions remain. |
-| Two weekly meetings with the same people and an overlapping coarse date | Two Events linked at most by `possibly_same_event`; participant overlap is not enough to merge. |
-| Two Events are accepted as one, then a precise location proves they were separate | Append severance; restore both stable Event views; invalidate composite-dependent Derivations; preserve all source Assertions and Attestations. |
-
-These fixtures are required for the `stage:10` Event, role, and co-reference policy evaluation. The local four-entry case demonstrates duplication risk, but it does not satisfy the independent `capability:autonomous-event-merging` activation gate ([modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)).
+No Event merge exists at genesis. Two Events that denote one happening stay two Events, and duplicates are acceptable at this scale. Resolution hypotheses are identity-only ([identity](identity.md#resolution-hypotheses)). Event co-reference is deferred as `event-coreference` in [evolution](evolution.md#deferred-capabilities), and it reopens when measured duplicate-Event cost justifies it. The local four-entry case shows the duplication risk but is not evidence that merging is safe ([modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)).
 
 ## Disclosure-safe projection
 
-Audience resolution happens before Event rendering. It selects visible Attestations and folded Assertions under [privacy and provenance](privacy-and-provenance.md); this chapter does not define a second visibility test.
+Audience resolution happens before Event rendering. It selects visible Attestations and folded Assertions under [privacy and provenance](privacy-and-provenance.md). This chapter defines no second visibility test. The [subject guard](privacy-and-provenance.md#subject-guard) protects every person-valued role position, including any role or subrole whose filler range admits a person, whatever the role is named.
 
 Each Event type registers a projection policy for partial visibility:
 
 - An independently omissible role may be absent without changing the meaning of the visible Assertions. A public meeting may omit one confidential attendee and render as explicitly incomplete.
-- A jointly meaningful role set renders with an incomplete shell that does not imply a hidden filler. A transfer with a visible item but hidden parties may be shown only as “a restricted transfer occurred”, if that shell is itself licensed.
-- A meaning-changing omission suppresses the whole Event. Showing a visible `buyer` while hiding the only `seller`, for example, may manufacture a stronger or false account of the transaction.
+- A jointly meaningful role set renders as an incomplete shell that does not imply a hidden filler. A transfer with a visible item and hidden parties may render only as "a restricted transfer occurred", and only if that shell is itself licensed.
+- A meaning-changing omission suppresses the whole Event. Showing a visible `buyer` while hiding the only `seller` can manufacture a stronger or false account of the transaction.
 
-The shell is a registered projection of visible Assertions, not a new Attestation and not evidence that an unspecified participant exists. It carries an explicit incompleteness marker and the Event type's projection-policy version. If no safe shell is registered, suppression is the default.
+The shell is a registered projection of visible Assertions. It is not an Attestation and not evidence that an unspecified participant exists. It carries an explicit incompleteness marker and the projection-policy version. When no safe shell is registered, suppression is the default. No view exposes hidden-role cardinality, substitutes "someone" where that implies a known filler, or turns a visible participant into the sole actor.
 
-### Partial-disclosure fixture
+## Scenarios
 
-An Occasion yields public time and place Assertions, an attributed participant Assertion, and a confidential participant Assertion for one Event. A public query may render only the time and place if the Event type declares them independently meaningful; an attributed query may add the first participant; an authorised query may show both. No view may expose hidden-role cardinality, substitute “someone” where that implies a known filler, or turn the visible participant into the sole actor.
+| ID | Scenario | Expected result |
+|---|---|---|
+| `event-one-happening-many-subjects` | One utterance describes a meeting with three participants. | One Event with three role Assertions, not three per-subject copies. |
+| `event-multiple-fillers` | Two people jointly approve a request. | Two `agent` (or `approver`) role Propositions on one Event; no pair-valued edge. |
+| `event-role-fallback` | A happening has a participant whose role fits no registered role or subrole. | No role Assertion is written for that participant. The participant stays in the cited span, and any new role reaches the operator as a definition proposal. |
+| `event-subrole-parent-traversal` | A query asks for all agents of Events that have a `buyer`. | The `buyer` filler is returned through its declared parent `agent`. |
+| `event-to-event-relation` | "The outage sparked the migration." | A `sparked` Assertion between two Events; neither Event record changes. |
+| `event-remention` | "We met on Tuesday", later "that Tuesday meeting" with a matching source occurrence. | The second Occasion attests Assertions about the existing Event. Both Occasions remain. |
+| `event-weekly-meetings-not-merged` | Two weekly meetings with the same people and an overlapping coarse date. | Two Events. No hypothesis, composite, or link between them is created, because no Event merge exists at genesis. |
+| `event-partial-disclosure` | An Occasion yields public time and place, an attributed participant, and a confidential participant for one Event, and the type declares time and place independently meaningful. | A public read returns time and place with an incompleteness marker. A read cleared for the attributed participant adds that participant with its teller. A read cleared for both adds both. No read reveals the hidden-role count. |
+| `event-meaning-changing-omission` | A transfer whose only `seller` is confidential is read by an audience that can see the `buyer`. | If the transfer type registers a licensed shell, the read returns only that shell with its incompleteness marker. Otherwise the Event is absent from the result. The buyer is never returned as the sole party. |

@@ -2,24 +2,26 @@
 
 zuihitsu is a neurosymbolic personal-agent harness. Its append-only event log is the source of truth. Deterministic replay materialises projections. Language models operate through recorded Activities when their output affects durable state. One instance is one agent and one log.
 
-The architecture in this tree is a proposed successor. It does not describe the current implementation. Current behaviour is documented in [`../docs/`](../docs/).
+The architecture in this tree is a proposed successor. It does not describe the current implementation. Current behaviour is documented in [`../docs/`](../docs/). The deployment it serves has one operator, one agent, a handful of participants reached through connectors, and a server that is not publicly exposed.
 
-## Permanent object boundaries
+## Object boundaries
 
-The successor records external input as an [Occasion](statements.md#occasion-and-activity) and agent, operator, tool, or model work as an Activity. An Occasion owns one ordered interleaved sequence of text and [ArtefactReference](artefacts-and-perceptions.md) content parts; either kind may be absent. An Activity can produce an Assertion, Perception, or Derivation without inventing an utterance. Agent action intent and firing are separate minted Task and Trigger records.
+The successor records each inbound message and each outbound agent utterance as an [Occasion](statements.md#occasion), and agent, operator, tool, or model work as an [Activity](statements.md#activity). An Occasion owns one ordered, interleaved sequence of text and [ArtefactReference](statements.md#artefact-and-artefactreference) content parts; either kind may be absent. Every model-call Activity records a [context manifest](statements.md#context-manifest) of the objects rendered into its context. Influence, taint, restriction, and access accounting are projections over those manifests, not fields stored on objects. Every Occasion carries a restriction: its availability audience at receipt, or its delivered audience ([privacy and provenance](privacy-and-provenance.md#occasion-restriction)).
 
-Semantic memory has three assertion layers. A Proposition contains canonical content. An Assertion situates that content in validity and immutable asserted/quoted mode, with a separate folded lifecycle. An Attestation records one teller's support on one Occasion. Event roles and attributes are Assertions. Media observations are Perceptions rather than participant testimony. Generated narrative remains a separate non-evidentiary trace.
+People, organisations, places, and topics are [Entities](statements.md#entity): minted ULIDs with a fixed registered kind. A handle such as `person/rowan` is a mutable label over the ULID, and Proposition keys never hold handles. A connector stub is a person Entity with connector scope, and it joins an agent-minted person Entity only through a reversible `same_as` hypothesis.
+
+Semantic memory has three assertion layers. A Proposition is a canonical key over content. An Assertion situates that content in validity and an immutable asserted or quoted mode, and its validity and lifecycle fold per audience. Reported speech is always quoted. An Attestation records one source's support: testimony, a direct observation, or a derivation. Testimony must be grounded in the teller's own span, and its principle is never wider than its Occasion's restriction without a teller grant. Event roles and attributes are Assertions. Media observations are Perceptions rather than participant testimony. Generated narrative remains a separate non-evidentiary trace. An agent's action intent is a Task whose trigger conditions fire only while it is active.
 
 | Concern | Normative owner |
 |---|---|
-| Object identities, assertion lifecycle, contradiction, derivation | [Assertions](statements.md) |
-| Artefacts, typed content parts, Perceptions, reinspection | [Artefacts and perceptions](artefacts-and-perceptions.md) |
-| Event identity, roles, and reversible co-reference | [Events and roles](events-and-roles.md) |
+| Object identities, Entities and handles, lifecycle mechanics, context manifests, contradiction | [Object model](statements.md) |
+| Artefacts, selectors, Perceptions, reinspection | [Artefacts and perceptions](artefacts-and-perceptions.md) |
+| Event identity, roles, and disclosure-safe projection | [Events and roles](events-and-roles.md) |
 | Registered definitions and schema evolution | [Relations](relations.md) |
-| Identity hypotheses and resolution environments | [Identity](identity.md) |
-| Support and dependence | [Belief](belief.md) |
-| Validity, occurrence, tasks, and triggers | [Time](time.md) |
-| Witness evidence, transmission, influence, and erasure | [Privacy and provenance](privacy-and-provenance.md) |
+| Identity hypotheses, clearance, and resolution environments | [Identity](identity.md) |
+| Support, settlement, dependence, and contest | [Belief](belief.md) |
+| Validity, occurrence, Tasks, and trigger conditions | [Time](time.md) |
+| Occasion restriction, witness evidence, transmission, the subject guard, influence, and erasure | [Privacy and provenance](privacy-and-provenance.md) |
 | Proposal transaction and critics | [Verified write](verified-write.md) |
 | Agent-facing reads and writes | [Query surface](query-surface.md) and [write surface](write-surface.md) |
 | Memory lifecycles and generated episodes | [Memory typology](memory-typology.md) and [two traces](two-traces.md) |
@@ -27,44 +29,54 @@ Semantic memory has three assertion layers. A Proposition contains canonical con
 
 ## Permanence contract
 
-The current instance is outside the successor boundary. It is neither migrated nor dual-read, and it is not a compatibility target. A successor instance starts at its first real genesis.
+The current instance is outside the successor boundary. Its agents are frozen until the successor comes online. They are never migrated or dual-read, and they are not a compatibility target. A successor instance starts at its first real genesis.
 
-Before the genesis freeze, successor state is experimental and disposable. The implementation may replace canonical encodings, event variants, stable-ID schemes, folds, projections, snapshots, and module boundaries when evidence falsifies the current design. Experimental logs and fixtures may be regenerated. Measurements, fixture inputs, expected results, failures, and decision rationales remain evidence, but their wire formats have no compatibility guarantee. Each increment must leave the repository buildable and its relevant automated tests passing, but it need not leave a usable agent.
+Before genesis, every successor log, encoding, event variant, fold, projection, and test fixture is disposable. Evidence that falsifies the design can replace any of them. Measurements, failures, and decision rationales remain evidence, but their formats carry no compatibility guarantee. Each increment leaves the repository buildable and its relevant tests passing; it need not leave a usable agent.
 
-The genesis freeze is the compatibility boundary. After the first real successor genesis, persisted meaning and stable identity cannot change incompatibly:
+After the first real genesis, persisted meaning and stable identity never change incompatibly:
 
-- an event payload version retains its original meaning;
+- an event payload version keeps its original meaning;
 - a stable object or definition ID is never repurposed;
-- new capability uses additive event variants, registered definition versions, new projections, or explicit superseding records;
-- replay never invents a value absent from historical input;
-- policy changes create versioned projections or Derivations rather than changing old conclusions silently;
-- no numbered stage or activation gate requires resetting an agent born on the successor substrate.
+- new capability is additive: new event variants, registered definition versions, and new projections;
+- a structural change that is not additive arrives through a recorded upcast;
+- a policy change produces a versioned projection rather than silently changing an old conclusion;
+- no change may require resetting an agent born on the successor.
 
-The design records broad immutable source data and applies narrow versioned interpretation. Existing event-sourcing and durable-activity behaviour supports append-only replay. The exact no-incompatible-change contract is an operator constraint and design decision ([current storage contract](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [migration cost](research/2026-07-24/lanes/survey-giants.md)).
+The operator accepts additive changes and small recorded upcasts after genesis. An ontology-wide migration or an agent reset is not acceptable.
 
-## Capability statuses
+### The upcast rule
 
-Every capability uses one of four statuses:
+An upcast may restructure data. It never supplies a value that was absent from its input. A value the input did not carry becomes an explicit `unknown`. Replay therefore never invents historical content, and a reader can always tell a recorded value from a missing one.
 
-- `required_substrate`: permanent identity or raw data that must exist before the first real successor genesis;
-- `initial_policy`: behaviour enabled at the first real successor genesis;
-- `activation_gate`: capability added later through its named gate because genesis records its required inputs and additive seam;
-- `declined`: capability deliberately excluded from the current selection, with any reopening condition recorded in the selection record.
+### The keep-at-genesis test
 
-[Evolution](evolution.md) defines the numbered stages and the capability and activation-gate registers. A capability with status `activation_gate` or `declined` cannot require retrospective invention. The current instance remains outside this boundary.
+A field or record kind is required at genesis only if it is part of an identity key, or if its value cannot be recovered later from the retained raw input. Everything else can be added later additively or by a recorded upcast, and the chapters list it as deferred instead of reserving it.
+
+Frame, polarity, and modality pass the test because they are Proposition identity coordinates, and old structure cannot reconstruct them. Page and text-span selectors pass because grounding a read book at page level cannot be recovered without re-reading it. A capability is either in the genesis design or deferred. [Evolution](evolution.md) lists the deferred capabilities and the condition that reopens each.
+
+The design records broad immutable source data and applies narrow versioned interpretation. Existing event-sourcing and durable-activity practice supports append-only replay. The exact no-incompatible-change contract is an operator constraint and a design decision ([current storage contract](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [migration cost](research/2026-07-24/lanes/survey-giants.md)).
+
+## Distributed operation
+
+Distributed operation is a non-goal that the design must not preclude. The successor runs as one writer, and it does not design a sync layer. Four choices keep the option open:
+
+- every stable identity is a ULID, so two writers never mint the same ID;
+- every lifecycle transition names its predecessor, so concurrent writes surface as a fork rather than a silent overwrite ([lifecycle mechanics](statements.md#lifecycle-mechanics));
+- domain semantics never depend on the local log sequence number;
+- a read or write records the log position it observed as an opaque frontier, which is a local sequence today and could be a vector clock later.
+
+Occasions, Assertions, and Attestations are append-only sets, and two copies of them merge by union. Lifecycle transitions, handle assignment, Task trigger firing, identity acceptance, and erasure are the parts that would need coordination between writers.
 
 ## System commitments
 
-The event log remains the source of truth. Every nondeterministic call that affects durable state is recorded. Replay performs no model, embedder, or tool calls. A live read can compute transient ranking, but durable access accounting records content rendered into model context rather than hidden candidates.
+The event log remains the source of truth. Every nondeterministic call that affects durable state is recorded. Replay performs no model, embedder, or tool calls. A live read can compute transient ranking, but access accounting covers only content rendered into a model context, as the context manifest records it, never hidden candidates.
 
-Audience resolution occurs before evidence affects a conversational read, ranking, decision, Derivation, or initiated action. Hidden evidence cannot alter an audience-visible result unless the result inherits the evidence restriction. Influence tracking covers accepted, rejected, and transient computation.
+Audience resolution occurs before evidence affects a conversational read, ranking, decision, derivation, or initiated action. Hidden evidence cannot alter an audience-visible result unless the result inherits the evidence restriction. Influence covers accepted, rejected, and transient computation, because every rendered context passes through the manifest.
 
-The agent-facing surface remains small. The agent addresses stable handles and uses typed query and write verbs. Governed schema activation, identity resolution, and policy machinery remain outside conversational ontology syntax.
+The agent-facing surface remains small. The agent addresses Entities through handles, which are mutable labels over stable ULIDs, and uses typed query and write verbs. Identity resolution and policy machinery stay outside conversational ontology syntax. The agent coins relations under critics; entity kinds, roles, Event types, frames, modalities, and transmission principles stay operator-governed ([relations](relations.md)).
 
-Scale-sensitive work is bounded and incremental. Long-document and media ingestion are jobs over Artefacts and Activities. `capability:exploration` is an `activation_gate`; it remains disabled by default, requires `stage:8` operational substrate, and activates only after its independent privacy and yield gate passes.
+Scale-sensitive work is bounded and incremental. Long-document and media ingestion are jobs over Artefacts and Activities. Exploration is deferred and disabled until its own privacy and yield evidence exists ([off-turn work](off-turn.md#deferred-exploration)).
 
 ## Representational scope
 
-Structured Assertions do not contain all retained content. Figurative or formal material can remain in an utterance or Artefact. An artefact-only Occasion is complete input. Generated Perceptions, OCR, captions, and episodes remain distinguishable from source material. Initial inference can treat non-actual modalities opaquely while retaining their permanent identity coordinate.
-
-The design therefore does not depend on extracting a Proposition from every input. Source-only fallback is a valid terminal state of the write transaction.
+Structured Assertions do not contain all retained content, and the design does not depend on extracting a Proposition from every input. Perceptions, OCR, captions, and generated episodes remain distinguishable from source material. [The object model](statements.md#representational-limits) states the limits.
