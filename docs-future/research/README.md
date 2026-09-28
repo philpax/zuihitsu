@@ -55,6 +55,16 @@ The counts drift as the instance runs. Nothing in the design should depend on th
 
 Status of the current-system fixes: primary evidence of a different kind. Its figures come from the eval harness rather than from the live log, so they describe scenario runs. It is the one snapshot here recording what the current system did rather than what a literature or a corpus says, and it is included because a fix shipped against the old model is a measurement of the problem the new model claims to remove.
 
+### [2026-09-27](2026-09-27/): the simplification briefs
+
+The three briefs under which the design tree was rewritten from about 699KB to about 337KB. Each records decisions the operator approved, and the reasons for them, before agents applied them to the chapters.
+
+- [`01-simplification-brief.md`](2026-09-27/01-simplification-brief.md) sets the keep-at-genesis test and the upcast rule. It replaces stored influence envelopes with context manifests, merges Attestation, SourceAuthority, and assertion-producing Derivation into one record with a typed source, and replaces the numbered stages and registers with four milestones and a deferred-capability list.
+- [`02-revision-2-addendum.md`](2026-09-27/02-revision-2-addendum.md) answers an independent review of the first rewrite. It adds delivered-audience restriction and the testimony-grounding critic, the subject-guard candidates, settlement at publication, Entities and outbound Occasions, and the first Milestone 1 restructure.
+- [`03-revision-3-addendum.md`](2026-09-27/03-revision-3-addendum.md) answers a second independent review. It adds inbound Occasion restriction and the pre-delivery check, the testimony principle floor, the per-audience fold of Assertion state, and three simplifications: settlement as a read-time projection, deferred Event co-reference, and a recorded frontier in place of a stamped ResolutionEnvironment. It also ends prose review in favour of an executable reference model.
+
+Status: decision records, not evidence about the world. They show why the chapters say what they say. Where a brief and a chapter disagree, the chapter is normative, and later edits to the chapters are not reflected here. The two independent reviews the addenda answer are summarised in the addenda themselves rather than preserved in full.
+
 ## The failure survey
 
 Both snapshots are grounded in [`../../docs/ontology-failures/2026-07-23.md`](../../docs/ontology-failures/2026-07-23.md), which stays in `docs/` because it records observed failures of the system that actually runs. It is the adjustment input for the whole exercise, and [`../coverage.md`](../coverage.md) grades the design against it class by class.
