@@ -2,7 +2,7 @@
 
 The evidence the design in [`../`](../) is built on, preserved at the dates it was gathered rather than rewritten to match the design it produced. Later evidence arrives as a new dated snapshot beside the existing ones; nothing here is edited in place once its verification pass has run.
 
-Two rules govern this tree. Evidence is not rewritten for readability, because an audit trail edited to read well is an audit trail laundered; formatting and outright errors are fixed, arguments are not. Every claim keeps the confidence its lane gave it, including the ones its lane flagged as uncertain, so that [`../confidence.md`](../confidence.md) can register them honestly rather than inheriting a false uniformity.
+Two rules govern this tree. Evidence is not rewritten for readability, because an audit trail edited to read well is an audit trail laundered; formatting and outright errors are fixed, arguments are not. Every claim keeps the confidence its lane gave it, including the ones its lane flagged as uncertain, so that [`../confidence.md`](../program/confidence.md) can register them honestly rather than inheriting a false uniformity.
 
 ## Snapshots
 
@@ -28,7 +28,7 @@ The seven lanes:
 | [`survey-giants`](2026-07-24/lanes/survey-giants.md) | Convergent evolution across seven historical and production knowledge systems, including the graveyard lessons |
 | [`survey-issue7`](2026-07-24/lanes/survey-issue7.md) | Ten current-generation persistent-memory agent projects, surveyed from source on 2026-07-23 |
 
-Verification status: both passes have run. Of the report's load-bearing claims, 29 were confirmed against fetched primary sources, 5 were corrected, 0 were unsupported, and 1 remained unreachable. Every future-dated arXiv identifier was fetched directly rather than judged from memory, and all resolved to real papers supporting the claims as reported. The corrections are folded into the report body; what stayed flagged is carried into [`../confidence.md`](../confidence.md).
+Verification status: both passes have run. Of the report's load-bearing claims, 29 were confirmed against fetched primary sources, 5 were corrected, 0 were unsupported, and 1 remained unreachable. Every future-dated arXiv identifier was fetched directly rather than judged from memory, and all resolved to real papers supporting the claims as reported. The corrections are folded into the report body; what stayed flagged is carried into [`../confidence.md`](../program/confidence.md).
 
 One caveat applies to its descriptions of the current system. The snapshot's own README records that the codebase moved after the lanes were written, so its descriptions of the "current system" are stale in places. The canonical-identity work in particular shipped a mechanical layer the report presents as unbuilt. The structural proposal is unaffected, but hold the report's present-tense descriptions of today's behaviour against [`../../docs/`](../../docs/) rather than trusting them.
 
@@ -40,7 +40,7 @@ Added after the design was taken up: one lane on one paper, and one falsificatio
 - [`modelling-study.md`](2026-08-03/modelling-study.md) tests the Statement model against the running instance's 198 content entries, asking whether it can express what the system actually recorded.
 - [`counting-and-quantity.md`](2026-08-03/counting-and-quantity.md) surveys how other knowledge-representation families express counts and measures, and how they handle the referential layering the frame addresses. Written after the design chapters, in response to a gap none of the seven lanes had covered.
 
-Verification status of the dual-trace lane: none. It postdates the adversarial passes and is not covered by them. It rests on one primary source with no corroborating study, a single benchmark, an LLM judge, twenty questions per category, and a missing ablation that is the one deciding the cost for this design. It is strong enough to change the design's shape and nowhere near strong enough to settle it, which is why the amendments it drives are paired with an experiment in [`../evolution.md`](../evolution.md) rather than adopted outright.
+Verification status of the dual-trace lane: none. It postdates the adversarial passes and is not covered by them. It rests on one primary source with no corroborating study, a single benchmark, an LLM judge, twenty questions per category, and a missing ablation that is the one deciding the cost for this design. It is strong enough to change the design's shape and nowhere near strong enough to settle it, which is why the amendments it drives are paired with an experiment in [`../evolution.md`](../program/evolution.md) rather than adopted outright.
 
 Status of the modelling study: primary evidence. Unlike every other lane, it rests on direct observation of this system's own data rather than on literature, so it needs no external corroboration. It was deliberately run before the design chapters were written, and it changed them: it found that the two hypotheses the design most feared were both unfounded, and that two genuine expressiveness gaps none of the seven lanes anticipated were real. Its verdict is that the model is sufficient to proceed with two additions and one correction. The correction, that a gloss belongs to an utterance rather than to a Statement, contradicted a design assumption and is the clearest case in the tree of evidence arriving before commitment rather than after.
 
@@ -67,4 +67,4 @@ Status: decision records, not evidence about the world. They show why the chapte
 
 ## The failure survey
 
-Both snapshots are grounded in [`../../docs/ontology-failures/2026-07-23.md`](../../docs/ontology-failures/2026-07-23.md), which stays in `docs/` because it records observed failures of the system that actually runs. It is the adjustment input for the whole exercise, and [`../coverage.md`](../coverage.md) grades the design against it class by class.
+Both snapshots are grounded in [`../../docs/ontology-failures/2026-07-23.md`](../../docs/ontology-failures/2026-07-23.md), which stays in `docs/` because it records observed failures of the system that actually runs. It is the adjustment input for the whole exercise, and [`../coverage.md`](../program/coverage.md) grades the design against it class by class.

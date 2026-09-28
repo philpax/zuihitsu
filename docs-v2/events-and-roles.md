@@ -42,7 +42,7 @@ The modelling study found causation between happenings that roles alone could no
 
 A new description never resolves to an existing Event by structural equality. Repeated meetings can share a type, participants, place, and an overlapping approximate time. When the writer recognises an explicit re-mention of a known Event, such as "that Tuesday meeting", the new Occasion attests Assertions about the existing Event directly. When the arrival is ambiguous, the writer mints a separate Event.
 
-No Event merge exists at genesis. Two Events that denote one happening stay two Events, and duplicates are acceptable at this scale. Resolution hypotheses are identity-only ([identity](identity.md#resolution-hypotheses)). Event co-reference is deferred as `event-coreference` in [evolution](evolution.md#deferred-capabilities), and it reopens when measured duplicate-Event cost justifies it. The local four-entry case shows the duplication risk but is not evidence that merging is safe ([modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)).
+No Event merge exists at genesis. Two Events that denote one happening stay two Events, and duplicates are acceptable at this scale. Resolution hypotheses are identity-only ([identity](identity.md#resolution-hypotheses)). Event co-reference is deferred as `event-coreference` in [evolution](program/evolution.md#deferred-capabilities), and it reopens when measured duplicate-Event cost justifies it. The local four-entry case shows the duplication risk but is not evidence that merging is safe ([modelling study](research/2026-08-03/modelling-study.md#the-multi-participant-event)).
 
 ## Disclosure-safe projection
 

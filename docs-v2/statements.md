@@ -2,7 +2,7 @@
 
 This chapter, the object model, defines every identity-bearing object in the successor, its legal transitions, and the lifecycle mechanics the objects share. Where another chapter owns an object's rules, this chapter states the object's identity, fields, and lifecycle, and links to the owner.
 
-The assertion layer separates semantic content, situated claims, and support into Proposition, Assertion, and Attestation. The dated snapshots under [`research/`](research/) use `Statement` for combinations of these objects. The exact split is a permanence-driven design decision. Research supports addressable contextual assertions and recorded lineage, but it does not establish this exact object model ([report](research/2026-07-24/report.md), [fact-shape lane](research/2026-07-24/lanes/fact-shape.md), [confidence register](confidence.md#evidence-map)).
+The assertion layer separates semantic content, situated claims, and support into Proposition, Assertion, and Attestation. The dated snapshots under [`research/`](research/) use `Statement` for combinations of these objects. The exact split is a permanence-driven design decision. Research supports addressable contextual assertions and recorded lineage, but it does not establish this exact object model ([report](research/2026-07-24/report.md), [fact-shape lane](research/2026-07-24/lanes/fact-shape.md), [confidence register](program/confidence.md#evidence-map)).
 
 Every minted identity is a ULID. No stable identity is a content hash, a human-readable handle, or a local log sequence number. The log position a read or write observed is recorded as an opaque frontier ([overview](overview.md#distributed-operation)).
 
@@ -153,7 +153,7 @@ A selector addresses all or part of one Artefact. It is a content-keyed value wi
 
 An Event is a minted identity for a happening. Its type, participants, occurrence, and other properties are role and attribute Assertions about it, each with its own validity, Attestations, and lifecycle. Event identity does not depend on type, participants, occurrence, or the Occasion that first described it. The lifecycle is `live`, `invalidated` for an unsupported identity, and `erased`.
 
-Events have stable identity and no co-reference mechanism: two Events that describe one happening stay two, which is acceptable at this scale. Event co-reference is deferred ([evolution](evolution.md#deferred-capabilities)). [Events and roles](events-and-roles.md) owns the universal parent roles with typed subroles, Event-to-Event relations, and the disclosure-safe projection rules (omissible role, incomplete shell, and suppression).
+Events have stable identity and no co-reference mechanism: two Events that describe one happening stay two, which is acceptable at this scale. Event co-reference is deferred ([evolution](program/evolution.md#deferred-capabilities)). [Events and roles](events-and-roles.md) owns the universal parent roles with typed subroles, Event-to-Event relations, and the disclosure-safe projection rules (omissible role, incomplete shell, and suppression).
 
 ## Resolution hypothesis
 

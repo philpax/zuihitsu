@@ -52,7 +52,7 @@ An upcast may restructure data. It never supplies a value that was absent from i
 
 A field or record kind is required at genesis only if it is part of an identity key, or if its value cannot be recovered later from the retained raw input. Everything else can be added later additively or by a recorded upcast, and the chapters list it as deferred instead of reserving it.
 
-Frame, polarity, and modality pass the test because they are Proposition identity coordinates, and old structure cannot reconstruct them. Page and text-span selectors pass because grounding a read book at page level cannot be recovered without re-reading it. A capability is either in the genesis design or deferred. [Evolution](evolution.md) lists the deferred capabilities and the condition that reopens each.
+Frame, polarity, and modality pass the test because they are Proposition identity coordinates, and old structure cannot reconstruct them. Page and text-span selectors pass because grounding a read book at page level cannot be recovered without re-reading it. A capability is either in the genesis design or deferred. [Evolution](program/evolution.md) lists the deferred capabilities and the condition that reopens each.
 
 The design records broad immutable source data and applies narrow versioned interpretation. Existing event-sourcing and durable-activity practice supports append-only replay. The exact no-incompatible-change contract is an operator constraint and a design decision ([current storage contract](../docs/events-and-storage.md), [verification](research/2026-07-24/verification/part-b.md), [migration cost](research/2026-07-24/lanes/survey-giants.md)).
 

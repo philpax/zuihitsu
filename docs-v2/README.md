@@ -1,8 +1,8 @@
-# docs-future
+# docs-v2
 
 This tree specifies a proposed successor architecture. It does not describe zuihitsu as currently built. Current behaviour is documented in [`../docs/`](../docs/).
 
-The chapters use present tense as normative design language. Each rule is stated once, in the chapter that owns it, and other chapters link to it. Evidence grades and open questions live in [`confidence.md`](confidence.md), the mapping from observed failures to mechanisms lives in [`coverage.md`](coverage.md), and the milestones towards genesis live in [`evolution.md`](evolution.md).
+The chapters use present tense as normative design language. Each rule is stated once, in the chapter that owns it, and other chapters link to it. Evidence grades and open questions live in [`confidence.md`](program/confidence.md), the mapping from observed failures to mechanisms lives in [`coverage.md`](program/coverage.md), and the milestones towards genesis live in [`evolution.md`](program/evolution.md).
 
 ## Scope and permanence
 
@@ -39,7 +39,7 @@ The dated snapshots under [`research/`](research/) use `Statement` for combinati
 2. [`statements.md`](statements.md), the object model, defines every object, its legal transitions, context manifests, the contradiction subset, and source locators.
 3. [`artefacts-and-perceptions.md`](artefacts-and-perceptions.md) defines Artefacts, references, selectors, and Perceptions.
 4. [`privacy-and-provenance.md`](privacy-and-provenance.md) defines audience resolution, influence, and erasure.
-5. [`evolution.md`](evolution.md) defines the milestones to the first real genesis and the deferred capabilities.
+5. [`evolution.md`](program/evolution.md) defines the milestones to the first real genesis and the deferred capabilities.
 
 The remaining normative chapters apply those definitions:
 
@@ -59,9 +59,9 @@ The remaining normative chapters apply those definitions:
 
 Supporting registers:
 
-- [`coverage.md`](coverage.md) maps current failures and issues to mechanisms, evidence, and residual risk.
-- [`confidence.md`](confidence.md) holds the evidence map, open questions, and claims deliberately not made.
-- [`lineage.md`](lineage.md) is an ancestry index into the evidence map.
+- [`coverage.md`](program/coverage.md) maps current failures and issues to mechanisms, evidence, and residual risk.
+- [`confidence.md`](program/confidence.md) holds the evidence map, open questions, and claims deliberately not made.
+- [`lineage.md`](program/lineage.md) is an ancestry index into the evidence map.
 - [`research/`](research/) contains dated evidence snapshots. The [corpus modelling study](research/2026-08-03/modelling-study.md) tests the earlier model against recorded data.
 
 The failure survey remains in current-system documentation because it records observed failures: [`../docs/ontology-failures/2026-07-23.md`](../docs/ontology-failures/2026-07-23.md).

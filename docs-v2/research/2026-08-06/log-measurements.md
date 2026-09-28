@@ -32,7 +32,7 @@ Independently corroborated: the on-disk `events.sqlite` is 33.8 MB, consistent w
 
 Over the same 417 calls: **p50 6.8 s, p90 30.8 s, p99 73.7 s, max 94.9 s.**
 
-Cited by [`../../evolution.md`](../../evolution.md) stage 0c as the baseline any extraction latency is judged against, and by [`../../memory-typology.md`](../../memory-typology.md) in the arithmetic showing a long document cannot be ingested one span per call.
+Cited by [`../../evolution.md`](../../program/evolution.md) stage 0c as the baseline any extraction latency is judged against, and by [`../../memory-typology.md`](../../memory-typology.md) in the arithmetic showing a long document cannot be ingested one span per call.
 
 ## Visibility and telling
 

@@ -30,7 +30,7 @@ The supporting study reported gains of 40 points on temporal reasoning, 30 on mu
 
 Generation also instructs a model to invent concrete detail. The study's only guard against confusion is a prompt-borne disclaimer, and its own pilot found the protocol prompt-sensitive. Long narrative also sits in the embedding regime where the failure survey measured the widest geometry variance.
 
-Generated episodes are therefore deferred. The capability reopens when an evaluation shows encoding-side value over source-window retrieval at matched source coverage, and measures temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. The evaluation also measures how many semantic writes the strict ancestry rule blocks through delivered replies, as the [episodic wall](#the-episodic-wall) describes. A passing aggregate score is not sufficient: the four wall scenarios below must pass, and no generated detail may become an Assertion, an Attestation, or a hidden-content signal ([evolution](evolution.md#deferred-capabilities)).
+Generated episodes are therefore deferred. The capability reopens when an evaluation shows encoding-side value over source-window retrieval at matched source coverage, and measures temporal, aggregation, update, privacy, invention, cost, log volume, and audience non-interference. The evaluation also measures how many semantic writes the strict ancestry rule blocks through delivered replies, as the [episodic wall](#the-episodic-wall) describes. A passing aggregate score is not sufficient: the four wall scenarios below must pass, and no generated detail may become an Assertion, an Attestation, or a hidden-content signal ([evolution](program/evolution.md#deferred-capabilities)).
 
 ## The episodic wall
 

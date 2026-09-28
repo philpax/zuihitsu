@@ -69,7 +69,7 @@ A query can return a prior Perception and its source reference without loading t
 
 ## Deferred capabilities
 
-Each item is additive. None requires rewriting existing records. [Evolution](evolution.md#deferred-capabilities) holds the reopen conditions.
+Each item is additive. None requires rewriting existing records. [Evolution](program/evolution.md#deferred-capabilities) holds the reopen conditions.
 
 - The `spatial_region`, `frame_range`, `time_range`, and `byte_range` selector variants, for region, video-frame, media-time, and raw-byte grounding. Each needs its own decoder basis: raster orientation and dimensions, frame decoder, or integer timescale.
 - OCR, including extraction from scanned documents.
@@ -82,7 +82,7 @@ Enabling one deferred capability never enables another.
 
 ## Evidence
 
-Research supports content-addressed provenance and durable records of nondeterministic Activities ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md)). The Artefact, Reference, and Perception boundary, the page map, and the selector set are design synthesis ([confidence evidence map](confidence.md#evidence-map)).
+Research supports content-addressed provenance and durable records of nondeterministic Activities ([provenance research](research/2026-07-24/lanes/provenance-privacy.md), [welding research](research/2026-07-24/lanes/welding.md)). The Artefact, Reference, and Perception boundary, the page map, and the selector set are design synthesis ([confidence evidence map](program/confidence.md#evidence-map)).
 
 ## Scenarios
 

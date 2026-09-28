@@ -25,7 +25,7 @@ Each record kind gets its restriction from one rule. An Occasion's is defined un
 
 ## Witness evidence
 
-An Occasion records witness evidence rather than an unqualified participant set. This fixes #123, where the present set conflates channel audience with participation ([coverage](coverage.md#issues)). The connector distinguishes availability from witnessed presence and preserves `availability ⊇ presence`.
+An Occasion records witness evidence rather than an unqualified participant set. This fixes #123, where the present set conflates channel audience with participation ([coverage](program/coverage.md#issues)). The connector distinguishes availability from witnessed presence and preserves `availability ⊇ presence`.
 
 Each witness item names a person or platform stub, an assurance kind, its source, recorded time, and a mandatory scope: an utterance span, a content-part range, an ArtefactReference, a delivery or acknowledgement target, or a whole Occasion. Whole-Occasion scope needs an assurance kind registered for it and is never inferred from participation.
 
@@ -40,7 +40,7 @@ Each witness item names a person or platform stub, an assurance kind, its source
 
 A versioned disclosure policy starts with the teller and widens only for `active_participant` or `explicit_acknowledgement`. Widening is scoped: it applies only when the witness scope covers every source locator supporting the Attestation. Evidence for one part of a compound Occasion does not license another, and partial coverage falls back to teller-only. A connector-specific policy may admit another assurance kind only after its semantics are demonstrated.
 
-A versioned exposure policy derives a conservative upper bound from all five positive kinds. Only [dependence analysis](belief.md#dependence) reads exposure, and it can only suppress apparent independence. Channel membership never licenses disclosure of an `in_confidence` Attestation. Evidence that only suppresses may be conservative, while evidence that licenses a flow must be demonstrated. Dynamic presence remains an admitted evidence gap, so teller-only is the fallback ([research lane](research/2026-07-24/lanes/provenance-privacy.md#implications-for-zuihitsu)). Milestone 1's `witness-assurance-audit` covers every current consumer of the present set ([evolution](evolution.md#experiments)).
+A versioned exposure policy derives a conservative upper bound from all five positive kinds. Only [dependence analysis](belief.md#dependence) reads exposure, and it can only suppress apparent independence. Channel membership never licenses disclosure of an `in_confidence` Attestation. Evidence that only suppresses may be conservative, while evidence that licenses a flow must be demonstrated. Dynamic presence remains an admitted evidence gap, so teller-only is the fallback ([research lane](research/2026-07-24/lanes/provenance-privacy.md#implications-for-zuihitsu)). Milestone 1's `witness-assurance-audit` covers every current consumer of the present set ([evolution](program/evolution.md#experiments)).
 
 ## Occasion restriction
 
@@ -50,7 +50,7 @@ Every Occasion has a restriction: the audience that could see it.
 - An inbound channel message's restriction is `channel(C)`. The connector declares whether the platform shows history to members who join later. If it does, membership is evaluated at read time. If it does not, the roster at receipt applies.
 - An outbound Occasion's restriction is the audience it was delivered to, which passed the [pre-delivery check](#pre-delivery-check).
 
-An Occasion rendered into a context contributes its restriction. A delivered outbound Occasion rendered as conversation history contributes only its delivered-audience restriction, and the restriction projection stops there without following its ancestry. Without this stop, one confidence read early in a conversation would restrict every later write there and the store would drift towards teller-only. Milestone 1's `taint-breadth` experiment measures whether the stop suffices ([evolution](evolution.md#experiments)).
+An Occasion rendered into a context contributes its restriction. A delivered outbound Occasion rendered as conversation history contributes only its delivered-audience restriction, and the restriction projection stops there without following its ancestry. Without this stop, one confidence read early in a conversation would restrict every later write there and the store would drift towards teller-only. Milestone 1's `taint-breadth` experiment measures whether the stop suffices ([evolution](program/evolution.md#experiments)).
 
 Source-lane search results are Occasion text parts and render under their Occasion's restriction ([query surface](query-surface.md#search-lanes)).
 
@@ -80,7 +80,7 @@ A [`wake_turn` Task](time.md#occurrence-and-task) is checked twice. Its note and
 
 The subject guard is an additional negative recipient predicate evaluated per Attestation. It never widens an audience. Under every candidate policy, a person is not shown what others told the agent about them unless scoped witness evidence shows that the person took part in or acknowledged the telling. A group audience that contains the person loses those facts too, because evaluation is universally quantified over the audience.
 
-Three candidate policies share the algorithm below. Milestone 1's `guard-denial-rate` experiment decides between them ([evolution](evolution.md#experiments)).
+Three candidate policies share the algorithm below. Milestone 1's `guard-denial-rate` experiment decides between them ([evolution](program/evolution.md#experiments)).
 
 | Policy | Difference from the algorithm |
 |---|---|
@@ -157,7 +157,7 @@ Artefact bytes are stored once per Artefact and retained while any reference is 
 
 ### Dependant closure
 
-Closure starts from the scoped records and invalidates dependants reached through typed dependencies: Attestation sources, derivation inputs, cited locators, Perception inputs, Task sources, and grounding resolution inputs. Milestone 1 measures closure size ([evolution](evolution.md#experiments)).
+Closure starts from the scoped records and invalidates dependants reached through typed dependencies: Attestation sources, derivation inputs, cited locators, Perception inputs, Task sources, and grounding resolution inputs. Milestone 1 measures closure size ([evolution](program/evolution.md#experiments)).
 
 A dependant linked to an erased record only by being rendered in the same model call goes to operator review and is not invalidated. A delivered reply whose context rendered an erased record is one, since it may not contain the content. Closure does not recurse through later renders of that reply unless the operator erases it, which starts its own closure.
 
@@ -203,7 +203,7 @@ Eval packages, exports, console downloads, and debug captures built from a real 
 - Consent, purpose-limitation, and reciprocity principles, as additive definitions. Consent needs a scoped, expiring, and revocable consent record. Purpose limitation needs an execution-purpose model, not a caller-supplied string. Reciprocity needs a stable definition of comparable disclosure.
 - Option b widening defaults, per person or per conversation. Reopens when `principle-assignment` measures the option-a recall cost as too high.
 - Connector-specific assurance kinds that widen disclosure.
-- Inter-agent exchange: quoting, provenance, and revocation of claims from another agent ([evolution](evolution.md)).
+- Inter-agent exchange: quoting, provenance, and revocation of claims from another agent ([evolution](program/evolution.md)).
 - Per-payload keys, proof of destruction, and multi-party erasure authorisation.
 
 ## Scenarios

@@ -107,7 +107,7 @@ Required at genesis: typed values with precision, uncertainty, and timezone owne
 
 Initial policy: conservative rendering of actual, planned, and cancelled; no firing from descriptive occurrence; explicit safe recurrence constructors; and source-preserving correction.
 
-Deferred ([evolution](evolution.md#deferred-capabilities)): richer qualitative temporal inference, business-calendar adjustment, volatility automation, habitual and deontic inference, and autonomous recurrence interpretation. Their raw inputs exist from genesis, so enabling one changes projections and automation, not persisted meaning.
+Deferred ([evolution](program/evolution.md#deferred-capabilities)): richer qualitative temporal inference, business-calendar adjustment, volatility automation, habitual and deontic inference, and autonomous recurrence interpretation. Their raw inputs exist from genesis, so enabling one changes projections and automation, not persisted meaning.
 
 ## Scenarios
 
